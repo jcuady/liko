@@ -1,0 +1,626 @@
+import 'server-only';
+
+import { assertRealDataMode, isSupabaseMode } from '@/lib/data-mode';
+import { createSupabaseServerClient } from '@/lib/supabase/server';
+import { mapSupabaseError } from './errors';
+import type {
+  AssessmentRecord,
+  AssessmentType,
+  AttendanceMark,
+  AttendanceStatus,
+  AttendanceWrite,
+  BehaviourLogRecord,
+  ClassLevel,
+  ClassRecord,
+  GradeRecord,
+  HeatCell,
+  HistoryEventType,
+  HistoryRecord,
+  LessonPlanRecord,
+  Severity,
+  Stat,
+  StudentRecord,
+} from './types';
+
+/**
+ * The single data boundary.
+ *
+ * No component and no route handler talks to Postgres directly. Every read and
+ * write crosses this module, which means the demo fixtures and the real
+ * database are interchangeable and a change of backend touches one file.
+ *
+ * Why this module was rewritten. It previously had zero importers while its own
+ * docblock claimed every read crossed it. The two screens that showed real data
+ * imported `@/lib/fixtures/workspace` directly, and the one write endpoint
+ * validated a payload and then discarded it. Both bypasses are now gone.
+ *
+ * `classId` is honoured on every method. The old signatures named it and then
+ * discarded it, so every class returned identical data.
+ *
+ * SCOPING. Every method takes the signed-in user's id and passes it to Supabase.
+ * Reads go through the cookie-backed client, so PostgREST evaluates RLS with
+ * `auth.uid()` set to that user as well. The explicit filter is belt and braces:
+ * RLS is the boundary, and a forgotten filter should not be the thing that leaks.
+ */
+
+export interface WorkspaceData {
+  // Reads
+  listClasses(userId: string): Promise<ClassRecord[]>;
+  listStudents(userId: string, classId: string): Promise<StudentRecord[]>;
+  listStats(userId: string, classId?: string): Promise<Stat[]>;
+  getHeatmap(userId: string, classId: string): Promise<HeatCell[]>;
+  getAttendance(
+    userId: string,
+    classId: string,
+    date: string,
+  ): Promise<Record<string, AttendanceStatus>>;
+  listAssessments(userId: string, classId: string): Promise<AssessmentRecord[]>;
+  listGrades(userId: string, classId: string): Promise<GradeRecord[]>;
+  listLessonPlans(userId: string, classId: string): Promise<LessonPlanRecord[]>;
+  listBehaviourLogs(userId: string, classId: string): Promise<BehaviourLogRecord[]>;
+  getStudentHistory(userId: string, studentId: string): Promise<HistoryRecord[]>;
+
+  // Writes
+  markAttendance(userId: string, write: AttendanceWrite): Promise<void>;
+  createClass(
+    userId: string,
+    input: { name: string; code: string; level: ClassLevel; meetsPerWeek: number },
+  ): Promise<ClassRecord>;
+  archiveClass(userId: string, classId: string): Promise<void>;
+  createStudent(
+    userId: string,
+    input: Omit<StudentRecord, 'id' | 'ownerId' | 'archivedAt'>,
+  ): Promise<StudentRecord>;
+  archiveStudent(userId: string, studentId: string): Promise<void>;
+  createAssessment(
+    userId: string,
+    input: Omit<AssessmentRecord, 'id' | 'ownerId' | 'archivedAt'>,
+  ): Promise<AssessmentRecord>;
+  upsertGrade(
+    userId: string,
+    input: {
+      assessmentId: string;
+      studentId: string;
+      score: number | null;
+      maxScore: number;
+      feedback?: string | null;
+    },
+  ): Promise<GradeRecord>;
+  saveLessonPlan(
+    userId: string,
+    // `id` present means update, absent means insert. Making it optional keeps
+    // the caller from having to know which one it is doing.
+    input: Omit<LessonPlanRecord, 'id' | 'ownerId'> & { id?: string },
+  ): Promise<LessonPlanRecord>;
+  addBehaviourLog(
+    userId: string,
+    input: {
+      classId: string;
+      studentId: string;
+      entry: string;
+      severity: Severity;
+    },
+  ): Promise<void>;
+  appendHistory(
+    userId: string,
+    input: {
+      studentId: string;
+      eventType: HistoryEventType;
+      payload?: Record<string, unknown>;
+    },
+  ): Promise<void>;
+}
+
+type Row = Record<string, unknown>;
+
+function iso(value: unknown): string {
+  return typeof value === 'string' ? value : new Date().toISOString();
+}
+
+function str(value: unknown, fallback = ''): string {
+  return typeof value === 'string' ? value : fallback;
+}
+
+function num(value: unknown, fallback = 0): number {
+  return typeof value === 'number' ? value : fallback;
+}
+
+function strArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string') : [];
+}
+
+// ---------------------------------------------------------------------------
+// Supabase adapter
+// ---------------------------------------------------------------------------
+
+const supabaseAdapter: WorkspaceData = {
+  async listClasses(userId) {
+    const supabase = await requireClient();
+    const { data, error } = await supabase
+      .from('classes')
+      .select('*')
+      .eq('owner_id', userId)
+      .is('archived_at', null)
+      .order('name');
+    throwIf(error);
+    return (data ?? []).map(mapClass);
+  },
+
+  async listStudents(userId, classId) {
+    const supabase = await requireClient();
+    const { data, error } = await supabase
+      .from('students')
+      .select('*')
+      .eq('owner_id', userId)
+      .eq('class_id', classId)
+      .is('archived_at', null)
+      .order('full_name');
+    throwIf(error);
+    return (data ?? []).map(mapStudent);
+  },
+
+  async listStats(userId, _classId) {
+    const supabase = await requireClient();
+    const [students, classes, grades] = await Promise.all([
+      supabase
+        .from('students')
+        .select('id', { count: 'exact', head: true })
+        .eq('owner_id', userId)
+        .is('archived_at', null),
+      supabase
+        .from('classes')
+        .select('id', { count: 'exact', head: true })
+        .eq('owner_id', userId)
+        .is('archived_at', null),
+      supabase.from('grades').select('id', { count: 'exact', head: true }).eq('owner_id', userId),
+    ]);
+
+    return [
+      { label: 'Students', value: String(students.count ?? 0), delta: 0 },
+      { label: 'Classes', value: String(classes.count ?? 0), delta: 0 },
+      { label: 'Marks entered', value: String(grades.count ?? 0), delta: 0 },
+    ];
+  },
+
+  async getHeatmap(userId, classId) {
+    const supabase = await requireClient();
+    // Derived, not stored. The threshold rule lives in one place so the heatmap
+    // and the push alert cannot disagree about who is at risk.
+    const [{ data: students }, { data: grades }] = await Promise.all([
+      supabase
+        .from('students')
+        .select('id')
+        .eq('owner_id', userId)
+        .eq('class_id', classId)
+        .is('archived_at', null),
+      supabase
+        .from('grades')
+        .select('student_id, score, max_score')
+        .eq('owner_id', userId),
+    ]);
+
+    const byStudent = new Map<string, number[]>();
+    for (const row of (grades ?? []) as Row[]) {
+      const score = row.score as number | null;
+      const max = num(row.max_score, 100);
+      if (score === null || max <= 0) continue;
+      const list = byStudent.get(str(row.student_id)) ?? [];
+      list.push((score / max) * 100);
+      byStudent.set(str(row.student_id), list);
+    }
+
+    return ((students ?? []) as Row[]).map((row) => {
+      const scores = byStudent.get(str(row.id)) ?? [];
+      const average = scores.length
+        ? scores.reduce((sum, value) => sum + value, 0) / scores.length
+        : 0;
+      const delta = scores.length >= 2 ? average - scores[0] : 0;
+      return {
+        studentId: str(row.id),
+        level: average >= 70 ? ('on-track' as const) : average >= 55 ? ('watch' as const) : ('at-risk' as const),
+        delta: Number(delta.toFixed(1)),
+      };
+    });
+  },
+
+  async getAttendance(userId, classId, date) {
+    const supabase = await requireClient();
+    const { data, error } = await supabase
+      .from('attendance')
+      .select('student_id, status')
+      .eq('owner_id', userId)
+      .eq('class_id', classId)
+      .eq('date', date);
+    throwIf(error);
+
+    const result: Record<string, AttendanceStatus> = {};
+    for (const row of (data ?? []) as Row[]) {
+      const status = row.status as AttendanceStatus | undefined;
+      if (status) result[str(row.student_id)] = status;
+    }
+    return result;
+  },
+
+  async listAssessments(userId, classId) {
+    const supabase = await requireClient();
+    const { data, error } = await supabase
+      .from('assessments')
+      .select('*')
+      .eq('owner_id', userId)
+      .eq('class_id', classId)
+      .is('archived_at', null)
+      .order('due_on', { ascending: true });
+    throwIf(error);
+    return (data ?? []).map(mapAssessment);
+  },
+
+  async listGrades(userId, classId) {
+    const supabase = await requireClient();
+    const { data, error } = await supabase
+      .from('grades')
+      .select('*, assessments!inner(class_id)')
+      .eq('owner_id', userId)
+      .eq('assessments.class_id', classId);
+    throwIf(error);
+    return (data ?? []).map(mapGrade);
+  },
+
+  async listLessonPlans(userId, classId) {
+    const supabase = await requireClient();
+    const { data, error } = await supabase
+      .from('lesson_plans')
+      .select('*')
+      .eq('owner_id', userId)
+      .eq('class_id', classId)
+      .order('week_of', { ascending: false });
+    throwIf(error);
+    return (data ?? []).map(mapPlan);
+  },
+
+  async listBehaviourLogs(userId, classId) {
+    const supabase = await requireClient();
+    const { data, error } = await supabase
+      .from('behaviour_logs')
+      .select('*')
+      .eq('owner_id', userId)
+      .eq('class_id', classId)
+      .order('created_at', { ascending: false });
+    throwIf(error);
+    return (data ?? []).map((row) => {
+      const r = row as Row;
+      return {
+        id: str(r.id),
+        classId: str(r.class_id),
+        studentId: str(r.student_id),
+        ownerId: str(r.owner_id),
+        entry: str(r.entry),
+        severity: str(r.severity, 'note') as Severity,
+        createdAt: iso(r.created_at),
+      };
+    });
+  },
+
+  async getStudentHistory(userId, studentId) {
+    const supabase = await requireClient();
+    const { data, error } = await supabase
+      .from('student_history')
+      .select('*')
+      .eq('owner_id', userId)
+      .eq('student_id', studentId)
+      .order('occurred_at', { ascending: false })
+      .limit(100);
+    throwIf(error);
+    return (data ?? []).map((row) => {
+      const r = row as Row;
+      return {
+        id: str(r.id),
+        studentId: str(r.student_id),
+        ownerId: str(r.owner_id),
+        eventType: str(r.event_type, 'note') as HistoryEventType,
+        payload: (r.payload ?? {}) as Record<string, unknown>,
+        occurredAt: iso(r.occurred_at),
+      };
+    });
+  },
+
+  async markAttendance(userId, write) {
+    const supabase = await requireClient();
+    if (write.marks.length === 0) return;
+
+    // Upsert on the unique (class_id, student_id, date). This is what makes an
+    // offline replay safe: replaying the same day twice updates the row rather
+    // than duplicating it.
+    const { error } = await supabase.from('attendance').upsert(
+      write.marks.map((mark: AttendanceMark) => ({
+        owner_id: userId,
+        class_id: write.classId,
+        student_id: mark.studentId,
+        date: write.date,
+        status: mark.status,
+      })),
+      { onConflict: 'class_id,student_id,date' },
+    );
+    throwIf(error);
+  },
+
+  async createClass(userId, input) {
+    const supabase = await requireClient();
+    const { data, error } = await supabase
+      .from('classes')
+      .insert({
+        owner_id: userId,
+        name: input.name,
+        code: input.code,
+        level: input.level,
+        meets_per_week: input.meetsPerWeek,
+      })
+      .select()
+      .single();
+    throwIf(error);
+    return mapClass(data as Row);
+  },
+
+  async archiveClass(userId, classId) {
+    const supabase = await requireClient();
+    const { error } = await supabase
+      .from('classes')
+      .update({ archived_at: new Date().toISOString() })
+      .eq('id', classId)
+      .eq('owner_id', userId);
+    throwIf(error);
+  },
+
+  async createStudent(userId, input) {
+    const supabase = await requireClient();
+    const { data, error } = await supabase
+      .from('students')
+      .insert({
+        owner_id: userId,
+        class_id: input.classId,
+        full_name: input.fullName,
+        initials: input.initials,
+        guardian_name: input.guardianName,
+        guardian_email: input.guardianEmail,
+        guardian_phone: input.guardianPhone,
+      })
+      .select()
+      .single();
+    throwIf(error);
+    return mapStudent(data as Row);
+  },
+
+  async archiveStudent(userId, studentId) {
+    const supabase = await requireClient();
+    const { error } = await supabase
+      .from('students')
+      .update({ archived_at: new Date().toISOString() })
+      .eq('id', studentId)
+      .eq('owner_id', userId);
+    throwIf(error);
+  },
+
+  async createAssessment(userId, input) {
+    const supabase = await requireClient();
+    const { data, error } = await supabase
+      .from('assessments')
+      .insert({
+        owner_id: userId,
+        class_id: input.classId,
+        title: input.title,
+        type: input.type,
+        weight: input.weight,
+        max_score: input.maxScore,
+        due_on: input.dueOn,
+        standard_codes: input.standardCodes,
+      })
+      .select()
+      .single();
+    throwIf(error);
+    return mapAssessment(data as Row);
+  },
+
+  async upsertGrade(userId, input) {
+    const supabase = await requireClient();
+    const { data, error } = await supabase
+      .from('grades')
+      .upsert(
+        {
+          owner_id: userId,
+          assessment_id: input.assessmentId,
+          student_id: input.studentId,
+          score: input.score,
+          max_score: input.maxScore,
+          feedback: input.feedback ?? null,
+          graded_at: new Date().toISOString(),
+        },
+        { onConflict: 'assessment_id,student_id' },
+      )
+      .select()
+      .single();
+    throwIf(error);
+    return mapGrade(data as Row);
+  },
+
+  async saveLessonPlan(userId, input) {
+    const supabase = await requireClient();
+
+    if (input.id) {
+      const { data, error } = await supabase
+        .from('lesson_plans')
+        .update({
+          title: input.title,
+          week_of: input.weekOf,
+          body: input.body,
+          standard_codes: input.standardCodes,
+        })
+        .eq('id', input.id)
+        .eq('owner_id', userId)
+        .select()
+        .single();
+      throwIf(error);
+      return mapPlan(data as Row);
+    }
+
+    const { data, error } = await supabase
+      .from('lesson_plans')
+      .insert({
+        owner_id: userId,
+        class_id: input.classId,
+        title: input.title,
+        week_of: input.weekOf,
+        body: input.body,
+        standard_codes: input.standardCodes,
+      })
+      .select()
+      .single();
+    throwIf(error);
+    return mapPlan(data as Row);
+  },
+
+  async addBehaviourLog(userId, input) {
+    const supabase = await requireClient();
+    const { error } = await supabase.from('behaviour_logs').insert({
+      owner_id: userId,
+      class_id: input.classId,
+      student_id: input.studentId,
+      entry: input.entry,
+      severity: input.severity,
+    });
+    throwIf(error);
+  },
+
+  async appendHistory(userId, input) {
+    const supabase = await requireClient();
+    const { error } = await supabase.from('student_history').insert({
+      owner_id: userId,
+      student_id: input.studentId,
+      event_type: input.eventType,
+      payload: input.payload ?? {},
+    });
+    throwIf(error);
+  },
+};
+
+function mapClass(row: Row): ClassRecord {
+  return {
+    id: str(row.id),
+    ownerId: str(row.owner_id),
+    name: str(row.name),
+    code: str(row.code),
+    level: str(row.level, 'k12') as ClassLevel,
+    meetsPerWeek: num(row.meets_per_week, 1),
+    archivedAt: (row.archived_at as string | null) ?? null,
+  };
+}
+
+function mapStudent(row: Row): StudentRecord {
+  return {
+    id: str(row.id),
+    classId: str(row.class_id),
+    ownerId: str(row.owner_id),
+    fullName: str(row.full_name),
+    initials: str(row.initials),
+    guardianName: (row.guardian_name as string | null) ?? null,
+    guardianEmail: (row.guardian_email as string | null) ?? null,
+    guardianPhone: (row.guardian_phone as string | null) ?? null,
+    archivedAt: (row.archived_at as string | null) ?? null,
+  };
+}
+
+function mapAssessment(row: Row): AssessmentRecord {
+  return {
+    id: str(row.id),
+    classId: str(row.class_id),
+    ownerId: str(row.owner_id),
+    title: str(row.title),
+    type: str(row.type, 'quiz') as AssessmentType,
+    weight: num(row.weight, 1),
+    maxScore: num(row.max_score, 100),
+    dueOn: (row.due_on as string | null) ?? null,
+    standardCodes: strArray(row.standard_codes),
+    archivedAt: (row.archived_at as string | null) ?? null,
+  };
+}
+
+function mapGrade(row: Row): GradeRecord {
+  return {
+    id: str(row.id),
+    assessmentId: str(row.assessment_id),
+    studentId: str(row.student_id),
+    ownerId: str(row.owner_id),
+    score: (row.score as number | null) ?? null,
+    maxScore: num(row.max_score, 100),
+    rubric: Array.isArray(row.rubric) ? (row.rubric as GradeRecord['rubric']) : [],
+    feedback: (row.feedback as string | null) ?? null,
+    gradedAt: iso(row.graded_at),
+  };
+}
+
+function mapPlan(row: Row): LessonPlanRecord {
+  return {
+    id: str(row.id),
+    classId: str(row.class_id),
+    ownerId: str(row.owner_id),
+    title: str(row.title),
+    weekOf: (row.week_of as string | null) ?? null,
+    body: (row.body ?? {}) as Record<string, unknown>,
+    standardCodes: strArray(row.standard_codes),
+  };
+}
+
+function throwIf(error: { message: string } | null): void {
+  if (error) throw mapSupabaseError(error);
+}
+
+async function requireClient() {
+  const supabase = await createSupabaseServerClient();
+  if (!supabase) {
+    throw new Error(
+      'Supabase is not reachable. Check NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY, and that a Supabase session cookie is present.',
+    );
+  }
+  return supabase;
+}
+
+// ---------------------------------------------------------------------------
+// Fixture adapter
+//
+// Kept for the marketing page, the hero device mockups, the demo workspace, and
+// the Playwright suite, all of which must run with no network. It throws under
+// `LIKO_DATA_MODE=supabase` so a missed wiring surfaces as a stack trace rather
+// than as plausible-looking demo data in front of a real teacher.
+// ---------------------------------------------------------------------------
+
+async function fixtureAdapter(): Promise<WorkspaceData> {
+  const { fixtures } = await import('./fixtures');
+  return fixtures;
+}
+
+let cached: WorkspaceData | null = null;
+
+/**
+ * The data source for this request.
+ *
+ * Cached per process. `supabase` mode never falls back to fixtures: if the
+ * client cannot be built the call throws, because silently serving demo data in
+ * production is the one failure this module exists to prevent.
+ */
+export async function data(): Promise<WorkspaceData> {
+  if (cached) return cached;
+
+  if (isSupabaseMode()) {
+    cached = supabaseAdapter;
+    return cached;
+  }
+
+  cached = await fixtureAdapter();
+  return cached;
+}
+
+/** Test seam: lets a suite inject a stub without touching module state. */
+export function __setDataSource(next: WorkspaceData | null): void {
+  cached = next;
+}
+
+export { assertRealDataMode };
+export type { WorkspaceData as DataSource };

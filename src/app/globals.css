@@ -1,0 +1,553 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+
+@custom-variant dark (&:is(.dark *));
+
+/* Radix exposes content height as a CSS variable; the accordion keyframes read
+   it so the panel animates to its natural size instead of a guessed pixel value. */
+@theme {
+  --animate-accordion-down: accordion-down 200ms cubic-bezier(0.23, 1, 0.32, 1);
+  --animate-accordion-up: accordion-up 200ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+@keyframes accordion-down {
+  from {
+    height: 0;
+  }
+  to {
+    height: var(--radix-accordion-content-height);
+  }
+}
+
+@keyframes accordion-up {
+  from {
+    height: var(--radix-accordion-content-height);
+  }
+  to {
+    height: 0;
+  }
+}
+
+/* ==========================================================================
+   LIKO DESIGN SYSTEM
+   Viridian-dominant. One accent colour. One radius system. One type stack.
+   See docs/DESIGN.md for the reasoning behind each token.
+   ========================================================================== */
+
+@theme {
+  /* --- Core brand triad (pinned by masterplan.md.txt) ---
+     The accent is the green measured off the supplied logo artwork rather than
+     the masterplan's nominal #228b22. It is bluer and slightly darker, it
+     carries the mark, and it also scores better against the warm canvas:
+     4.63:1 on #fdf8f5 against 4.15:1 for #228b22. */
+  --color-charcoal: #1a1a1a;
+  --color-viridian: #29813d;
+  --color-bg: #fdf8f5;
+
+  /* --- Surfaces --- */
+  --color-surface: #ffffff;
+  --color-surface-raised: #ffffff;
+  --color-surface-sunken: #f7f3ee;
+
+  /* --- Ink --- */
+  --color-ink: #1a1a1a;
+  --color-ink-muted: #5c5a54;
+  --color-ink-subtle: #837f76;
+
+  /* --- Accent (the only accent) --- */
+  --color-accent: #29813d;
+  --color-accent-hover: #216b34;
+  --color-accent-subtle: #e7f1e9;
+  --color-accent-ring: #29813d;
+  --color-on-accent: #ffffff;
+
+  /* --- Semantics --- */
+  --color-danger: #b3261e;
+  --color-danger-subtle: #fbeae9;
+  --color-warning: #8a5a00;
+  --color-warning-subtle: #fdf3e2;
+  --color-success: #1b731b;
+  --color-success-subtle: #e8f4e8;
+
+  /* --- Lines --- */
+  --color-border: #e5e0d9;
+  --color-border-strong: #d5cec4;
+  --color-ring-track: #e5e0d9;
+
+  /* --- Shape (single radius system) --- */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 24px;
+  --radius-pill: 999px;
+
+  /* --- Type --- */
+  --font-sans:
+    var(--font-geist-sans), ui-sans-serif, system-ui, -apple-system,
+    'Segoe UI', sans-serif;
+  --font-mono:
+    var(--font-geist-mono), ui-monospace, SFMono-Regular, 'SF Mono', Menlo,
+    monospace;
+
+  /* --- Elevation: soft, never pure black --- */
+  --shadow-sm: 0 1px 2px rgb(26 26 26 / 0.04), 0 1px 1px rgb(26 26 26 / 0.03);
+  --shadow-md: 0 4px 16px rgb(26 26 26 / 0.06), 0 2px 4px rgb(26 26 26 / 0.04);
+  --shadow-lg: 0 12px 40px rgb(26 26 26 / 0.1), 0 4px 8px rgb(26 26 26 / 0.04);
+  --shadow-glass:
+    inset 0 1px 0 0 rgb(255 255 255 / 0.6), 0 8px 32px rgb(26 26 26 / 0.08);
+
+  /* --- Motion: custom curves only, never ease-in on a UI element --- */
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+
+  /* --- Layout --- */
+  --container-marketing: 1400px;
+  /* Distance from the viewport edge to the first pixel of container content.
+     Anything that bleeds past the container, such as the roles pan, pads by
+     this instead of guessing, so it stays aligned at every width. */
+  --gutter: max(2rem, calc((100vw - var(--container-marketing)) / 2 + 2rem));
+}
+
+/* ==========================================================================
+   DARK MODE
+   Dark is a paired system, not an inversion. Accent lifts and desaturates so
+   it stays legible on dark surfaces without glowing. Contrast is tested
+   independently of light mode.
+   ========================================================================== */
+@layer base {
+  :root {
+    --surface: #fdf8f5;
+    --surface-raised: #ffffff;
+    --surface-sunken: #f7f3ee;
+    --ink: #1a1a1a;
+    --ink-muted: #5c5a54;
+    --ink-subtle: #837f76;
+    --accent: #29813d;
+    --accent-hover: #216b34;
+    --accent-subtle: #e7f1e9;
+    --accent-ring: #29813d;
+    --border: #e5e0d9;
+    --border-strong: #d5cec4;
+    --ring-track: #e5e0d9;
+    --danger: #b3261e;
+    --danger-subtle: #fbeae9;
+    --warning: #8a5a00;
+    --warning-subtle: #fdf3e2;
+    --success: #1b731b;
+    --success-subtle: #e8f4e8;
+    --glass-tint: rgb(255 255 255 / 0.72);
+    --glass-border: rgb(255 255 255 / 0.5);
+    --shadow-sm: 0 1px 2px rgb(26 26 26 / 0.04), 0 1px 1px rgb(26 26 26 / 0.03);
+    --shadow-md: 0 4px 16px rgb(26 26 26 / 0.06), 0 2px 4px rgb(26 26 26 / 0.04);
+    --shadow-lg: 0 12px 40px rgb(26 26 26 / 0.1), 0 4px 8px rgb(26 26 26 / 0.04);
+  }
+
+  .dark {
+    --surface: #12130f;
+    --surface-raised: #1a1c17;
+    --surface-sunken: #0d0e0b;
+    --ink: #f4f2ee;
+    --ink-muted: #a8a69e;
+    --ink-subtle: #86847c;
+    --accent: #46a05a;
+    --accent-hover: #56b46a;
+    --accent-subtle: #1b2a1f;
+    --accent-ring: #46a05a;
+    --border: #2e3129;
+    --border-strong: #3d4036;
+    --ring-track: #2e3129;
+    --danger: #f2b8b5;
+    --danger-subtle: #2e1a19;
+    --warning: #e8b84b;
+    --warning-subtle: #2c2314;
+    --success: #4fbc4f;
+    --success-subtle: #1a281a;
+    --glass-tint: rgb(26 28 23 / 0.72);
+    --glass-border: rgb(255 255 255 / 0.08);
+    --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.3), 0 1px 1px rgb(0 0 0 / 0.2);
+    --shadow-md: 0 4px 16px rgb(0 0 0 / 0.4), 0 2px 4px rgb(0 0 0 / 0.3);
+    --shadow-lg: 0 12px 40px rgb(0 0 0 / 0.5), 0 4px 8px rgb(0 0 0 / 0.35);
+  }
+}
+
+/* ==========================================================================
+   BASE
+   ========================================================================== */
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+
+  html {
+    scroll-behavior: smooth;
+    -webkit-text-size-adjust: 100%;
+    /* The marketing nav is sticky, so an anchor jump would otherwise park the
+       section heading underneath it. Matches the nav's height plus a little air. */
+    scroll-padding-top: 5.5rem;
+  }
+
+  body {
+    background-color: var(--surface);
+    color: var(--ink);
+    font-family: var(--font-sans);
+    font-size: 1rem;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+    /* Guards against any off-screen scroll animation creating a page scrollbar. */
+    overflow-x: hidden;
+  }
+
+  /* Focus is never removed. 2px viridian ring, 2px offset, always visible. */
+  :focus-visible {
+    outline: 2px solid var(--accent-ring);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  /* Remove the default ring only where a custom one is supplied immediately. */
+  :focus:not(:focus-visible) {
+    outline: none;
+  }
+
+  ::selection {
+    background-color: var(--accent-subtle);
+    color: var(--ink);
+  }
+
+  /* Inputs at 16px minimum prevents iOS auto-zoom on focus. */
+  input,
+  textarea,
+  select {
+    font-size: max(16px, 1em);
+    font-family: inherit;
+  }
+
+  img,
+  svg,
+  video {
+    max-width: 100%;
+    height: auto;
+  }
+}
+
+/* ==========================================================================
+   TYPOGRAPHY SCALE
+   ========================================================================== */
+@layer components {
+  .text-display {
+    font-size: clamp(2.75rem, 6vw, 5rem);
+    line-height: 1.02;
+    letter-spacing: -0.035em;
+    font-weight: 600;
+    text-wrap: balance;
+  }
+
+  .text-h2 {
+    font-size: clamp(2rem, 3.6vw, 3rem);
+    line-height: 1.08;
+    letter-spacing: -0.03em;
+    font-weight: 600;
+    text-wrap: balance;
+  }
+
+  .text-h3 {
+    font-size: clamp(1.5rem, 2.4vw, 2rem);
+    line-height: 1.2;
+    letter-spacing: -0.02em;
+    font-weight: 600;
+    text-wrap: balance;
+  }
+
+  .text-h4 {
+    font-size: 1.25rem;
+    line-height: 1.3;
+    letter-spacing: -0.015em;
+    font-weight: 600;
+    text-wrap: balance;
+  }
+
+  .text-lead {
+    font-size: 1.125rem;
+    line-height: 1.6;
+    letter-spacing: -0.01em;
+    color: var(--ink-muted);
+  }
+
+  .text-body {
+    font-size: 1rem;
+    line-height: 1.65;
+    color: var(--ink-muted);
+  }
+
+  .text-label {
+    font-size: 0.75rem;
+    line-height: 1.2;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    font-weight: 600;
+    color: var(--ink-subtle);
+  }
+
+  .text-meta {
+    font-size: 0.875rem;
+    line-height: 1.5;
+    color: var(--ink-subtle);
+  }
+
+  /* Italic words with descenders need relaxed leading or the glyph clips. */
+  .italic-accent {
+    font-style: italic;
+    line-height: 1.1;
+    padding-bottom: 0.25rem;
+  }
+
+  /* Numbers never reflow: gradebook, heatmap, stat tiles all use this. */
+  .tabular {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.02em;
+  }
+
+  .measure {
+    max-width: 65ch;
+  }
+}
+
+/* ==========================================================================
+   LAYOUT PRIMITIVES
+   ========================================================================== */
+@layer components {
+  .container-marketing {
+    width: 100%;
+    max-width: var(--container-marketing);
+    margin-inline: auto;
+    padding-inline: 1.5rem;
+  }
+
+  @media (min-width: 768px) {
+    .container-marketing {
+      padding-inline: 2rem;
+    }
+  }
+
+  /* Chapter rhythm. Sections must feel like distinct chapters. */
+  .chapter {
+    padding-block: 6rem;
+  }
+
+  @media (min-width: 768px) {
+    .chapter {
+      padding-block: 8rem;
+    }
+  }
+
+  @media (min-width: 1024px) {
+    .chapter {
+      padding-block: 10rem;
+    }
+  }
+}
+
+/* ==========================================================================
+   MOTION
+   Only transform and opacity are animated. Durations stay under 300ms for
+   anything the user triggers more than a few times a day.
+   ========================================================================== */
+@layer components {
+  .pressable {
+    transition: transform 120ms var(--ease-out);
+  }
+
+  .pressable:active {
+    transform: scale(0.97);
+  }
+
+  /* Bento cell. A two-pixel lift plus a border tint, so the grid reads as a set
+     of things you can look at rather than a static board of boxes. Transform
+     and colour only, and only under a real pointer, because touch devices fire
+     hover on tap and produce a permanent false highlight. */
+  .bento {
+    transition:
+      transform 320ms var(--ease-out),
+      border-color 320ms var(--ease-out),
+      box-shadow 320ms var(--ease-out);
+  }
+
+  @media (hover: hover) and (pointer: fine) {
+    .bento:hover {
+      transform: translateY(-3px);
+      border-color: var(--border-strong);
+      box-shadow: var(--shadow-md);
+    }
+  }
+
+  /* Horizontal pan track. Padded to the page gutter so the first panel lines up
+     with every other heading, and masked on the right so a panel leaving the
+     frame fades instead of being sliced by a hard vertical cut. The mask stops
+     short of the trailing gutter, so the last panel is never dimmed at rest. */
+  .pan-track {
+    padding-inline: var(--gutter);
+  }
+
+  .pan-item {
+    width: 44vw;
+    flex: none;
+    padding-inline: 0.75rem;
+  }
+
+  .pan-bleed {
+    -webkit-mask-image: linear-gradient(
+      to right,
+      #000 calc(100% - 4rem),
+      transparent 100%
+    );
+    mask-image: linear-gradient(
+      to right,
+      #000 calc(100% - 4rem),
+      transparent 100%
+    );
+  }
+
+  .pan-card {
+    transition:
+      transform 320ms var(--ease-out),
+      border-color 320ms var(--ease-out),
+      box-shadow 320ms var(--ease-out);
+  }
+
+  @media (hover: hover) and (pointer: fine) {
+    .pan-card:hover {
+      transform: translateY(-3px);
+      border-color: var(--border-strong);
+      box-shadow: var(--shadow-md);
+    }
+  }
+
+  /* Glass surface. Falls back to a solid tint where backdrop-filter is
+     unavailable or reduced-transparency is requested. */
+  .glass {
+    background-color: var(--glass-tint);
+    backdrop-filter: blur(24px) saturate(180%);
+    -webkit-backdrop-filter: blur(24px) saturate(180%);
+    border: 1px solid var(--glass-border);
+    box-shadow: var(--shadow-lg);
+  }
+
+  @supports not (backdrop-filter: blur(1px)) {
+    .glass {
+      background-color: var(--surface-raised);
+    }
+  }
+
+  @media (prefers-reduced-transparency: reduce) {
+    .glass {
+      background-color: var(--surface-raised);
+      backdrop-filter: none;
+      -webkit-backdrop-filter: none;
+    }
+  }
+
+  /* Ambient bloom behind the hero product mockups. Viridian family only,
+     rotated from the reference's lavender and rose. */
+  .bloom {
+    position: absolute;
+    border-radius: 9999px;
+    filter: blur(72px);
+    opacity: 0.5;
+    pointer-events: none;
+  }
+}
+
+/* ==========================================================================
+   NO-SCRIPTING FALLBACK
+   Motion renders `opacity: 0` into the server HTML for every scroll reveal.
+   Without scripting that hidden state would never be released, so the root
+   element carries `no-js` until the inline script in the layout flips it, and
+   these rules hold reveals visible for as long as that class survives. The
+   `!important` is deliberate: it has to beat Motion's inline style.
+   ========================================================================== */
+.no-js [data-reveal] {
+  opacity: 1 !important;
+  transform: none !important;
+}
+
+/* ==========================================================================
+   ACCESSIBILITY
+   ========================================================================== */
+@layer utilities {
+  .sr-only-focusable:not(:focus):not(:focus-within) {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border-width: 0;
+  }
+
+  /* Hover states only where hover is a real pointer. Touch devices fire hover
+     on tap, which produces false positives. */
+  @media (hover: hover) and (pointer: fine) {
+    .hover-lift {
+      transition: transform 300ms var(--ease-out);
+    }
+
+    .hover-lift:hover {
+      transform: translateY(-2px);
+    }
+  }
+
+  .motion-safe-only {
+    animation: none;
+  }
+}
+
+/* ==========================================================================
+   REDUCED MOTION
+   Fewer and gentler animations, not zero. Colour and opacity transitions that
+   aid comprehension survive; movement and position animations do not.
+   ========================================================================== */
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  .pressable:active {
+    transform: none;
+  }
+
+  /*
+     Scroll reveals are the one place where "fewer animations" is not enough.
+     Motion writes `opacity: 0` onto the element, so without this the content
+     simply never appears for a visitor who asked for reduced motion. This
+     overrides the inline style, so it is checked here as well as in the
+     `Reveal` component itself. The `!important` is load-bearing.
+   */
+  [data-reveal] {
+    opacity: 1 !important;
+    transform: none !important;
+  }
+}
+
+/* ==========================================================================
+   PRINT
+   ========================================================================== */
+@media print {
+  .no-print {
+    display: none !important;
+  }
+}

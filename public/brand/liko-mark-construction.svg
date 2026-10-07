@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-150 -40 820 620" role="img" aria-label="LIKO mark construction">
+  <title>LIKO mark construction</title>
+  <rect x="-150" y="-40" width="820" height="620" fill="#fdf8f5" />
+
+  <g stroke="#e5e0d9" stroke-width="1">
+    <line x1="-60" y1="0" x2="604" y2="0" />
+    <line x1="-60" y1="110" x2="604" y2="110" />
+    <line x1="-60" y1="220" x2="604" y2="220" />
+    <line x1="-60" y1="330" x2="604" y2="330" />
+    <line x1="-60" y1="440" x2="604" y2="440" />
+    <line x1="-60" y1="509" x2="604" y2="509" />
+  </g>
+
+  <!-- Centre lines and the two semicircular sweeps that set the ligature. -->
+  <path d="M 39.5 -20 V 547" stroke="#9a948a" stroke-width="1" fill="none" />
+  <path d="M 180.5 -20 V 547" stroke="#9a948a" stroke-width="1" fill="none" />
+  <path d="M 467.5 -20 H 604" stroke="#9a948a" stroke-width="1" fill="none" />
+  <path d="M -60 507 H 604" stroke="#9a948a" stroke-width="1" fill="none" />
+  <path d="M 110 110 m -110 0 a 110 110 0 1 0 220 0 a 110 110 0 1 0 -220 0" stroke="#9a948a" stroke-width="1" fill="none" />
+  <path d="M 110 110 m -70.5 0 a 70.5 70.5 0 1 0 141 0 a 70.5 70.5 0 1 0 -141 0" stroke="#9a948a" stroke-width="1" fill="none" />
+  <path d="M 180.5 333.5 m -39.5 0 a 39.5 39.5 0 1 0 79 0 a 39.5 39.5 0 1 0 -79 0" stroke="#9a948a" stroke-width="1" fill="none" />
+  <path d="M 280.4 467.5 m -39.5 0 a 39.5 39.5 0 1 0 79 0 a 39.5 39.5 0 1 0 -79 0" stroke="#9a948a" stroke-width="1" fill="none" />
+
+  <!-- The two 45 degree arms. -->
+  <path d="M 120 508 L 500 128" stroke="#9a948a" stroke-width="1" fill="none" />
+  <path d="M 120 -12 L 500 368" stroke="#9a948a" stroke-width="1" fill="none" />
+
+  <g fill="none" stroke="#29813d" stroke-linecap="round" stroke-linejoin="miter" opacity="0.18" stroke-width="79">
+    <path d="M 280.4 467.5 H 113.7 A 74.2 74.2 0 0 1 39.5 393.3 V 110 A 70.5 70.5 0 0 1 180.5 110 V 333.5" />
+    <path d="M 190 318 L 470.5 37.5" />
+    <path d="M 190 188 L 472.5 470.5" />
+  </g>
+
+  <g fill="none" stroke="#29813d" stroke-linecap="round" stroke-linejoin="miter" stroke-width="79">
+    <path d="M 280.4 467.5 H 113.7 A 74.2 74.2 0 0 1 39.5 393.3 V 110 A 70.5 70.5 0 0 1 180.5 110 V 333.5" />
+    <path d="M 190 318 L 470.5 37.5" />
+    <path d="M 190 188 L 472.5 470.5" />
+  </g>
+
+  <text x="47.5" y="-22" fill="#b4472e" font-family="ui-monospace,monospace" font-size="17" text-anchor="start">L stem centre</text>
+  <text x="188.5" y="-22" fill="#b4472e" font-family="ui-monospace,monospace" font-size="17" text-anchor="start">K stem centre</text>
+  <text x="192.5" y="25.5" fill="#b4472e" font-family="ui-monospace,monospace" font-size="17" text-anchor="start">arch R70.5 on R110 outer</text>
+  <text x="479.5" y="455.5" fill="#b4472e" font-family="ui-monospace,monospace" font-size="17" text-anchor="start">foot centre y 467.5</text>
+  <text x="536" y="513" fill="#b4472e" font-family="ui-monospace,monospace" font-size="17" text-anchor="start">baseline 507</text>
+  <text x="536" y="339.5" fill="#b4472e" font-family="ui-monospace,monospace" font-size="17" text-anchor="start">K stem terminal</text>
+  <text x="536" y="507.5" fill="#b4472e" font-family="ui-monospace,monospace" font-size="17" text-anchor="start">foot terminal</text>
+  <text x="-140" y="167.5" fill="#b4472e" font-family="ui-monospace,monospace" font-size="17" text-anchor="start">arms at 45 degrees</text>
+  <text x="-140" y="560" fill="#b4472e" font-family="ui-monospace,monospace" font-size="17" text-anchor="start">stroke 79 · box 514x509</text>
+</svg>

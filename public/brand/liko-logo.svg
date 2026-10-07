@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1536 509" role="img" aria-label="LIKO">
+  <title>LIKO</title>
+  <g fill="none" stroke="#29813d" stroke-linecap="round" stroke-linejoin="miter">
+    <g>
+  <path d="M 280.4 467.5 H 113.7 A 74.2 74.2 0 0 1 39.5 393.3 V 110 A 70.5 70.5 0 0 1 180.5 110 V 333.5" stroke-width="79" />
+  <path d="M 190 318 L 470.5 37.5" stroke-width="79" />
+  <path d="M 190 188 L 472.5 470.5" stroke-width="79" />
+    </g>
+    <g>
+      <path d="M 1230 256.5 a 152.5 159.5 0 1 0 305 0 a 152.5 159.5 0 1 0 -305 0 M 1300.5 256.5 a 82 95 0 1 0 164 0 a 82 95 0 1 0 -164 0" fill="#29813d" fill-rule="evenodd" stroke="none" />
+  <path d="M 659.5 136.5 V 379 H 804" stroke-width="71" />
+  <path d="M 898 136.5 V 377.5" stroke-width="71" />
+  <path d="M 1011.5 136.5 V 377.5" stroke-width="71" />
+  <path d="M 1011.5 313.9 L 1176 135" stroke-width="67" />
+  <path d="M 1078 236 L 1186.9 380" stroke-width="67" />
+    </g>
+  </g>
+</svg>

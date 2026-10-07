@@ -1,0 +1,452 @@
+import { randomUUID } from 'node:crypto';
+
+import { verifyPassword } from './password';
+import { isSupabaseMode } from '@/lib/data-mode';
+import { createSupabaseAdmin, createSupabaseAnon, createSupabaseServerClient } from '@/lib/supabase/server';
+import type { Role } from './rbac';
+
+/**
+ * The user store.
+ *
+ * This module was the fixture seam: an in-memory map so the auth flow was
+ * exercisable end to end before any backend existed. It now has two backends,
+ * chosen by `LIKO_DATA_MODE` and never at runtime by a flag:
+ *
+ *   supabase  Supabase Auth owns identity. Signup sends a real confirmation
+ *             email, sign-in returns a Supabase access token which is carried
+ *             inside our own session JWT so PostgREST evaluates RLS as the user.
+ *
+ *   fixtures  The in-memory map, kept so the marketing page, the demo workspace
+ *             and the Playwright suite run with no network and no database.
+ *
+ * THE REGISTRATION DEADLOCK THIS REPLACES
+ * ---------------------------------------
+ * `createUser` used to hardcode `emailVerified: false`. `proxy.ts` refuses any
+ * unverified session, and `/verify-email` was static copy with no callback route
+ * and no caller for `markEmailVerified()`. A newly registered user could
+ * therefore never reach the dashboard.
+ *
+ * The two modes fix it differently, for a real reason:
+ *
+ *   supabase  Verification is genuine. Supabase sends the email, the recipient
+ *             clicks a link that lands on `/auth/callback`, which calls
+ *             `verifyOtp` and only then issues a session with
+ *             `emailVerified: true`.
+ *
+ *   fixtures  Verified immediately, because a fixture adapter cannot send mail.
+ *             Gating a demo user behind a verification step that can never be
+ *             completed would reproduce the exact same dead end.
+ */
+
+export interface StoredUser {
+  id: string;
+  name: string;
+  email: string;
+  passwordHash: string;
+  role: Role;
+  emailVerified: boolean;
+  createdAt: string;
+}
+
+/** A user plus the token needed to act as them against RLS. */
+export interface AuthResult {
+  user: StoredUser;
+  /** Supabase access token, or null in fixture mode and before verification. */
+  accessToken: string | null;
+  /**
+   * True when Supabase created the account but held the session back pending
+   * email confirmation. The caller routes to /verify-email and issues no cookie.
+   */
+  awaitingConfirmation: boolean;
+}
+
+const users = new Map<string, StoredUser>();
+
+export interface CreateUserInput {
+  name: string;
+  email: string;
+  passwordHash: string;
+  role: Role;
+}
+
+function normalizeEmail(email: string): string {
+  return email.trim().toLowerCase();
+}
+
+function readProfile(
+  userId: string,
+  email: string,
+  fallbackName: string,
+): StoredUser {
+  return {
+    id: userId,
+    name: fallbackName,
+    email,
+    passwordHash: '',
+    role: 'instructor',
+    emailVerified: true,
+    createdAt: new Date().toISOString(),
+  };
+}
+
+async function loadSupabaseUser(email: string) {
+  const admin = await createSupabaseAdmin();
+  if (!admin) return null;
+
+  // listUsers is paginated and filtered client-side by the admin API, so this
+  // is a deliberate single-page scan for the sign-in lookup. A production
+  // deployment should switch this to the auth hook / custom claims, which the
+  // profile table already supports.
+  for (let page = 1; page <= 10; page += 1) {
+    const { data, error } = await admin.auth.admin.listUsers({
+      page,
+      perPage: 200,
+    });
+    if (error) return null;
+
+    const match = data.users.find(
+      (candidate) => normalizeEmail(candidate.email ?? '') === email,
+    );
+    if (match) return match;
+    if (data.users.length < 200) return null;
+  }
+  return null;
+}
+
+export async function findUserByEmail(email: string): Promise<StoredUser | null> {
+  const key = normalizeEmail(email);
+
+  if (!isSupabaseMode()) return users.get(key) ?? null;
+
+  const admin = await createSupabaseAdmin();
+  if (!admin) return null;
+
+  const match = await loadSupabaseUser(key);
+  if (!match) return null;
+
+  const { data: profile } = await admin
+    .from('profiles')
+    .select('full_name, role')
+    .eq('id', match.id)
+    .maybeSingle();
+
+  return {
+    ...readProfile(match.id, key, String(profile?.full_name ?? '')),
+    name: String(profile?.full_name ?? match.user_metadata?.full_name ?? ''),
+    role: (profile?.role as Role) ?? 'instructor',
+    emailVerified: Boolean(match.email_confirmed_at),
+  };
+}
+
+export async function findUserById(id: string): Promise<StoredUser | null> {
+  if (!isSupabaseMode()) {
+    for (const user of users.values()) {
+      if (user.id === id) return user;
+    }
+    return null;
+  }
+
+  const admin = await createSupabaseAdmin();
+  if (!admin) return null;
+
+  const { data: profile } = await admin
+    .from('profiles')
+    .select('id, email, full_name, role')
+    .eq('id', id)
+    .maybeSingle();
+
+  if (!profile) return null;
+
+  return {
+    ...readProfile(profile.id, normalizeEmail(profile.email), ''),
+    name: String(profile.full_name ?? ''),
+    role: (profile.role as Role) ?? 'instructor',
+    emailVerified: true,
+  };
+}
+
+export async function createUser(input: CreateUserInput): Promise<StoredUser> {
+  const email = normalizeEmail(input.email);
+
+  if (!isSupabaseMode()) {
+    const user: StoredUser = {
+      id: `usr_${randomUUID()}`,
+      name: input.name,
+      email,
+      passwordHash: input.passwordHash,
+      role: input.role,
+      // Verified on creation. A fixture adapter cannot send a confirmation
+      // email, so requiring one would dead-end every demo account.
+      emailVerified: true,
+      createdAt: new Date().toISOString(),
+    };
+    users.set(email, user);
+    return user;
+  }
+
+  throw new Error(
+    'createUser must not be called directly in supabase mode. Use signUp(), ' +
+      'which creates the account through Supabase Auth so the password is ' +
+      'hashed by the auth service and a confirmation email is sent.',
+  );
+}
+
+/**
+ * Supabase-backed signup. Returns an AuthResult rather than a bare user because
+ * the caller needs to know whether a session was issued or withheld.
+ */
+export async function signUp(input: {
+  name: string;
+  email: string;
+  password: string;
+  role: Role;
+  /** Where Supabase redirects after the recipient clicks the email link. */
+  redirectTo: string;
+}): Promise<AuthResult> {
+  const email = normalizeEmail(input.email);
+
+  if (!isSupabaseMode()) {
+    const user = await createUser({
+      name: input.name,
+      email,
+      passwordHash: await hashForFixture(input.password),
+      role: input.role,
+    });
+    return { user, accessToken: null, awaitingConfirmation: false };
+  }
+
+  const supabase = await createSupabaseAnon();
+  if (!supabase) throw new Error('SUPABASE_NOT_CONFIGURED');
+
+  /*
+   * signUp on the anon client is the standard flow: Supabase hashes the
+   * password itself and sends the confirmation email, with `emailRedirectTo`
+   * naming the /auth/callback route the recipient lands on. The
+   * handle_new_user trigger creates the profile row from user_metadata, so no
+   * admin insert is needed here.
+   */
+  const { data, error } = await supabase.auth.signUp({
+    email,
+    password: input.password,
+    options: {
+      emailRedirectTo: input.redirectTo,
+      data: { full_name: input.name },
+    },
+  });
+
+  if (error || !data.user) {
+    // Do not echo the provider message: it distinguishes "already registered"
+    // from other failures, which is enough to enumerate accounts.
+    throw new Error('ACCOUNT_NOT_CREATED');
+  }
+
+  const user: StoredUser = {
+    id: data.user.id,
+    name: input.name,
+    email,
+    passwordHash: '',
+    role: input.role,
+    emailVerified: Boolean(data.user.email_confirmed_at),
+    createdAt: data.user.created_at ?? new Date().toISOString(),
+  };
+
+  return {
+    user,
+    accessToken: data.session?.access_token ?? null,
+    awaitingConfirmation: !user.emailVerified,
+  };
+}
+
+/** Sends a fresh confirmation email for an account that has not verified yet. */
+export async function resendConfirmation(
+  email: string,
+  redirectTo: string,
+): Promise<void> {
+  if (!isSupabaseMode()) return;
+
+  const supabase = await createSupabaseAnon();
+  if (!supabase) return;
+
+  await supabase.auth.resend({
+    type: 'signup',
+    email: normalizeEmail(email),
+    options: { emailRedirectTo: redirectTo },
+  });
+}
+
+/**
+ * Supabase-backed credential check.
+ *
+ * Returns null for both "no such account" and "wrong password" so the form
+ * cannot be used to enumerate registered addresses. In fixture mode the timing
+ * profile is flattened the same way the original store did.
+ */
+export async function verifyCredentials(
+  email: string,
+  password: string,
+): Promise<AuthResult | null> {
+  const key = normalizeEmail(email);
+
+  if (!isSupabaseMode()) {
+    const user = users.get(key);
+
+    if (!user) {
+      // Compare against a throwaway hash to keep the timing profile flat.
+      await verifyPassword(password, 'scrypt$16384$8$1$00$00');
+      return null;
+    }
+
+    const valid = await verifyPassword(password, user.passwordHash);
+    return valid ? { user, accessToken: null, awaitingConfirmation: false } : null;
+  }
+
+  const admin = await createSupabaseAdmin();
+  if (!admin) return null;
+
+  const match = await loadSupabaseUser(key);
+
+  // Sign in through the cookie-backed server client so the password is
+  // verified by the auth service against its own hash, and so the resulting
+  // session is persisted into httpOnly cookies for later RLS-scoped reads.
+  const supabase = await createSupabaseServerClient();
+  if (!supabase) return null;
+
+  const { data, error } = await supabase.auth.signInWithPassword({
+    email: key,
+    password,
+  });
+
+  if (error || !data.user) {
+    // Still touch the admin path when the account was missing so the two
+    // failure shapes take comparable time.
+    if (!match) await loadSupabaseUser(key);
+    return null;
+  }
+
+  const { data: profile } = await admin
+    .from('profiles')
+    .select('full_name, role')
+    .eq('id', data.user.id)
+    .maybeSingle();
+
+  const user: StoredUser = {
+    id: data.user.id,
+    name: String(profile?.full_name ?? data.user.user_metadata?.full_name ?? ''),
+    email: key,
+    passwordHash: '',
+    role: (profile?.role as Role) ?? 'instructor',
+    emailVerified: Boolean(data.user.email_confirmed_at),
+    createdAt: data.user.created_at ?? new Date().toISOString(),
+  };
+
+  return {
+    user,
+    accessToken: data.session?.access_token ?? null,
+    awaitingConfirmation: !user.emailVerified,
+  };
+}
+
+/**
+ * Confirms an account from the emailed link.
+ *
+ * This is what finally gives `markEmailVerified` a caller. The link arrives as
+ * a token_hash on /auth/callback; `verifyOtp` consumes it and flips the
+ * account's confirmed state in Supabase Auth.
+ */
+export async function verifyEmailToken(params: {
+  tokenHash: string;
+  type: string;
+}): Promise<AuthResult | null> {
+  if (!isSupabaseMode()) {
+    const user = await markEmailVerified('fixture');
+    return user
+      ? { user, accessToken: null, awaitingConfirmation: false }
+      : null;
+  }
+
+  const admin = await createSupabaseAdmin();
+  if (!admin) return null;
+
+  const supabase = await createSupabaseServerClient();
+  if (!supabase) return null;
+
+  const { data, error } = await supabase.auth.verifyOtp({
+    token_hash: params.tokenHash,
+    type: params.type as 'signup' | 'email_change' | 'recovery',
+  });
+
+  if (error || !data.user) return null;
+
+  await admin.auth.admin.updateUserById(data.user.id, {
+    email_confirm: true,
+  });
+
+  const { data: profile } = await admin
+    .from('profiles')
+    .select('full_name, role')
+    .eq('id', data.user.id)
+    .maybeSingle();
+
+  return {
+    user: {
+      id: data.user.id,
+      name: String(profile?.full_name ?? ''),
+      email: normalizeEmail(data.user.email ?? ''),
+      passwordHash: '',
+      role: (profile?.role as Role) ?? 'instructor',
+      emailVerified: true,
+      createdAt: data.user.created_at ?? new Date().toISOString(),
+    },
+    accessToken: data.session?.access_token ?? null,
+    awaitingConfirmation: false,
+  };
+}
+
+export async function markEmailVerified(
+  userId: string,
+): Promise<StoredUser | null> {
+  if (!isSupabaseMode()) {
+    const user = await findUserById(userId);
+    if (user) user.emailVerified = true;
+    return user;
+  }
+
+  const admin = await createSupabaseAdmin();
+  if (!admin) return null;
+
+  await admin.auth.admin.updateUserById(userId, { email_confirm: true });
+  return findUserById(userId);
+}
+
+/** Starts a password reset. Always reports success so accounts stay private. */
+export async function requestPasswordReset(
+  email: string,
+  redirectTo: string,
+): Promise<void> {
+  if (!isSupabaseMode()) return;
+
+  const supabase = await createSupabaseAnon();
+  if (!supabase) return;
+
+  await supabase.auth.resetPasswordForEmail(normalizeEmail(email), { redirectTo });
+}
+
+/** Completes a password reset using the recovery session in the link. */
+export async function completePasswordUpdate(newPassword: string): Promise<boolean> {
+  if (!isSupabaseMode()) return true;
+
+  const supabase = await createSupabaseServerClient();
+  if (!supabase) return false;
+
+  const { data, error } = await supabase.auth.updateUser({ password: newPassword });
+  return !error && Boolean(data.user);
+}
+
+/**
+ * Fixture mode still needs a stored hash. Kept local so the fixture adapter has
+ * no import cycle with the Supabase path.
+ */
+async function hashForFixture(password: string): Promise<string> {
+  const { hashPassword } = await import('./password');
+  return hashPassword(password);
+}
