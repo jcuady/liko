@@ -25,6 +25,9 @@ import type {
   HistoryEventType,
   HistoryRecord,
   LessonPlanRecord,
+  ProfileInput,
+  ProfileRecord,
+  Role,
   Severity,
   Stat,
   StudentRecord,
@@ -152,6 +155,10 @@ export interface WorkspaceData {
     classId: string,
     policyId: string | null,
   ): Promise<void>;
+
+  /** The signed-in teacher's own settings. */
+  getProfile(userId: string): Promise<ProfileRecord | null>;
+  updateProfile(userId: string, input: ProfileInput): Promise<ProfileRecord>;
 }
 
 type Row = Record<string, unknown>;
@@ -616,6 +623,41 @@ const supabaseAdapter: WorkspaceData = {
       .eq('owner_id', userId);
     throwIf(error);
   },
+
+  async getProfile(userId) {
+    const supabase = await requireClient();
+    const { data, error } = await supabase
+      .from('profiles')
+      .select(
+        'id, email, full_name, role, school_name, subjects, default_grade_level, grading_policy_id',
+      )
+      .eq('id', userId)
+      .maybeSingle();
+    if (error) throw mapSupabaseError(error);
+
+    return data ? mapProfile(data as Row) : null;
+  },
+
+  async updateProfile(userId, input) {
+    const supabase = await requireClient();
+    const { data, error } = await supabase
+      .from('profiles')
+      .update({
+        full_name: input.fullName,
+        school_name: input.schoolName,
+        subjects: input.subjects,
+        default_grade_level: input.defaultGradeLevel,
+        grading_policy_id: input.gradingPolicyId,
+      })
+      .eq('id', userId)
+      .select(
+        'id, email, full_name, role, school_name, subjects, default_grade_level, grading_policy_id',
+      )
+      .single();
+    if (error) throw mapSupabaseError(error);
+
+    return mapProfile(data as Row);
+  },
 };
 
 function mapClass(row: Row): ClassRecord {
@@ -627,6 +669,19 @@ function mapClass(row: Row): ClassRecord {
     level: str(row.level, 'k12') as ClassLevel,
     meetsPerWeek: num(row.meets_per_week, 1),
     archivedAt: (row.archived_at as string | null) ?? null,
+    gradingPolicyId: (row.grading_policy_id as string | null) ?? null,
+  };
+}
+
+function mapProfile(row: Row): ProfileRecord {
+  return {
+    id: str(row.id),
+    email: str(row.email),
+    fullName: str(row.full_name),
+    role: str(row.role, 'instructor') as Role,
+    schoolName: (row.school_name as string | null) ?? null,
+    subjects: Array.isArray(row.subjects) ? (row.subjects as string[]) : [],
+    defaultGradeLevel: (row.default_grade_level as ClassLevel | null) ?? null,
     gradingPolicyId: (row.grading_policy_id as string | null) ?? null,
   };
 }

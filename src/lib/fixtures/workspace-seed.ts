@@ -7,6 +7,7 @@ import type {
   GradingPolicyRecord,
   HistoryRecord,
   LessonPlanRecord,
+  ProfileRecord,
   RubricRow,
 } from '@/lib/api/types';
 
@@ -327,6 +328,25 @@ export const demoPolicies: GradingPolicyRecord[] = [
     createdAt: '2026-01-06T09:00:00.000Z',
   },
 ];
+
+/**
+ * The demo teacher.
+ *
+ * Carries the answers a real account accumulates: the school they work at, the
+ * subjects they teach, the level they usually teach at, and the scale they grade
+ * on by default. Shaped exactly as a saved profile so the profile form opens on
+ * real data rather than empty fields.
+ */
+export const demoProfile: ProfileRecord = {
+  id: OWNER,
+  email: 'maya@liko.test',
+  fullName: 'Maya Okonkwo',
+  role: 'instructor',
+  schoolName: 'Northfield Science Academy',
+  subjects: ['Chemistry', 'Environmental Science'],
+  defaultGradeLevel: 'k12',
+  gradingPolicyId: 'percentage',
+};
 
 /**
  * Marked registers for the last three weeks.

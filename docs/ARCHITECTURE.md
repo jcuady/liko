@@ -231,6 +231,30 @@ silent about it.
 
 In `supabase` mode none of this file is reachable.
 
+## The teacher profile
+
+`profiles` carries the answers that make the product specific to one teacher: the
+school they work at, the subjects they teach, the level they usually teach at,
+and the scale they grade on by default. A class still overrides the scale, so a
+department can differ from the teacher's own habit.
+
+Subjects are a `text[]` rather than a table. Nothing joins to a subject, because
+the gradebook reaches a student through a class, so normalising them would add a
+lookup nobody queries and an extra write per save. They are deduplicated
+case-insensitively while keeping the first spelling typed, because the list is
+read back to the teacher and should read the way they wrote it.
+
+`parseSubjects` lives in `src/lib/profile/subjects.ts` rather than beside the
+server action, for the same reason `SEVERITY_OPTIONS` moved: a `'use server'`
+module may only export async functions, and a plain helper exported from one
+reaches the client as an uncallable proxy.
+
+`/settings/profile` used to render an "editing your profile is not built yet"
+placeholder. It is a single form with everything visible, deliberately not a
+wizard: the wizard belongs to signup, where collecting answers in an order that
+builds context has a job to do. Editing an existing profile has no such order.
+Both paths write the same shape.
+
 ## Grading policies
 
 `src/lib/grading/policy.ts` treats a grading scale as data: a descending set of

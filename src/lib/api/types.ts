@@ -233,3 +233,31 @@ export interface GradingPolicyInput {
   kind: PolicyKind;
   bands: GradeBand[];
 }
+
+/**
+ * A teacher's own account settings.
+ *
+ * Separate from `ClassRecord` because these follow the person, not a class: a
+ * teacher who grades chemistry on GWA and biology on percentage carries both
+ * answers here once and overrides per class where they differ.
+ */
+export interface ProfileRecord {
+  id: string;
+  email: string;
+  fullName: string;
+  role: Role;
+  schoolName: string | null;
+  /** Free text as typed, so "AP Biology" survives rather than being normalised. */
+  subjects: string[];
+  defaultGradeLevel: ClassLevel | null;
+  /** The scale this teacher grades on by default. */
+  gradingPolicyId: string | null;
+}
+
+export interface ProfileInput {
+  fullName: string;
+  schoolName: string;
+  subjects: string[];
+  defaultGradeLevel: ClassLevel | null;
+  gradingPolicyId: string | null;
+}

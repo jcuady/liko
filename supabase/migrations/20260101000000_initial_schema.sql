@@ -41,6 +41,25 @@ create table if not exists public.profiles (
 comment on table public.profiles is
   'Application profile for an authenticated user. Mirrors auth.users for data only.';
 
+-- ---------------------------------------------------------------------------
+-- Teacher context
+--
+-- `subjects` is a text array rather than a table: it is a short free-text list
+-- the teacher types and nothing joins to it, so normalising it would add a
+-- lookup nobody queries and an extra write on every save.
+--
+-- `grading_policy_id` is the scale this teacher grades on by default. A class
+-- still overrides it, so a department can differ from the teacher's habit.
+-- Added after the initial table so the migration stays idempotent.
+-- ---------------------------------------------------------------------------
+alter table public.profiles
+  add column if not exists school_name text,
+  add column if not exists subjects text[] not null default '{}',
+  add column if not exists default_grade_level text
+    check (default_grade_level is null or default_grade_level in ('preschool', 'k12', 'university')),
+  add column if not exists grading_policy_id uuid
+    references public.grading_policies (id) on delete set null;
+
 create trigger profiles_set_updated_at
   before update on public.profiles
   for each row execute function public.set_updated_at();

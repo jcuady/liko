@@ -331,6 +331,55 @@ test.describe('planner and assessments', () => {
   });
 });
 
+test.describe('profile', () => {
+  /*
+   * This route used to render an "editing your profile is not built yet"
+   * placeholder. It now carries the answers the rest of the product reads, so
+   * the form is asserted rather than the absence of one.
+   */
+  test('shows the teacher context on the profile', async ({ page }) => {
+    await signIn(page);
+    await page.goto('/settings/profile');
+
+    await expect(page.getByLabel('Full name')).toHaveValue('Maya Okonkwo');
+    await expect(page.getByLabel('School or institution')).toHaveValue(
+      'Northfield Science Academy',
+    );
+    await expect(page.getByLabel('Subjects')).toHaveValue(
+      'Chemistry, Environmental Science',
+    );
+    await expect(page.getByLabel('Level you usually teach')).toHaveValue('k12');
+    await expect(page.getByLabel('Default scale')).toHaveValue('percentage');
+  });
+
+  test('the save button is inert until something changes', async ({ page }) => {
+    await signIn(page);
+    await page.goto('/settings/profile');
+
+    const save = page.getByRole('button', { name: 'Save profile' });
+    await expect(save).toBeDisabled();
+
+    await page.getByLabel('School or institution').fill('Ravensmoor College');
+    await expect(save).toBeEnabled();
+
+    await save.click();
+    await expect(page.getByText('Profile saved.')).toBeVisible();
+
+    // The value survives a reload, which is the whole point of the form.
+    await page.reload();
+    await expect(page.getByLabel('School or institution')).toHaveValue('Ravensmoor College');
+  });
+
+  test('the default scale offers every grading system', async ({ page }) => {
+    await signIn(page);
+    await page.goto('/settings/profile');
+
+    const options = await page.getByLabel('Default scale').locator('option').allTextContents();
+    expect(options).toContain('GWA');
+    expect(options).toContain('GPA');
+  });
+});
+
 test.describe('navigation shell', () => {
   test('every primary destination is reachable from the sidebar', async ({ page }) => {
     await signIn(page);

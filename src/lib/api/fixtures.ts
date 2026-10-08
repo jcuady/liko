@@ -13,6 +13,7 @@ import {
   demoHistory,
   demoPlans,
   demoPolicies,
+  demoProfile,
   secondClassStudents,
 } from '@/lib/fixtures/workspace-seed';
 import {
@@ -32,6 +33,7 @@ import type {
   HeatCell,
   HistoryRecord,
   LessonPlanRecord,
+  ProfileRecord,
   Stat,
   StudentRecord,
 } from './types';
@@ -71,6 +73,7 @@ interface FixtureStore {
   behaviour: BehaviourLogRecord[];
   history: HistoryRecord[];
   policies: GradingPolicyRecord[];
+  profile: ProfileRecord;
 }
 
 function createStore(): FixtureStore {
@@ -130,6 +133,7 @@ function createStore(): FixtureStore {
     behaviour: demoBehaviour,
     history: demoHistory,
     policies: demoPolicies,
+    profile: demoProfile,
   };
 }
 
@@ -409,5 +413,16 @@ export const fixtures: WorkspaceData = {
     store.classes = store.classes.map((row) =>
       row.id === classId ? { ...row, gradingPolicyId: policyId } : row,
     );
+  },
+
+  async getProfile() {
+    guard('getProfile');
+    return store.profile;
+  },
+
+  async updateProfile(_userId, input) {
+    guard('updateProfile');
+    store.profile = { ...store.profile, ...input };
+    return store.profile;
   },
 };
