@@ -3,6 +3,7 @@ import type {
   AssessmentRecord,
   AttendanceStatus,
   BehaviourLogRecord,
+  DeckRecord,
   GradeRecord,
   GradingPolicyRecord,
   HistoryRecord,
@@ -11,6 +12,7 @@ import type {
   OrgRecord,
   ProfileRecord,
   RubricRow,
+  SlideRecord,
 } from '@/lib/api/types';
 
 /**
@@ -485,6 +487,84 @@ export const demoMemberships: MemberRecord[] = [
     role: 'guardian',
     status: 'active',
     joinedAt: '2026-01-06T11:00:00.000Z',
+  },
+];
+
+/**
+ * The demo deck.
+ *
+ * The slide module is the one part of the product a teacher cannot tell is
+ * working from a list of names alone, so it ships with a real lesson in it:
+ * rates, titration and the equilibrium explanation a chemistry class actually
+ * walks through. An empty editor would be indistinguishable from a broken one.
+ */
+export const demoDecks: DeckRecord[] = [
+  {
+    id: 'deck_demo_reaction_rates',
+    ownerId: OWNER,
+    title: 'Reaction rates',
+    description: 'What changes the speed of a reaction, and what does not.',
+    archivedAt: null,
+    createdAt: '2026-01-07T09:00:00.000Z',
+    updatedAt: '2026-01-08T09:00:00.000Z',
+  },
+];
+
+export const demoSlides: SlideRecord[] = [
+  {
+    id: 'sld_demo_01',
+    deckId: 'deck_demo_reaction_rates',
+    ownerId: OWNER,
+    position: 0,
+    layout: 'title',
+    title: 'Reaction rates',
+    body: '',
+    notes: 'Two minutes on why this matters before any equations.',
+    updatedAt: '2026-01-08T09:00:00.000Z',
+  },
+  {
+    id: 'sld_demo_02',
+    deckId: 'deck_demo_reaction_rates',
+    ownerId: OWNER,
+    position: 1,
+    layout: 'bullets',
+    title: 'What the collision theory says',
+    body: 'Reactions need particles to collide\nEnough energy to break bonds\nThe right particles facing the right way',
+    notes: 'Draw two particles on the board. Ask which collision actually works.',
+    updatedAt: '2026-01-08T09:00:00.000Z',
+  },
+  {
+    id: 'sld_demo_03',
+    deckId: 'deck_demo_reaction_rates',
+    ownerId: OWNER,
+    position: 2,
+    layout: 'bullets',
+    title: 'Four things you can change',
+    body: 'Temperature\nConcentration\nSurface area\nA catalyst',
+    notes: 'Ask for a prediction before revealing each one.',
+    updatedAt: '2026-01-08T09:00:00.000Z',
+  },
+  {
+    id: 'sld_demo_04',
+    deckId: 'deck_demo_reaction_rates',
+    ownerId: OWNER,
+    position: 3,
+    layout: 'bullets',
+    title: 'A catalyst changes the route, not the destination',
+    body: 'Lower activation energy\nSame starting materials\nSame products\nFaster, but unchanged overall',
+    notes: 'The one students most often get wrong. Slow down here.',
+    updatedAt: '2026-01-08T09:00:00.000Z',
+  },
+  {
+    id: 'sld_demo_05',
+    deckId: 'deck_demo_reaction_rates',
+    ownerId: OWNER,
+    position: 4,
+    layout: 'bullets',
+    title: 'What you should be able to say by the end',
+    body: 'Explain a rate change using collisions\nPredict which change speeds a reaction up\nSay why a catalyst is not used up',
+    notes: 'Exit ticket. Two minutes, silent, on a sticky note.',
+    updatedAt: '2026-01-08T09:00:00.000Z',
   },
 ];
 

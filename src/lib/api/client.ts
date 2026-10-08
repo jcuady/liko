@@ -18,6 +18,8 @@ import type {
   BehaviourLogRecord,
   ClassLevel,
   ClassRecord,
+  DeckInput,
+  DeckRecord,
   GradeRecord,
   GradingPolicyInput,
   GradingPolicyRecord,
@@ -34,6 +36,9 @@ import type {
   ProfileRecord,
   Role,
   Severity,
+  SlideInput,
+  SlideLayout,
+  SlideRecord,
   Stat,
   StudentRecord,
 } from './types';
@@ -183,6 +188,33 @@ export interface WorkspaceData {
 
   /** Suspends or restores access without removing the person from the org. */
   setMemberStatus(userId: string, memberId: string, status: MembershipStatus): Promise<void>;
+
+  /*
+   * Slide decks.
+   *
+   * No import and no export. Converting to and from .pptx is deliberately out of
+   * scope, so a deck is authored here and presented from here or printed to PDF
+   * by the browser.
+   */
+  listDecks(userId: string): Promise<DeckRecord[]>;
+  createDeck(userId: string, input: DeckInput): Promise<DeckRecord>;
+  updateDeck(userId: string, deckId: string, input: DeckInput): Promise<DeckRecord>;
+  archiveDeck(userId: string, deckId: string): Promise<void>;
+
+  /** Slides of one deck, always in presentation order. */
+  listSlides(userId: string, deckId: string): Promise<SlideRecord[]>;
+  createSlide(userId: string, deckId: string, input: Partial<SlideInput>): Promise<SlideRecord>;
+  updateSlide(userId: string, slideId: string, input: SlideInput): Promise<SlideRecord>;
+  deleteSlide(userId: string, slideId: string): Promise<void>;
+
+  /**
+   * Moves a slide and renumbers the deck in one call.
+   *
+   * Taking a from and a to rather than a delta is deliberate: the editor's
+   * arrows know the target index, and a client-computed delta breaks the moment
+   * two people reorder at once.
+   */
+  moveSlide(userId: string, slideId: string, toIndex: number): Promise<void>;
 }
 
 type Row = Record<string, unknown>;
@@ -780,6 +812,187 @@ const supabaseAdapter: WorkspaceData = {
       .eq('org_id', org.id);
     if (error) throw mapSupabaseError(error);
   },
+
+  async listDecks(userId) {
+    const supabase = await requireClient();
+    const { data, error } = await supabase
+      .from('decks')
+      .select('*')
+      .eq('owner_id', userId)
+      .is('archived_at', null)
+      .order('updated_at', { ascending: false });
+    throwIf(error);
+    return (data ?? []).map((row) => mapDeck(row as Row));
+  },
+
+  async createDeck(userId, input) {
+    const supabase = await requireClient();
+    const { data, error } = await supabase
+      .from('decks')
+      .insert({ owner_id: userId, title: input.title, description: input.description })
+      .select('*')
+      .single();
+    throwIf(error);
+
+    /*
+     * A deck with no slides cannot be opened, so a new one is never empty. The
+     * opening slide is a title slide rather than a blank, because that is what
+     * a teacher is about to replace anyway and a blank canvas looks broken.
+     */
+    await supabase.from('slides').insert({
+      deck_id: data.id,
+      owner_id: userId,
+      position: 0,
+      layout: 'title',
+      title: input.title,
+      body: '',
+      notes: '',
+    });
+    throwIf(error);
+
+    return mapDeck(data as Row);
+  },
+
+  async updateDeck(userId, deckId, input) {
+    const supabase = await requireClient();
+    const { data, error } = await supabase
+      .from('decks')
+      .update({ title: input.title, description: input.description })
+      .eq('id', deckId)
+      .eq('owner_id', userId)
+      .select('*')
+      .single();
+    throwIf(error);
+    return mapDeck(data as Row);
+  },
+
+  async archiveDeck(userId, deckId) {
+    const supabase = await requireClient();
+    const { error } = await supabase
+      .from('decks')
+      .update({ archived_at: new Date().toISOString() })
+      .eq('id', deckId)
+      .eq('owner_id', userId);
+    throwIf(error);
+  },
+
+  async listSlides(userId, deckId) {
+    const supabase = await requireClient();
+    const { data, error } = await supabase
+      .from('slides')
+      .select('*')
+      .eq('deck_id', deckId)
+      .eq('owner_id', userId)
+      .order('position');
+    throwIf(error);
+    return (data ?? []).map((row) => mapSlide(row as Row));
+  },
+
+  async createSlide(userId, deckId, input) {
+    const supabase = await requireClient();
+
+    // Appended rather than inserted at a position, so two people adding a slide
+    // at once cannot collide on the same index.
+    const { data: existing } = await supabase
+      .from('slides')
+      .select('position')
+      .eq('deck_id', deckId)
+      .eq('owner_id', userId)
+      .order('position', { ascending: false })
+      .limit(1);
+
+    const position = (existing?.[0]?.position ?? -1) + 1;
+    const { data, error } = await supabase
+      .from('slides')
+      .insert({
+        deck_id: deckId,
+        owner_id: userId,
+        position,
+        layout: input.layout ?? 'bullets',
+        title: input.title ?? '',
+        body: input.body ?? '',
+        notes: input.notes ?? '',
+      })
+      .select('*')
+      .single();
+    throwIf(error);
+    await touchDeck(supabase, deckId);
+    return mapSlide(data as Row);
+  },
+
+  async updateSlide(userId, slideId, input) {
+    const supabase = await requireClient();
+    const { data, error } = await supabase
+      .from('slides')
+      .update({
+        layout: input.layout,
+        title: input.title,
+        body: input.body,
+        notes: input.notes,
+      })
+      .eq('id', slideId)
+      .eq('owner_id', userId)
+      .select('*')
+      .single();
+    throwIf(error);
+    await touchDeck(supabase, data.deck_id);
+    return mapSlide(data as Row);
+  },
+
+  async deleteSlide(userId, slideId) {
+    const supabase = await requireClient();
+    const { data, error } = await supabase
+      .from('slides')
+      .delete()
+      .eq('id', slideId)
+      .eq('owner_id', userId)
+      .select('deck_id');
+    throwIf(error);
+
+    const deckId = (data?.[0] as Row | undefined)?.deck_id;
+    if (deckId) {
+      await resequence(supabase, userId, String(deckId));
+      await touchDeck(supabase, String(deckId));
+    }
+  },
+
+  async moveSlide(userId, slideId, toIndex) {
+    const supabase = await requireClient();
+
+    const { data: slide, error: slideError } = await supabase
+      .from('slides')
+      .select('deck_id')
+      .eq('id', slideId)
+      .eq('owner_id', userId)
+      .single();
+    throwIf(slideError);
+
+    const deckId = String((slide as Row | null)?.deck_id ?? '');
+    const slides = await supabase
+      .from('slides')
+      .select('id')
+      .eq('deck_id', deckId)
+      .eq('owner_id', userId)
+      .order('position');
+    throwIf(slides.error);
+
+    const ids = (slides.data ?? []).map((row) => String(row.id));
+    const from = ids.indexOf(slideId);
+    if (from === -1) throw new DataError('NOT_FOUND', 'That slide no longer exists.');
+
+    const target = Math.max(0, Math.min(toIndex, ids.length - 1));
+    ids.splice(from, 1);
+    ids.splice(target, 0, slideId);
+
+    // Positions are renumbered across the whole deck so there is never a gap or
+    // a duplicate, which is what "two slides both claim to be third" looks like.
+    await Promise.all(
+      ids.map((id, index) =>
+        supabase.from('slides').update({ position: index }).eq('id', id).eq('owner_id', userId),
+      ),
+    );
+    await touchDeck(supabase, deckId);
+  },
 };
 
 function mapClass(row: Row): ClassRecord {
@@ -792,6 +1005,32 @@ function mapClass(row: Row): ClassRecord {
     meetsPerWeek: num(row.meets_per_week, 1),
     archivedAt: (row.archived_at as string | null) ?? null,
     gradingPolicyId: (row.grading_policy_id as string | null) ?? null,
+  };
+}
+
+function mapDeck(row: Row): DeckRecord {
+  return {
+    id: str(row.id),
+    ownerId: str(row.owner_id),
+    title: str(row.title),
+    description: str(row.description),
+    archivedAt: (row.archived_at as string | null) ?? null,
+    createdAt: iso(row.created_at),
+    updatedAt: iso(row.updated_at),
+  };
+}
+
+function mapSlide(row: Row): SlideRecord {
+  return {
+    id: str(row.id),
+    deckId: str(row.deck_id),
+    ownerId: str(row.owner_id),
+    position: num(row.position),
+    layout: str(row.layout, 'bullets') as SlideLayout,
+    title: str(row.title),
+    body: str(row.body),
+    notes: str(row.notes),
+    updatedAt: iso(row.updated_at),
   };
 }
 
@@ -911,6 +1150,42 @@ function mapPlan(row: Row): LessonPlanRecord {
 
 function throwIf(error: { message: string } | null): void {
   if (error) throw mapSupabaseError(error);
+}
+
+/**
+ * Stamps a deck as just edited.
+ *
+ * The deck list is ordered by `updated_at`, so a deck whose slides changed has
+ * to be stamped or it disappears down the list while the teacher is working on
+ * it.
+ */
+async function touchDeck(supabase: Awaited<ReturnType<typeof requireClient>>, deckId: string) {
+  await supabase.from('decks').update({ updated_at: new Date().toISOString() }).eq('id', deckId);
+}
+
+/** Closes the gap left by a deleted slide so positions stay contiguous. */
+async function resequence(
+  supabase: Awaited<ReturnType<typeof requireClient>>,
+  userId: string,
+  deckId: string,
+) {
+  const { data, error } = await supabase
+    .from('slides')
+    .select('id')
+    .eq('deck_id', deckId)
+    .eq('owner_id', userId)
+    .order('position');
+  if (error) return;
+
+  await Promise.all(
+    (data ?? []).map((row, index) =>
+      supabase
+        .from('slides')
+        .update({ position: index })
+        .eq('id', row.id)
+        .eq('owner_id', userId),
+    ),
+  );
 }
 
 async function requireClient() {

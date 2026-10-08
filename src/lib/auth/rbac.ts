@@ -126,6 +126,10 @@ export const ROUTE_PERMISSIONS: { prefix: string; permission: Permission }[] = [
   { prefix: '/grades', permission: 'grade:read' },
   { prefix: '/assess', permission: 'assess:write' },
   { prefix: '/plan', permission: 'plan:write' },
+  // Slides sit beside the planner because they are the same job: preparing
+  // something to teach with. Same gate, so the two never disagree about who
+  // can author lesson material.
+  { prefix: '/slides', permission: 'plan:write' },
   { prefix: '/attendance', permission: 'attendance:write' },
   { prefix: '/classes', permission: 'class:read' },
   { prefix: '/history', permission: 'history:read' },
@@ -155,6 +159,7 @@ export const PROTECTED_PREFIXES = [
   '/classes',
   '/attendance',
   '/plan',
+  '/slides',
   '/assess',
   '/grades',
   '/history',
@@ -205,6 +210,7 @@ const PRIMARY_ROUTES = [
   '/classes',
   '/attendance',
   '/plan',
+  '/slides',
   '/grades',
   '/assess',
 ];

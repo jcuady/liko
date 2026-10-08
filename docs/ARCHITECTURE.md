@@ -39,7 +39,7 @@ root layout and owns `<html>`, fonts, and providers.
 | `/welcome` | `(dashboard)` | any authenticated | Dynamic |
 | `/overview` | `(dashboard)` | `analytics:read` | Dynamic |
 | `/attendance` | `(dashboard)` | `attendance:write` | Dynamic |
-| `/classes` `/plan` `/assess` `/grades` `/history` | `(dashboard)` | per route | Dynamic |
+| `/classes` `/plan` `/slides` `/assess` `/grades` `/history` | `(dashboard)` | per route | Dynamic |
 | `/admin` | `(dashboard)` | `org:manage` | Dynamic |
 | `/settings/*` | `(dashboard)` | any authenticated | Dynamic |
 | `/forbidden` | `(dashboard)` | any authenticated | Dynamic |
@@ -165,6 +165,37 @@ someone may do without saying whose records they may do it to.
 the last active admin is refused with a reason, in the seam and reflected in the
 UI, because the alternative is a school that nobody can recover through the
 interface.
+
+## Slide decks
+
+A deck is lesson material, so it is gated on `plan:write` and sits beside the
+planner in the navigation. Splitting the two would mean a teacher could prepare a
+plan for a class they are not allowed to teach into.
+
+**There is no .pptx import or export, and that is a decision rather than a gap.**
+Converting in either direction needs a library that carries its own ideas about
+what a slide is, and those ideas are Microsoft Office's. A deck authored in LIKO
+is authored in LIKO, and it is presented from LIKO or printed to PDF by the
+browser, which is what a teacher actually does with it.
+
+**Positions are a target index, not a delta.** The editor's arrows know where a
+slide is going; a client-computed delta is wrong the moment two people reorder
+the same deck. The seam renumbers the deck on every move and every delete, and
+`unique (deck_id, position)` makes a duplicate impossible rather than merely
+unlikely.
+
+**The slide form is mounted with `key={slide.id}`.** The obvious alternative, an
+effect that copies the selected slide into form state whenever the selection
+changes, renders twice per selection and discards half-typed input every time a
+save lands.
+
+**Present mode shares the editor's renderer.** What a teacher sees while editing
+a slide is the component the class sees during a lesson, so the preview cannot
+drift from the projection.
+
+**Deleting the last slide archives the deck.** A deck with nothing in it cannot
+be presented, and leaving one behind reads as data loss rather than as an
+accident.
 
 ## Administration
 

@@ -477,6 +477,55 @@ create policy "org memberships manageable" on public.memberships
   );
 
 -- ---------------------------------------------------------------------------
+-- decks and slides
+--
+-- Authoring only. There is deliberately no .pptx import or export: a deck is
+-- written here and presented from here, or printed to PDF by the browser.
+--
+-- `position` is the presentation order and is kept contiguous, with the unique
+-- index below making a duplicate impossible rather than merely unlikely. A
+-- reorder renumbers the whole deck, which is why the editor sends a target
+-- index rather than a delta.
+-- ---------------------------------------------------------------------------
+create table if not exists public.decks (
+  id          uuid primary key default gen_random_uuid(),
+  owner_id    uuid not null references auth.users (id) on delete cascade,
+  title       text not null check (char_length(title) between 1 and 160),
+  description text not null default '',
+  archived_at timestamptz,
+  created_at  timestamptz not null default now(),
+  updated_at  timestamptz not null default now()
+);
+
+create index if not exists decks_owner_idx on public.decks (owner_id)
+  where archived_at is null;
+
+create trigger decks_set_updated_at
+  before update on public.decks
+  for each row execute function public.set_updated_at();
+
+create table if not exists public.slides (
+  id         uuid primary key default gen_random_uuid(),
+  deck_id    uuid not null references public.decks (id) on delete cascade,
+  owner_id   uuid not null references auth.users (id) on delete cascade,
+  position   integer not null check (position >= 0),
+  layout     text not null default 'bullets'
+             check (layout in ('title', 'bullets', 'split', 'blank')),
+  title      text not null default '',
+  body       text not null default '',
+  notes      text not null default '',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (deck_id, position)
+);
+
+create index if not exists slides_deck_idx on public.slides (deck_id, position);
+
+create trigger slides_set_updated_at
+  before update on public.slides
+  for each row execute function public.set_updated_at();
+
+-- ---------------------------------------------------------------------------
 -- RLS
 --
 -- Ownership rule for every tenant table. Writes and reads both require
@@ -493,11 +542,8 @@ alter table public.lesson_plans      enable row level security;
 alter table public.behaviour_logs    enable row level security;
 alter table public.student_history   enable row level security;
 alter table public.push_subscriptions enable row level security;
-
--- profiles is keyed by id rather than owner_id.
-drop policy if exists "profiles own row" on public.profiles;
-create policy "profiles own row" on public.profiles
-  for all using (id = auth.uid()) with check (id = auth.uid());
+alter table public.decks             enable row level security;
+alter table public.slides            enable row level security;
 
 do $$
 declare
@@ -505,7 +551,7 @@ declare
 begin
   foreach t in array array[
     'classes', 'students', 'attendance', 'assessments', 'grades',
-    'lesson_plans', 'behaviour_logs', 'student_history'
+    'lesson_plans', 'behaviour_logs', 'student_history', 'decks', 'slides'
   ]
   loop
     execute format('drop policy if exists "own rows" on public.%I', t);
@@ -516,6 +562,11 @@ begin
     );
   end loop;
 end $$;
+
+-- profiles is keyed by id rather than owner_id.
+drop policy if exists "profiles own row" on public.profiles;
+create policy "profiles own row" on public.profiles
+  for all using (id = auth.uid()) with check (id = auth.uid());
 
 -- An admin can read across the classes they administer without being able to
 -- read a class they do not own. Write stays owner-only.

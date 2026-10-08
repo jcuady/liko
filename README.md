@@ -39,7 +39,8 @@ parent/guardian views.
 | Onboarding | Three first-run questions: what is taught, how it is graded, the first class. Skippable, saves as it goes, resumes where it stopped |
 | Tenancy | `organizations` and `memberships`, resolved through the signed-in account so no caller can address another school's records |
 | Administration | `/admin`, gated on `org:manage`: people and roles, classes, organisation settings, and the live permission matrix |
-| Workspace | Nine permission-gated routes (overview, classes, attendance, planner, assessments, gradebook, history, administration, settings) with a `/forbidden` refusal, covered per role by `e2e/rbac.spec.ts` |
+| Slides | Deck editor with four layouts, speaker notes, reorder, and a keyboard-driven present mode. No .pptx conversion, by design |
+| Workspace | Nine permission-gated routes (overview, classes, attendance, planner, slides, assessments, gradebook, history, administration, settings) with a `/forbidden` refusal, covered per role by `e2e/rbac.spec.ts` |
 | Data | One typed seam, `src/lib/api/client.ts`, with a Supabase adapter and a fixture adapter |
 | Offline | IndexedDB write queue plus Serwist runtime caching and an `/offline` fallback |
 | Push | Web push for at-risk alerts and grade/attendance summaries |

@@ -12,6 +12,7 @@ import {
   GridFourIcon,
   ListChecksIcon,
   PaintBrushIcon,
+  PresentationChartIcon,
   ShieldCheckIcon,
   StackIcon,
   UserCircleIcon,
@@ -56,6 +57,7 @@ export const PRIMARY_NAV: NavItem[] = [
   { href: '/classes', label: 'Classes', icon: BooksIcon },
   { href: '/attendance', label: 'Attendance', icon: ListChecksIcon },
   { href: '/plan', label: 'Planner', icon: ClipboardTextIcon },
+  { href: '/slides', label: 'Slides', icon: PresentationChartIcon },
   { href: '/grades', label: 'Gradebook', icon: ChartLineUpIcon },
   { href: '/assess', label: 'Assess', icon: StackIcon },
 ];

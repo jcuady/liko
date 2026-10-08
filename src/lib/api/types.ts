@@ -304,6 +304,58 @@ export interface MemberRecord {
   joinedAt: string;
 }
 
+/**
+ * How a slide arranges its own content.
+ *
+ * Four is enough to cover the shapes a lesson actually uses and few enough that
+ * a teacher can tell them apart at a glance in the layout picker. Anything more
+ * becomes a design tool, which is not what this is.
+ */
+export const SLIDE_LAYOUTS = ['title', 'bullets', 'split', 'blank'] as const;
+export type SlideLayout = (typeof SLIDE_LAYOUTS)[number];
+
+export const SLIDE_LAYOUT_LABELS: Record<SlideLayout, string> = {
+  title: 'Title only',
+  bullets: 'Title and points',
+  split: 'Points beside an image',
+  blank: 'Blank',
+};
+
+export interface DeckRecord {
+  id: string;
+  ownerId: string;
+  title: string;
+  description: string;
+  archivedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface DeckInput {
+  title: string;
+  description: string;
+}
+
+export interface SlideRecord {
+  id: string;
+  deckId: string;
+  ownerId: string;
+  position: number;
+  layout: SlideLayout;
+  title: string;
+  body: string;
+  /** Kept apart from the body because a teacher never projects it. */
+  notes: string;
+  updatedAt: string;
+}
+
+export interface SlideInput {
+  layout: SlideLayout;
+  title: string;
+  body: string;
+  notes: string;
+}
+
 export interface ProfileInput {
   fullName: string;
   /**

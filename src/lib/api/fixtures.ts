@@ -17,6 +17,8 @@ import {
   demoProfiles,
   demoOrg,
   demoMemberships,
+  demoDecks,
+  demoSlides,
   secondClassStudents,
 } from '@/lib/fixtures/workspace-seed';
 import {
@@ -31,6 +33,7 @@ import type {
   AttendanceWrite,
   BehaviourLogRecord,
   ClassRecord,
+  DeckRecord,
   GradeRecord,
   GradingPolicyRecord,
   HeatCell,
@@ -39,6 +42,7 @@ import type {
   MemberRecord,
   OrgRecord,
   ProfileRecord,
+  SlideRecord,
   Stat,
   StudentRecord,
 } from './types';
@@ -86,6 +90,8 @@ interface FixtureStore {
    */
   orgs: Map<string, OrgRecord>;
   memberships: MemberRecord[];
+  decks: DeckRecord[];
+  slides: SlideRecord[];
 }
 
 function createStore(): FixtureStore {
@@ -148,6 +154,8 @@ function createStore(): FixtureStore {
     profiles: new Map(demoProfiles.map((profile) => [profile.id, profile])),
     orgs: new Map([[demoOrg.id, { ...demoOrg }]]),
     memberships: demoMemberships.map((member) => ({ ...member })),
+    decks: demoDecks.map((deck) => ({ ...deck })),
+    slides: demoSlides.map((slide) => ({ ...slide })),
   };
 }
 
@@ -701,4 +709,184 @@ export const fixtures: WorkspaceData = {
     const profile = store.profiles.get(member.userId);
     if (profile) profile.orgId = status === 'active' ? member.orgId : null;
   },
+
+  /*
+   * Slide decks.
+   *
+   * Ownership follows the classes: the demo workspace's deck belongs to the demo
+   * accounts, and an account registered during a session sees only what it
+   * created. An editor that opened onto somebody else's lesson would be worse
+   * than an empty one.
+   */
+  async listDecks(userId) {
+    guard('listDecks');
+    const rows = isDemoAccount(userId) ? store.decks : store.decks.filter((d) => d.ownerId === userId);
+    return rows
+      .filter((deck) => deck.archivedAt === null)
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+      .map((deck) => ({ ...deck }));
+  },
+
+  async createDeck(userId, input) {
+    guard('createDeck');
+    const now = new Date().toISOString();
+    const deck: DeckRecord = {
+      id: `deck_${store.decks.length + 1}`,
+      ownerId: userId,
+      title: input.title,
+      description: input.description,
+      archivedAt: null,
+      createdAt: now,
+      updatedAt: now,
+    };
+    store.decks = [...store.decks, deck];
+
+    // A deck with no slides cannot be opened, so a new one opens with a title
+    // slide. That is also what the teacher is about to replace.
+    store.slides = [
+      ...store.slides,
+      {
+        id: `sld_${store.slides.length + 1}`,
+        deckId: deck.id,
+        ownerId: userId,
+        position: 0,
+        layout: 'title',
+        title: input.title,
+        body: '',
+        notes: '',
+        updatedAt: now,
+      },
+    ];
+
+    return { ...deck };
+  },
+
+  async updateDeck(userId, deckId, input) {
+    guard('updateDeck');
+    const deck = ownedDeck(store, userId, deckId);
+    deck.title = input.title;
+    deck.description = input.description;
+    deck.updatedAt = new Date().toISOString();
+    return { ...deck };
+  },
+
+  async archiveDeck(userId, deckId) {
+    guard('archiveDeck');
+    const deck = ownedDeck(store, userId, deckId);
+    // Soft delete, like everything else that has history behind it.
+    deck.archivedAt = new Date().toISOString();
+  },
+
+  async listSlides(userId, deckId) {
+    guard('listSlides');
+    return deckSlides(store, userId, deckId).map((slide) => ({ ...slide }));
+  },
+
+  async createSlide(userId, deckId, input) {
+    guard('createSlide');
+    const deck = ownedDeck(store, userId, deckId);
+    const siblings = deckSlides(store, userId, deckId);
+    const now = new Date().toISOString();
+
+    const slide: SlideRecord = {
+      id: `sld_${store.slides.length + 1}`,
+      deckId: deck.id,
+      ownerId: userId,
+      // Appended, never inserted at a chosen index, so two people adding at
+      // once cannot collide on the same position.
+      position: siblings.length,
+      layout: input.layout ?? 'bullets',
+      title: input.title ?? '',
+      body: input.body ?? '',
+      notes: input.notes ?? '',
+      updatedAt: now,
+    };
+
+    store.slides = [...store.slides, slide];
+    deck.updatedAt = now;
+    return { ...slide };
+  },
+
+  async updateSlide(userId, slideId, input) {
+    guard('updateSlide');
+    const slide = ownedSlide(store, userId, slideId);
+
+    slide.layout = input.layout;
+    slide.title = input.title;
+    slide.body = input.body;
+    slide.notes = input.notes;
+    slide.updatedAt = new Date().toISOString();
+
+    const deck = store.decks.find((row) => row.id === slide.deckId);
+    if (deck) deck.updatedAt = slide.updatedAt;
+
+    return { ...slide };
+  },
+
+  async deleteSlide(userId, slideId) {
+    guard('deleteSlide');
+    const slide = ownedSlide(store, userId, slideId);
+
+    store.slides = store.slides.filter((row) => row.id !== slideId);
+    resequenceSlides(store, userId, slide.deckId);
+
+    const deck = store.decks.find((row) => row.id === slide.deckId);
+    if (deck) deck.updatedAt = new Date().toISOString();
+  },
+
+  async moveSlide(userId, slideId, toIndex) {
+    guard('moveSlide');
+    const slide = ownedSlide(store, userId, slideId);
+    const siblings = deckSlides(store, userId, slide.deckId);
+
+    const from = siblings.findIndex((row) => row.id === slideId);
+    if (from === -1) throw new DataError('NOT_FOUND', 'That slide no longer exists.');
+
+    const target = Math.max(0, Math.min(toIndex, siblings.length - 1));
+    if (target === from) return;
+
+    const reordered = [...siblings];
+    reordered.splice(from, 1);
+    reordered.splice(target, 0, slide);
+
+    reordered.forEach((row, index) => {
+      row.position = index;
+    });
+
+    const deck = store.decks.find((row) => row.id === slide.deckId);
+    if (deck) deck.updatedAt = new Date().toISOString();
+  },
 };
+
+/** Slides of one deck, in presentation order. */
+function deckSlides(store: FixtureStore, userId: string, deckId: string): SlideRecord[] {
+  return store.slides
+    .filter((slide) => slide.deckId === deckId)
+    .filter((slide) => isDemoAccount(userId) || slide.ownerId === userId)
+    .sort((a, b) => a.position - b.position);
+}
+
+/** Renumbers a deck so positions are contiguous, with no gap or duplicate. */
+function resequenceSlides(store: FixtureStore, userId: string, deckId: string): void {
+  deckSlides(store, userId, deckId).forEach((slide, index) => {
+    slide.position = index;
+  });
+}
+
+function ownedDeck(store: FixtureStore, userId: string, deckId: string): DeckRecord {
+  const deck = store.decks.find((row) => row.id === deckId);
+  // A deck that is not this account's is reported exactly as one that does not
+  // exist, so a crafted id cannot confirm that somebody else's deck is real.
+  if (!deck || (!isDemoAccount(userId) && deck.ownerId !== userId)) {
+    throw new DataError('NOT_FOUND', 'That deck does not exist.');
+  }
+  return deck;
+}
+
+function ownedSlide(store: FixtureStore, userId: string, slideId: string): SlideRecord {
+  const slide = store.slides.find((row) => row.id === slideId);
+  if (!slide || (!isDemoAccount(userId) && slide.ownerId !== userId)) {
+    throw new DataError('NOT_FOUND', 'That slide does not exist.');
+  }
+  return slide;
+}
