@@ -20,8 +20,13 @@ import {
  * This list used to describe a time-limited free trial, importing a class list
  * from a spreadsheet or an LMS, exporting any class as CSV or JSON, an AI
  * feature that scoped student records to a single request, and cancelling from
- * settings. None of those exist in the product. There is no trial, no import,
- * no export, no AI feature and no cancellation flow.
+ * settings. None of those existed in the product.
+ *
+ * A gradebook export was added later, so "no export" is no longer the answer and
+ * saying so would be its own kind of wrong. The answer now names what the button
+ * actually does, one class's marks at a time, and is explicit about the rest
+ * still coming from us. There is no trial, no class list import, no AI feature
+ * and no cancellation flow.
  *
  * The questions are the ones a teacher actually asks, so they stay. The answers
  * say what is true, including where the honest answer is "not yet, ask us".
@@ -43,7 +48,7 @@ const ITEMS = [
   },
   {
     q: 'Can I get my data out?',
-    a: 'Your classes, gradebooks and student history are yours, and we will get them out for you. There is no self-service export button yet, so write to us and we will arrange it rather than have you discover the gap when you need it.',
+    a: 'Your classes, gradebooks and student history are yours. A class gradebook downloads from the Gradebook page as a spreadsheet you can open anywhere, one class at a time. Attendance, history and anything else, write to us and we will get it out for you.',
   },
   {
     q: 'How does LIKO handle student data?',

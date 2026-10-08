@@ -21,8 +21,8 @@ import type {
 import {
   PERCENTAGE_POLICY,
   formatByPolicy,
+  toPolicy,
   weightedPointTotal,
-  type GradingPolicy,
 } from '@/lib/grading/policy';
 
 import { saveGrade, setClassGradingPolicy } from './actions';
@@ -45,16 +45,6 @@ import { saveGrade, setClassGradingPolicy } from './actions';
  * which it is on. The selector shows every scale available to the account and
  * offers to make the choice stick to the class.
  */
-
-function toPolicy(record: GradingPolicyRecord): GradingPolicy {
-  return {
-    id: record.id,
-    label: record.name,
-    kind: record.kind,
-    bands: record.bands,
-    hint: record.builtIn ? 'Built in.' : 'Your scale.',
-  };
-}
 
 export function Gradebook({
   classes,
@@ -339,6 +329,20 @@ export function Gradebook({
           />
 
           <NewAssessmentDialog classId={effectiveClassId} triggerLabel="New assessment" />
+
+          {/*
+            A plain link, not a button and not a fetch. The endpoint sends the
+            file as an attachment with Content-Disposition, so the browser
+            handles the download and the page never has to build a Blob or hold
+            the data in memory twice.
+          */}
+          <a
+            href={`/grades/export?class=${encodeURIComponent(effectiveClassId)}`}
+            download
+            className="inline-flex h-11 items-center rounded-[12px] border border-border bg-surface px-3.5 text-[0.9375rem] text-ink transition-colors duration-150 hover:border-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring/25"
+          >
+            Export CSV
+          </a>
         </div>
       </div>
 

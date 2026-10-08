@@ -234,12 +234,25 @@ export default function PrivacyPage() {
                 </li>
               </ul>
               <p>
-                When a subscription ends, write to us and we will help you get
-                out of LIKO first, then delete what remains, keeping only what a
-                tax or legal obligation requires. There is no self-service
-                export button yet, so please ask rather than assuming it is
-                there; we would rather do it by hand than have you discover it
-                was missing after you needed it.
+                When a subscription ends, write to us and we will help you
+                get out of LIKO first, then delete what remains, keeping
+                only what a tax or legal obligation requires.
+              </p>
+              <p>
+                You do not have to wait for that. A teacher can download a
+                class gradebook as a spreadsheet from the Gradebook page,
+                covering the marks, the assessment names and a weighted
+                total for every student on the roster, one class at a time.
+                It is a file you keep, not a link that expires.
+              </p>
+              <p>
+                That is the whole of the self-service part, and it is worth
+                being exact about where the line is. Attendance, lesson
+                plans, student history notes, accounts and organisation
+                records are not in that download. If a parent or a school
+                asks for any of it, ask us and we will send it, rather than
+                have anyone assume the button was missing after they needed
+                it.
               </p>
             </>
           ),

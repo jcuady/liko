@@ -140,6 +140,33 @@ export function policyById(id: string): GradingPolicy | undefined {
   return BUILT_IN_POLICIES.find((policy) => policy.id === id);
 }
 
+/**
+ * Stored scale to the shape the grading maths takes.
+ *
+ * Lives here rather than in the gradebook component because the CSV export has
+ * to agree with what is on screen. A copy of this function in the component and
+ * another in the exporter is two places to forget a field, and the failure is a
+ * spreadsheet whose totals disagree with the page it was downloaded from.
+ *
+ * `label` and `hint` are presentational, so the stored name is carried across
+ * and the built-in flag decides which wording a teacher sees.
+ */
+export function toPolicy(record: {
+  id: string;
+  name: string;
+  kind: PolicyKind;
+  bands: GradeBand[];
+  builtIn: boolean;
+}): GradingPolicy {
+  return {
+    id: record.id,
+    label: record.name,
+    kind: record.kind,
+    bands: record.bands,
+    hint: record.builtIn ? 'Built in.' : 'Your scale.',
+  };
+}
+
 /** Mark as a percentage, or null when the assessment has no usable maximum. */
 export function toPercentage(score: number, maxScore: number): number | null {
   if (maxScore <= 0) return null;

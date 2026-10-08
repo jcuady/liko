@@ -82,7 +82,7 @@ Authorisation is two independent layers. `proxy.ts` gates routes before render, 
 | Billing and payments | Not started | Not started | n/a | n/a | **NOT STARTED.** No Stripe, no checkout, no subscription state, no invoices |
 | Plan gating | Column exists, unused | Not started | n/a | n/a | **DEFERRED BY DECISION.** `organizations.plan` and `seat_limit` are stored and editable but no code reads them to limit anything. Deliberately not built yet, see below |
 | Class list import | Not started | Not started | n/a | n/a | **NOT STARTED.** No spreadsheet or LMS import |
-| Data export | Not started | Not started | n/a | n/a | **NOT STARTED.** No CSV or JSON export |
+| Data export | Done | Done | n/a | Passing | **Partly complete.** Gradebook CSV per class at `/grades/export`. Attendance, history, plans and accounts are not in it; those go through us |
 
 ### Claims versus reality
 
