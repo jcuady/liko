@@ -5,7 +5,7 @@
  * These are the things a screenshot cannot show but a visitor will feel:
  *
  *   1. Anchor navigation must not park a heading underneath the sticky nav.
- *   2. `prefers-reduced-motion: reduce` must remove the reveals and the GSAP
+ *   2. `prefers-reduced-motion: reduce` must remove the reveals and the
  *      scroll narratives rather than merely shortening them.
  *   3. With scripting blocked, nothing may be left stuck at `opacity: 0`.
  *      A PWA has to render its own content with no network and no JS runtime.

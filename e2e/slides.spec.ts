@@ -10,6 +10,27 @@ import { expect, test, type Page } from '@playwright/test';
  * mode because that is how it is actually used, standing up.
  */
 
+/*
+ * THIS FILE IS NOT PARALLEL WITH ITSELF, AND THAT IS DELIBERATE.
+ *
+ * The fixture workspace is one shared mutable store, so every test in here sees
+ * the same decks and the same slides. "Reordering puts a slide where it was asked
+ * to go" genuinely swaps slide 1 for slide 2 and then swaps it back; between
+ * those two clicks, slide 1 is a different slide. A present-mode test reading
+ * that deck at that moment fails, and it fails intermittently: three passes in
+ * isolation, one failure in a full run, which is the signature of a race and
+ * nothing else.
+ *
+ * Restoring the mutation is not enough, because the restore is itself a window.
+ * Building each test its own deck was tried and is worse: driving the editor to
+ * populate a fixture depends on the editor's per-field blur-to-save, which is
+ * the thing under test elsewhere in this file.
+ *
+ * So the file is serial. The suite still runs four workers across ten spec files;
+ * only this one stops racing itself.
+ */
+test.describe.configure({ mode: 'serial' });
+
 const PASSWORD = 'LikoDemo!2026';
 
 async function signIn(page: Page): Promise<void> {
@@ -147,10 +168,9 @@ test.describe('present mode', () => {
     await page.getByRole('button', { name: 'Present' }).click();
 
     /*
-     * The slide count is read rather than assumed. Every test in this file runs
-     * against one shared demo workspace in parallel, so a sibling adding or
-     * reordering a slide changes the total underneath this one. What matters is
-     * that the keys move the position, not what the total happens to be.
+     * The slide count is read rather than assumed, so this holds even if another
+     * spec file added a slide to the shared deck. What matters is that the keys
+     * move the position, not what the total happens to be.
      */
     const counter = page.getByText(/\d+ of \d+/).first();
     await expect(counter).toBeVisible();
@@ -172,7 +192,7 @@ test.describe('present mode', () => {
     await signIn(page);
     await page.goto('/slides');
     await page.getByRole('link', { name: 'Reaction rates' }).click();
-    await page.getByRole('button', { name: 'Select slide 1' }).click();
+    await page.getByRole('button', { name: /Select slide 1/ }).click();
     await page.getByRole('button', { name: 'Present' }).click();
 
     await expect(page.getByText(/Two minutes on why this matters/)).toHaveCount(0);

@@ -36,7 +36,8 @@
 
 **Marketing**
 
-- Ten-section landing page, editorial split hero, two GSAP scroll narratives
+- Ten-section landing page, editorial split hero, two scroll narratives (sticky
+  Flow stack, horizontal Roles pan) on the one Motion runtime
 - Trust marquee using real Simple Icons glyphs, bento grid of live product
   components, FAQ, final CTA
 

@@ -37,7 +37,7 @@ export function useHasHover(): boolean {
   return useMediaQuery('(hover: hover) and (pointer: fine)');
 }
 
-/** The GSAP narrative sections only run at or above this width. */
+/** The landing-page scroll narratives only run at or above this width. */
 export function useIsDesktop(): boolean {
   return useMediaQuery('(min-width: 768px)');
 }

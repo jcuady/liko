@@ -60,7 +60,15 @@ export default async function LandingPage() {
 
       <MarketingNav />
 
-      <main id="main" className="overflow-x-hidden">
+      {/*
+        `overflow-x-clip`, not `overflow-x-hidden`. The hidden variant computes
+        the other axis to `auto` and makes this a scroll container, and both
+        scroll narratives pin their content with `position: sticky`, which
+        resolves against the nearest scrollport. A scrollport that never scrolls
+        means sticky never sticks. Clip still suppresses the horizontal overflow
+        without creating a scroll container.
+      */}
+      <main id="main" className="overflow-x-clip">
         {/*
           Section order. The quantified proof used to sit in the seventh
           section, so the strongest argument on the page only reached the reader

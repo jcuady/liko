@@ -3,8 +3,9 @@
 import * as React from 'react';
 import Link from 'next/link';
 import { useFormState } from 'react-dom';
-import { CheckCircleIcon } from '@phosphor-icons/react';
+import { CheckCircleIcon, WarningCircleIcon } from '@phosphor-icons/react';
 
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   AuthFooter,
   AuthHeading,
@@ -97,6 +98,8 @@ export function RegisterForm({ prefilledEmail }: { prefilledEmail: string }) {
           </ul>
         </div>
 
+        <ConsentGate errors={result?.fieldErrors} />
+
         <SubmitButton pendingLabel="Creating your workspace">
           Create workspace
         </SubmitButton>
@@ -135,4 +138,119 @@ function requirementSatisfied(requirement: string, password: string): boolean {
     default:
       return false;
   }
+}
+
+/**
+ * The consent gate.
+ *
+ * Two separate ticks rather than one "I agree" box. The terms and the privacy
+ * notice are different documents with different consequences, and a single tick
+ * over a link to one of them records agreement to a document the person cannot
+ * see.
+ *
+ * Nothing here decides whether the account is created. That is decided by
+ * `registerSchema`, and the errors it returns are rendered under the tick that
+ * caused them so the failure points at the thing the person has to change.
+ *
+ * The copy names who signs up. A reader who arrived here expecting to make a
+ * student account is told the actual arrangement before they submit, not after.
+ */
+function ConsentGate({ errors }: { errors?: Record<string, string> }) {
+  return (
+    <fieldset className="flex flex-col gap-3 border-t border-border pt-5">
+      <legend className="sr-only">Agreement</legend>
+
+      <ConsentRow
+        name="acceptedTerms"
+        error={errors?.acceptedTerms}
+        label={
+          <>
+            I agree to the{' '}
+            <LegalLink href="/terms">Terms of Use</LegalLink>.
+          </>
+        }
+      />
+
+      <ConsentRow
+        name="acceptedPrivacy"
+        error={errors?.acceptedPrivacy}
+        label={
+          <>
+            I have read the{' '}
+            <LegalLink href="/privacy">Privacy Notice</LegalLink>.
+          </>
+        }
+      />
+
+      <p className="text-meta text-ink-subtle">
+        Accounts here are for teachers. A teacher creates the account for each
+        student and guardian, so a student never signs up directly.
+      </p>
+    </fieldset>
+  );
+}
+
+function ConsentRow({
+  name,
+  label,
+  error,
+}: {
+  name: string;
+  label: React.ReactNode;
+  error?: string;
+}) {
+  const errorId = `${name}-error`;
+
+  return (
+    <div className="flex flex-col">
+      <label className="-m-2 flex cursor-pointer items-start gap-1 rounded-[8px] p-2 hover:bg-surface-sunken">
+        <Checkbox
+          name={name}
+          invalid={Boolean(error)}
+          aria-describedby={error ? errorId : undefined}
+        />
+        <span className="pt-2.5 text-[0.9375rem] leading-snug text-ink-muted">
+          {label}
+        </span>
+      </label>
+
+      {error ? (
+        <p
+          id={errorId}
+          role="alert"
+          className="mt-1 flex items-start gap-1.5 pl-13 text-meta font-medium text-danger"
+        >
+          <WarningCircleIcon
+            size={15}
+            weight="fill"
+            aria-hidden="true"
+            className="mt-0.5 shrink-0"
+          />
+          {error}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * A link inside a sentence of consent copy.
+ *
+ * It opens a new tab so reading the terms does not lose the half-filled form.
+ * `noopener` is implied by `noreferrer` in every current engine but stated, and
+ * the reader is told in words that it opens a new tab, because a link that opens
+ * somewhere unexpected is disorienting for anyone who does not expect it.
+ */
+function LegalLink({ href, children }: { href: string; children: React.ReactNode }) {
+  return (
+    <Link
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="rounded-[4px] font-medium text-accent underline underline-offset-2 hover:no-underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+    >
+      {children}
+      <span className="sr-only"> (opens in a new tab)</span>
+    </Link>
+  );
 }

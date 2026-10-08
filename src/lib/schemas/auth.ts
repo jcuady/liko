@@ -32,6 +32,20 @@ export const loginSchema = z.object({
   password: z.string().min(1, 'Enter your password.').max(200),
 });
 
+/**
+ * A consent tick.
+ *
+ * WHY A LITERAL AND NOT A BOOLEAN. `registerAction` is a public endpoint, so the
+ * only trustworthy value is the one a real form post produces for a *checked*
+ * `<input type="checkbox">`, which is the string `"on"`. Booleans invite the
+ * mistake of coercing: `Boolean(formData.get('acceptedTerms'))` is `true` for
+ * the string `"false"`, so a crafted post claiming refusal would be recorded as
+ * acceptance. A literal has no coercion that inverts its meaning. An unchecked
+ * box posts nothing at all, a tampered post posts anything, and all of those
+ * land on the same refusal.
+ */
+const consent = (message: string) => z.literal('on', { error: message });
+
 export const registerSchema = z.object({
   name: z
     .string()
@@ -40,7 +54,23 @@ export const registerSchema = z.object({
     .max(80, 'That name is too long.'),
   email,
   password,
+  acceptedTerms: consent('Accept the terms to create an account.'),
+  acceptedPrivacy: consent('Accept the privacy notice to create an account.'),
 });
+
+/**
+ * WHY THERE IS NO `role` FIELD HERE.
+ *
+ * Students and guardians do not self-register. A student or guardian account is
+ * created by the teacher who owns the class, through `/classes`, and lands in
+ * that teacher's organisation as a member.
+ *
+ * Omitting the field is the enforcement, not an oversight: Zod strips unknown
+ * keys, so a crafted post carrying `role: "student"` is parsed successfully and
+ * the role is *discarded*. `registerAction` then passes the fixed value
+ * `instructor`. A schema that merely validated the role would need a check that
+ * admits two values, and that check would be the thing to get wrong.
+ */
 
 export const forgotPasswordSchema = z.object({ email });
 

@@ -1,7 +1,4 @@
-'use client';
-
-import * as React from 'react';
-import { ArrowRightIcon } from '@phosphor-icons/react';
+import { ArrowRightIcon } from '@phosphor-icons/react/dist/ssr';
 
 import { SectionHeader } from './SectionHeader';
 import { Reveal } from './Reveal';

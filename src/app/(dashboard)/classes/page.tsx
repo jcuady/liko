@@ -3,6 +3,7 @@ import type { Metadata } from 'next';
 import { PageHeader } from '../components/PageHeader';
 import { requirePagePermission } from '@/lib/auth/guards';
 import { data } from '@/lib/api/client';
+import type { StudentRecord } from '@/lib/api/types';
 
 import { ClassesManager, type ClassSummary } from './ClassesManager';
 
@@ -14,12 +15,20 @@ export const metadata: Metadata = {
 /**
  * Roster, read through the seam.
  *
- * WHY THE FAN-OUT. `listClasses` returns the class records but not how many
- * students sit in each, and a count shown next to a class has to be the real
- * one. `listStudents` is scoped to a class, so the counts come from a `map`
- * over the classes. The number is honest even though it costs one read per
- * class, because a roster that says "0 students" on a class of thirty is worse
- * than a slightly slower page.
+ * WHY ONE QUERY AND NOT ONE PER CLASS. This used to fan out over the classes
+ * and read each roster separately, which made the page cost 1 + N round trips
+ * before it could render a list of five classes. `listStudentsForClasses` takes
+ * the whole set in one `in(...)` read, and the rows are grouped back into
+ * per-class rosters here.
+ *
+ * The rows are still real student records rather than counts. The roster panel
+ * renders a name, a guardian, and a contact address for whichever class the
+ * teacher selects on the client, and that selection happens without another
+ * server round trip, so every roster has to arrive whole.
+ *
+ * Ordering is per class, not per page. `listStudents` sorts by `full_name`
+ * within one class; a single query over several classes cannot express that, so
+ * each roster is sorted here and a class's students stay alphabetical.
  */
 export default async function ClassesPage() {
   const session = await requirePagePermission('class:read');
@@ -27,16 +36,29 @@ export default async function ClassesPage() {
   const store = await data();
   const classes = await store.listClasses(session.userId);
 
-  const summaries: ClassSummary[] = await Promise.all(
-    classes.map(async (classRecord) => ({
-      id: classRecord.id,
-      name: classRecord.name,
-      code: classRecord.code,
-      level: classRecord.level,
-      meetsPerWeek: classRecord.meetsPerWeek,
-      students: await store.listStudents(session.userId, classRecord.id),
-    })),
+  const students = await store.listStudentsForClasses(
+    session.userId,
+    classes.map((classRecord) => classRecord.id),
   );
+
+  const byClass = new Map<string, StudentRecord[]>();
+  for (const student of students) {
+    const roster = byClass.get(student.classId);
+    if (roster) roster.push(student);
+    else byClass.set(student.classId, [student]);
+  }
+  for (const roster of byClass.values()) {
+    roster.sort((left, right) => left.fullName.localeCompare(right.fullName));
+  }
+
+  const summaries: ClassSummary[] = classes.map((classRecord) => ({
+    id: classRecord.id,
+    name: classRecord.name,
+    code: classRecord.code,
+    level: classRecord.level,
+    meetsPerWeek: classRecord.meetsPerWeek,
+    students: byClass.get(classRecord.id) ?? [],
+  }));
 
   return (
     <div className="mx-auto max-w-[72rem]">

@@ -4,6 +4,7 @@ import { Geist, Geist_Mono } from 'next/font/google';
 import { ThemeProvider } from '@/components/providers/ThemeProvider';
 import { QueryProvider } from '@/components/providers/QueryProvider';
 import { ToastProvider } from '@/components/providers/ToastProvider';
+import { CookieConsentBanner } from '@/components/legal/CookieConsentBanner';
 
 import './globals.css';
 
@@ -24,6 +25,13 @@ const geistMono = Geist_Mono({
   subsets: ['latin'],
   variable: '--font-geist-mono',
   display: 'swap',
+  /*
+   * Not preloaded. `--font-mono` is read by exactly one rule in `globals.css`
+   * (the tabular-nums utility, for numbers in the gradebook and heatmap), and
+   * preloading a face on every route to serve it on one screen is a request
+   * every visitor pays for and most never need.
+   */
+  preload: false,
 });
 
 export const metadata: Metadata = {
@@ -94,6 +102,13 @@ export default function RootLayout({
           <QueryProvider>
             {children}
             <ToastProvider />
+            {/*
+              Mounted at the root rather than inside the marketing group so that
+              /terms, /privacy and /cookies, which are reachable from anywhere,
+              all carry it. The component itself decides not to render inside the
+              workspace.
+            */}
+            <CookieConsentBanner />
           </QueryProvider>
         </ThemeProvider>
       </body>

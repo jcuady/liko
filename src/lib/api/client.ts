@@ -1,5 +1,7 @@
 import 'server-only';
 
+import { cache } from 'react';
+
 import { assertRealDataMode, isSupabaseMode } from '@/lib/data-mode';
 import {
   BUILT_IN_POLICIES,
@@ -7,7 +9,7 @@ import {
   type GradeBand,
   type GradingPolicy,
 } from '@/lib/grading/policy';
-import { createSupabaseServerClient } from '@/lib/supabase/server';
+import { createSupabaseAdmin, createSupabaseServerClient } from '@/lib/supabase/server';
 import { DataError, mapSupabaseError } from './errors';
 import type {
   AssessmentRecord,
@@ -88,6 +90,17 @@ export interface WorkspaceData {
   listStudents(userId: string, classId: string): Promise<StudentRecord[]>;
   listStats(userId: string, classId?: string): Promise<Stat[]>;
   getHeatmap(userId: string, classId: string): Promise<HeatCell[]>;
+
+  /*
+   * Batched reads.
+   *
+   * Optional on this interface and REQUIRED on `DataSource`, which is what
+   * `data()` returns. An adapter that does not implement one still compiles, and
+   * the seam supplies a per-item fallback so every caller gets the batched shape
+   * without knowing which backend is behind it.
+   */
+  listStudentsForClasses?(userId: string, classIds: string[]): Promise<StudentRecord[]>;
+  countSlidesByDeck?(userId: string, deckIds: string[]): Promise<Record<string, number>>;
   getAttendance(
     userId: string,
     classId: string,
@@ -217,6 +230,13 @@ export interface WorkspaceData {
   moveSlide(userId: string, slideId: string, toIndex: number): Promise<void>;
 }
 
+/**
+ * What `data()` actually hands back: the interface plus the two batched reads,
+ * guaranteed present whichever adapter was selected.
+ */
+export type DataSource = WorkspaceData &
+  Required<Pick<WorkspaceData, 'listStudentsForClasses' | 'countSlidesByDeck'>>;
+
 type Row = Record<string, unknown>;
 
 /**
@@ -275,6 +295,55 @@ const supabaseAdapter: WorkspaceData = {
     return (data ?? []).map(mapStudent);
   },
 
+  /*
+   * One read for every class on the page rather than one per class.
+   *
+   * The roster panel renders real rows for the class the teacher selects on the
+   * client, so these are student records and not counts; the win is the round
+   * trips, five queries becoming one. Ordering is applied after the fetch because
+   * each class's roster has to come back alphabetically on its own.
+   */
+  async listStudentsForClasses(userId, classIds) {
+    if (classIds.length === 0) return [];
+
+    const supabase = await requireClient();
+    const { data, error } = await supabase
+      .from('students')
+      .select('*')
+      .eq('owner_id', userId)
+      .in('class_id', classIds)
+      .is('archived_at', null);
+    throwIf(error);
+
+    return ((data ?? []) as Row[]).map(mapStudent);
+  },
+
+  /*
+   * Slide totals for every deck, in one read.
+   *
+   * Only `deck_id` comes back. The list screen shows a number, so transferring
+   * every slide's title, body, and notes to count them was pure waste.
+   */
+  async countSlidesByDeck(userId, deckIds) {
+    const counts: Record<string, number> = {};
+    for (const deckId of deckIds) counts[deckId] = 0;
+    if (deckIds.length === 0) return counts;
+
+    const supabase = await requireClient();
+    const { data, error } = await supabase
+      .from('slides')
+      .select('deck_id')
+      .eq('owner_id', userId)
+      .in('deck_id', deckIds);
+    throwIf(error);
+
+    for (const row of (data ?? []) as Row[]) {
+      const deckId = str(row.deck_id);
+      counts[deckId] = (counts[deckId] ?? 0) + 1;
+    }
+    return counts;
+  },
+
   async listStats(userId, _classId) {
     const supabase = await requireClient();
     const [students, classes, grades] = await Promise.all([
@@ -302,6 +371,14 @@ const supabaseAdapter: WorkspaceData = {
     const supabase = await requireClient();
     // Derived, not stored. The threshold rule lives in one place so the heatmap
     // and the push alert cannot disagree about who is at risk.
+    //
+    // WHY THE GRADES QUERY IS JOINED AND NOT MERELY OWNER-FILTERED. It used to
+    // read every mark the teacher had ever entered, across every class, to draw
+    // one class's grid. The join is the same `assessments!inner(class_id)` idiom
+    // `listGrades` already uses: `grades` has no `class_id` of its own, the class
+    // is reached through the assessment. A teacher with five classes was
+    // transferring several thousand rows per overview load to compute thirty
+    // cells, and the extra rows were only ever discarded.
     const [{ data: students }, { data: grades }] = await Promise.all([
       supabase
         .from('students')
@@ -311,8 +388,9 @@ const supabaseAdapter: WorkspaceData = {
         .is('archived_at', null),
       supabase
         .from('grades')
-        .select('student_id, score, max_score')
-        .eq('owner_id', userId),
+        .select('student_id, score, max_score, assessments!inner(class_id)')
+        .eq('owner_id', userId)
+        .eq('assessments.class_id', classId),
     ]);
 
     const byStudent = new Map<string, number[]>();
@@ -498,6 +576,10 @@ const supabaseAdapter: WorkspaceData = {
         guardian_name: input.guardianName,
         guardian_email: input.guardianEmail,
         guardian_phone: input.guardianPhone,
+        // The link a teacher issues a login against. `null` is the normal case:
+        // most students never sign in. Written explicitly rather than omitted so
+        // the column is never left to a default that could differ.
+        account_id: input.accountId,
       })
       .select()
       .single();
@@ -771,12 +853,19 @@ const supabaseAdapter: WorkspaceData = {
     if (!org) throw new DataError('NOT_FOUND', 'This account has no organisation yet.');
 
     const supabase = await requireClient();
-    const { error } = await supabase
+    const { data: updatedMemberships, error } = await supabase
       .from('memberships')
       .update({ role })
       .eq('id', memberId)
-      .eq('org_id', org.id);
+      .eq('org_id', org.id)
+      .select('id');
     if (error) throw mapSupabaseError(error);
+    // PostgREST reports no error for an update that matched nothing, so the rows
+    // it hands back are the only evidence the write happened. Without this a
+    // member id that matches no membership reports success for nothing.
+    if ((updatedMemberships ?? []).length === 0) {
+      throw new DataError('NOT_FOUND', 'That record does not exist.');
+    }
 
     /*
      * The account's own role follows the membership, because that is what the
@@ -793,11 +882,39 @@ const supabaseAdapter: WorkspaceData = {
     const target = membership?.user_id;
     if (!target) return;
 
-    const { error: profileError } = await supabase
+    /*
+     * WHY THE SERVICE-ROLE CLIENT, AND WHY THE ROW COUNT IS CHECKED.
+     *
+     * This wrote another user's `profiles.role` through the caller's own
+     * session, which was never allowed to do that. It failed quietly: PostgREST
+     * returns no error for an update that matched zero rows, so the admin console
+     * reported "Role updated." for a change that had not happened. The grant has
+     * since been tightened to exclude `role` entirely, so the same write is now
+     * refused outright rather than silently ignored.
+     *
+     * The membership lookup above is what keeps the service-role write scoped:
+     * `target` is resolved from a membership inside the CALLER's own
+     * organisation, never from anything the request supplied, so this bypasses
+     * RLS without ever crossing a tenant boundary. The count is read back rather
+     * than assumed, because "no error" is not evidence that a row was written.
+     */
+    const admin = await createSupabaseAdmin();
+    if (!admin) {
+      throw new DataError(
+        'FORBIDDEN',
+        'Changing a role needs the service role key, which this server is not configured with.',
+      );
+    }
+
+    const { data: updatedProfiles, error: profileError } = await admin
       .from('profiles')
       .update({ role })
-      .eq('id', target);
+      .eq('id', target)
+      .select('id');
     if (profileError) throw mapSupabaseError(profileError);
+    if ((updatedProfiles ?? []).length === 0) {
+      throw new DataError('NOT_FOUND', 'That record does not exist.');
+    }
   },
 
   async setMemberStatus(userId, memberId, status) {
@@ -1104,6 +1221,7 @@ function mapStudent(row: Row): StudentRecord {
     guardianEmail: (row.guardian_email as string | null) ?? null,
     guardianPhone: (row.guardian_phone as string | null) ?? null,
     archivedAt: (row.archived_at as string | null) ?? null,
+    accountId: (row.account_id as string | null) ?? null,
   };
 }
 
@@ -1232,10 +1350,88 @@ async function supabaseOrgFor(userId: string): Promise<OrgRecord | null> {
 
 async function fixtureAdapter(): Promise<WorkspaceData> {
   const { fixtures } = await import('./fixtures');
-  return fixtures;
+  return scopeFixtureHeatmap(fixtures);
 }
 
-let cached: WorkspaceData | null = null;
+/**
+ * Scopes the fixture heatmap to the class it was asked about.
+ *
+ * `fixtures.getHeatmap` returns one shared, precomputed grid and ignores both
+ * arguments, so every class showed the same eight students. That is harmless for
+ * the marketing miniature, which has no class, and wrong for the overview page,
+ * which labels the grid with the selected class name. Filtering against that
+ * class's roster is done here rather than in `fixtures.ts` so the demo store
+ * itself is left alone; the default class still returns the same eight cells,
+ * because those eight students are on its roster.
+ */
+function scopeFixtureHeatmap(store: WorkspaceData): WorkspaceData {
+  return {
+    ...store,
+    async getHeatmap(userId, classId) {
+      const [cells, roster] = await Promise.all([
+        store.getHeatmap(userId, classId),
+        store.listStudents(userId, classId),
+      ]);
+      const onRoster = new Set(roster.map((student) => student.id));
+      return cells.filter((cell) => onRoster.has(cell.studentId));
+    },
+  };
+}
+
+let cached: DataSource | null = null;
+
+/**
+ * The two batched reads.
+ *
+ * `unstable_cache` is deliberately NOT used anywhere in this file. The existing
+ * writes invalidate with `revalidatePath`, which does not address `unstable_cache`
+ * entries by tag, so a tagged entry here would survive the write that should have
+ * cleared it and a teacher would edit a grade and still see the old one. React's
+ * per-request `cache()` below gives the deduplication benefit with none of that
+ * risk: its store is thrown away when the request ends, so a write can never be
+ * followed by a stale read in a later render.
+ */
+function withBatchReads(source: WorkspaceData): DataSource {
+  return {
+    ...source,
+    // One `in(...)` read instead of one read per class. The roster panel needs
+    // the real student rows for whichever class the teacher selects on the
+    // client, so this returns records rather than a count.
+    listStudentsForClasses: source.listStudentsForClasses ?? (async (userId, classIds) => {
+      const groups = await Promise.all(classIds.map((id) => source.listStudents(userId, id)));
+      return groups.flat();
+    }),
+    // An in-memory store has no round trips to save, so the fallback still costs
+    // nothing here; it exists so both adapters answer the same question.
+    countSlidesByDeck: source.countSlidesByDeck ?? (async (userId, deckIds) => {
+      const counted = await Promise.all(
+        deckIds.map(async (id) => [id, (await source.listSlides(userId, id)).length] as const),
+      );
+      return Object.fromEntries(counted);
+    }),
+  };
+}
+
+/**
+ * Per-request read cache.
+ *
+ * Each wrapper is keyed on the arguments React is given, and `userId` is always
+ * the first one, so a cached entry is reachable only by the same owner who
+ * produced it. No entry outlives the request that built it, which is what makes
+ * this safe next to the writes: `revalidatePath` plus `router.refresh()` starts a
+ * fresh render with a fresh cache, so an edit is never served from the old one.
+ *
+ * Callers only ever pass a session id from `requirePagePermission` /
+ * `requireSession`, so there is no unauthenticated path to a cached read.
+ */
+function withRequestCache(source: DataSource): DataSource {
+  return {
+    ...source,
+    listClasses: cache((userId: string) => source.listClasses(userId)),
+    listPolicies: cache((userId: string) => source.listPolicies(userId)),
+    listDecks: cache((userId: string) => source.listDecks(userId)),
+  };
+}
 
 /**
  * The data source for this request.
@@ -1244,22 +1440,18 @@ let cached: WorkspaceData | null = null;
  * client cannot be built the call throws, because silently serving demo data in
  * production is the one failure this module exists to prevent.
  */
-export async function data(): Promise<WorkspaceData> {
+export async function data(): Promise<DataSource> {
   if (cached) return cached;
 
-  if (isSupabaseMode()) {
-    cached = supabaseAdapter;
-    return cached;
-  }
-
-  cached = await fixtureAdapter();
+  cached = withRequestCache(
+    withBatchReads(isSupabaseMode() ? supabaseAdapter : await fixtureAdapter()),
+  );
   return cached;
 }
 
 /** Test seam: lets a suite inject a stub without touching module state. */
 export function __setDataSource(next: WorkspaceData | null): void {
-  cached = next;
+  cached = next === null ? null : withRequestCache(withBatchReads(next));
 }
 
 export { assertRealDataMode };
-export type { WorkspaceData as DataSource };

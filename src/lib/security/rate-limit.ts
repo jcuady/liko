@@ -1,10 +1,17 @@
 /**
  * Token-bucket rate limiting for server-side endpoints.
  *
- * State is held in memory, which is correct for a single instance and a
- * deliberate simplification for a multi-instance deployment. When LIKO scales
- * horizontally this must move to a shared store such as Redis; the interface
- * below is the seam.
+ * THIS IS A PER-INSTANCE, PER-DEPLOY LIMIT, NOT A GLOBAL ONE. The buckets live
+ * in a `Map` in this module's memory. They are not shared between processes,
+ * they are gone after every cold start, and they are gone after every deploy. On
+ * a host that runs N instances or scales to zero, the limit an attacker actually
+ * faces is `limit x N`, and it resets every time a new instance comes up.
+ *
+ * So say what it actually does: this raises the cost of credential stuffing and
+ * nothing more. It is a real brake on a single process and it is NOT a
+ * distributed rate limit, and it must never be described as one. A real
+ * guarantee needs a shared store such as Redis or Upstash behind the same
+ * interface, which is the seam this module already is.
  *
  * A client-side cooldown is cosmetic and does not replace this.
  */
@@ -14,6 +21,11 @@ interface Bucket {
   updatedAt: number;
 }
 
+/**
+ * Buckets for every key seen by this process. Per instance and per deploy: empty
+ * on a cold start, never shared with another instance, never written to disk.
+ * Treat the numbers it holds as an honest local brake, not a fleet-wide budget.
+ */
 const buckets = new Map<string, Bucket>();
 
 export interface RateLimitConfig {
@@ -52,18 +64,79 @@ export interface RateLimitResult {
   retryAfter: number;
 }
 
+/** One warning per process per condition, so a busy route cannot flood the log. */
+let warned = false;
+
+/**
+ * `process.emitWarning` rather than a console call: this module is loaded by
+ * `proxy.ts` and the API routes, the repo bans stray console statements, and a
+ * warning on stderr is the louder of the two anyway.
+ */
+function warnOnce(message: string): void {
+  if (warned) return;
+  warned = true;
+  process.emitWarning(message, 'LikoRateLimit');
+}
+
+/**
+ * Test-only escape hatch, and it refuses to work in production.
+ *
+ * The limiter is in-process and keyed on the caller, so an end-to-end suite that
+ * signs in as the same demo account twenty times trips the exact protection that
+ * stops credential stuffing, and every sign-in after the tenth is refused.
+ * Throttling is a production control; it must not be in the way of a test run.
+ * `playwright.config.ts` sets this for its own server.
+ *
+ * The flag used to be honoured everywhere, which made the only brute-force
+ * control in the product one careless `vercel env add` away from being off. An
+ * environment variable is not a security boundary: nobody reviews the diff, and
+ * a copy-pasted `.env.local` into production is exactly the accident this guards.
+ * So in production the flag is IGNORED and says so, loudly, and the limits below
+ * apply. Development and test still get the switch, because that is where it is
+ * actually useful.
+ *
+ * THE ONE PRODUCTION BYPASS, AND WHY IT TAKES TWO VARIABLES. The end-to-end
+ * suite drives a PRODUCTION build through `next start`, which is why the rule
+ * above would have throttled it into failure. Rather than reopen the single-flag
+ * hole, the production case requires `LIKO_E2E=true` as well. Getting there takes
+ * two deliberate choices in the same place, so the accident the flag exists to
+ * prevent, a stray `LIKO_RATE_LIMIT_DISABLED` in a deploy dashboard, still
+ * resolves to limits being active.
+ */
+function limiterDisabled(): boolean {
+  if (process.env.LIKO_RATE_LIMIT_DISABLED !== 'true') return false;
+
+  const env = process.env.NODE_ENV ?? 'development';
+
+  if (env === 'production') {
+    if (process.env.LIKO_E2E === 'true') {
+      warnOnce(
+        'SECURITY: rate limiting is DISABLED because LIKO_E2E=true alongside ' +
+          'LIKO_RATE_LIMIT_DISABLED=true. This combination must exist only on a ' +
+          'test server. If you are reading this on a deployed environment, turn the ' +
+          'limiter off at the store layer instead of here.',
+      );
+      return true;
+    }
+
+    warnOnce(
+      'LIKO_RATE_LIMIT_DISABLED is set but NODE_ENV is "production", so it is being ' +
+        'IGNORED and rate limiting is ACTIVE. Remove the variable from production; it ' +
+        'only exists to unblock local test runs.',
+    );
+    return false;
+  }
+
+  warnOnce(
+    `SECURITY: rate limiting is DISABLED in "${env}" because LIKO_RATE_LIMIT_DISABLED=true. ` +
+      'Every login, registration, password reset and AI call is unlimited. This must ' +
+      'never be true in production.',
+  );
+  return true;
+}
+
 export function consume(key: string, config: RateLimitConfig): RateLimitResult {
-  /*
-   * Test-only escape hatch.
-   *
-   * The limiter is in-process and keyed on the caller, so an end-to-end suite
-   * that signs in as the same demo account twenty times trips the exact
-   * protection that stops credential stuffing, and every sign-in after the tenth
-   * is refused. Throttling is a production control; it must not be in the way
-   * of a test run. `playwright.config.ts` sets this for its own server, and it
-   * is never set in a deployed environment.
-   */
-  if (process.env.LIKO_RATE_LIMIT_DISABLED === 'true') {
+  if (limiterDisabled()) {
     return { allowed: true, remaining: config.limit, retryAfter: 0 };
   }
 

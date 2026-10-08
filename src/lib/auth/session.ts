@@ -21,25 +21,96 @@ export interface SessionPayload {
 }
 
 /**
- * A local secret is fine for development. In production the secret must be
- * supplied by the environment; throwing at first use keeps a misconfigured
- * deploy from silently signing sessions with a guessable key.
+ * The shortest key we will sign a session with in production.
  *
- * The emptiness check is explicit rather than `??`. `LIKO_SESSION_SECRET=` in a
- * `.env.local` sets the variable to an empty string, which `??` treats as a
+ * HS256's security is the size of the shared secret. 32 bytes is 256 bits, which
+ * is the usual floor and what `openssl rand -base64 32` and `openssl rand -hex
+ * 32` both produce. Anything shorter is not a deployment mistake, it is a key
+ * that can be recovered from a handful of observed signatures.
+ */
+export const MIN_SESSION_SECRET_BYTES = 32;
+
+/**
+ * The byte length of the key jose would actually sign with.
+ *
+ * `openssl rand -base64 32` is what the README tells an operator to run, and it
+ * prints 44 characters of base64 wrapping 32 random bytes. That is the form that
+ * matters: measuring the printed string would call it 44 bytes and accept a
+ * 26-byte base64 secret as comfortably strong. So a well-formed base64 value is
+ * measured decoded, and anything else is measured as the raw UTF-8 string,
+ * because that is what gets handed to `new TextEncoder()` below.
+ *
+ * The base64 test is strict on purpose. `Buffer.from(x, 'base64')` and `atob`
+ * both ignore characters outside the alphabet instead of failing, so a loose
+ * decode would quietly measure the wrong thing.
+ */
+export function sessionSecretByteLength(secret: string): number {
+  const trimmed = secret.trim();
+
+  const isBase64 =
+    trimmed.length > 0 &&
+    trimmed.length % 4 === 0 &&
+    /^[A-Za-z0-9+/]+={0,2}$/.test(trimmed);
+
+  if (isBase64) {
+    try {
+      // `atob` and not `Buffer`: this module is imported by `proxy.ts`, which
+      // must keep working on runtimes where `Buffer` is not defined.
+      const decoded = atob(trimmed).length;
+      if (decoded > 0) return decoded;
+    } catch {
+      // Fall through to the raw measurement.
+    }
+  }
+
+  return new TextEncoder().encode(trimmed).length;
+}
+
+/**
+ * A local secret is fine for development. In production the secret must be
+ * supplied by the environment AND must be long enough to be a key; throwing at
+ * first use keeps a misconfigured deploy from signing sessions with something
+ * guessable.
+ *
+ * Emptiness is checked explicitly rather than with `??`. `LIKO_SESSION_SECRET=`
+ * in a `.env.local` sets the variable to an empty string, which `??` treats as a
  * present value. That handed jose a zero-length key and every sign-in failed
  * deep inside the crypto layer with "Zero-length key is not supported", which
  * pointed nowhere near the actual cause.
+ *
+ * Length is the same story one notch down. `LIKO_SESSION_SECRET=a` was accepted,
+ * and a one-character HS256 key is not a deployment that can be defended: it is
+ * one guess, and it signs every session for every user. The message reports the
+ * byte count and the fix, and never echoes the secret itself, so it is safe to
+ * let reach a log.
  */
 function getSecretKey(): Uint8Array {
   const secret = process.env.LIKO_SESSION_SECRET?.trim();
 
-  if (!secret && process.env.NODE_ENV === 'production') {
-    throw new Error(
-      'LIKO_SESSION_SECRET is required in production. Generate one with: openssl rand -base64 32',
-    );
+  if (process.env.NODE_ENV === 'production') {
+    if (!secret) {
+      throw new Error(
+        'LIKO_SESSION_SECRET is required in production. Generate one with: openssl rand -base64 32',
+      );
+    }
+
+    const bytes = sessionSecretByteLength(secret);
+
+    if (bytes < MIN_SESSION_SECRET_BYTES) {
+      throw new Error(
+        `LIKO_SESSION_SECRET must carry at least ${MIN_SESSION_SECRET_BYTES} bytes of key ` +
+          `material in production; this one is ${bytes} byte${bytes === 1 ? '' : 's'}. ` +
+          'Generate a replacement with: openssl rand -base64 32',
+      );
+    }
   }
 
+  /*
+   * NEVER FOR PRODUCTION. This fallback is reached only when NODE_ENV is not
+   * "production", because the branch above throws first there. It is public
+   * knowledge: anyone who reads the source can sign their own session, so it
+   * protects nothing and must never be relied on.
+   */
   const value = secret || 'liko-development-secret-do-not-use-in-production';
   return new TextEncoder().encode(value);
 }

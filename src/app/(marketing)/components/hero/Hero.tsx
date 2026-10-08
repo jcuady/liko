@@ -1,12 +1,7 @@
-'use client';
-
-import * as React from 'react';
-import { useRouter } from 'next/navigation';
-import { ArrowRightIcon } from '@phosphor-icons/react';
+import { ArrowRightIcon } from '@phosphor-icons/react/dist/ssr';
 
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
+import { HeroEmailForm } from './HeroEmailForm';
 import { ProductPreview } from './ProductPreview';
 import {
   attendance,
@@ -34,34 +29,14 @@ import type { AttendanceStatus, Student } from '@/lib/api/types';
  * The bottom padding is tighter than it was, because the stats band now follows
  * the hero directly and is meant to land on the first screen. The hero gives up
  * the space it no longer needs on its own account.
+ *
+ * A server component. The headline, the subhead, and the product mockup are
+ * static, so rendering them here keeps them out of the client bundle; the only
+ * part of the hero that needed a runtime, the email capture, lives in
+ * `HeroEmailForm`.
  */
 
 export function Hero() {
-  const router = useRouter();
-  const [email, setEmail] = React.useState('');
-  const [error, setError] = React.useState<string | undefined>(undefined);
-
-  const emailId = 'hero-email';
-  const errorId = 'hero-email-error';
-
-  const onSubmit = (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-
-    // Validate on submit, not on keystroke. Annoying mid-typing errors are a
-    // pattern, not feedback.
-    const value = email.trim();
-    if (!value) {
-      setError('Enter your email.');
-      return;
-    }
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
-      setError('Enter a valid email address.');
-      return;
-    }
-
-    router.push(`/register?email=${encodeURIComponent(value)}`);
-  };
-
   return (
     <section className="relative overflow-hidden pb-16 pt-12 md:pb-20 md:pt-16 lg:pb-24 lg:pt-20">
       <div className="container-marketing">
@@ -79,63 +54,7 @@ export function Hero() {
               on a single thread, so nothing gets rebuilt twice.
             </p>
 
-            <form
-              onSubmit={onSubmit}
-              noValidate
-              className="mt-8 max-w-[30rem]"
-            >
-              <Label htmlFor={emailId} className="sr-only">
-                Work email
-              </Label>
-              <div className="flex flex-col gap-2.5 sm:flex-row">
-                <div className="flex-1">
-                  <Input
-                    id={emailId}
-                    type="email"
-                    name="email"
-                    value={email}
-                    onChange={(event) => {
-                      setEmail(event.target.value);
-                      if (error) setError(undefined);
-                    }}
-                    placeholder="Enter your email here"
-                    autoComplete="email"
-                    inputMode="email"
-                    aria-invalid={error ? true : undefined}
-                    aria-describedby={error ? errorId : undefined}
-                    className="h-12"
-                  />
-                  {error ? (
-                    <p
-                      id={errorId}
-                      role="alert"
-                      className="mt-1.5 text-meta font-medium text-danger"
-                    >
-                      {error}
-                    </p>
-                  ) : null}
-                </div>
-                <Button
-                  type="submit"
-                  size="lg"
-                  className="group shrink-0 gap-2"
-                >
-                  Start free trial
-                  <ArrowRightIcon
-                    size={16}
-                    weight="bold"
-                    aria-hidden="true"
-                    className="transition-transform duration-300 ease-[cubic-bezier(0.23,1,0.32,1)] motion-safe:group-hover:translate-x-1"
-                  />
-                </Button>
-              </div>
-
-              {/* The fifth element. One sentence, and it answers the field
-                  above it rather than the page around it. */}
-              <p className="mt-3.5 text-meta text-ink-muted">
-                No credit card required. Setup in 2 minutes.
-              </p>
-            </form>
+            <HeroEmailForm />
 
             <div className="mt-6">
               <Button asChild variant="link" size="sm" className="group gap-1.5">

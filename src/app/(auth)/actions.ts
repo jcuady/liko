@@ -10,8 +10,10 @@ import {
   registerSchema,
 } from '@/lib/schemas/auth';
 import { RATE_LIMITS, clientKey, consume, consumeCredential } from '@/lib/security/rate-limit';
+import { safeNextPath } from '@/lib/security/redirect';
 
 import { checkPasswordStrength } from '@/lib/auth/password';
+import { recordConsent } from '@/lib/auth/consent';
 import { clearSessionCookie, setSessionCookie } from '@/lib/auth/cookie';
 import {
   completePasswordUpdate,
@@ -22,7 +24,7 @@ import {
   verifyEmailToken,
 } from '@/lib/auth/store';
 import { isSupabaseMode } from '@/lib/data-mode';
-import { canAccessPath, landingPathFor } from '@/lib/auth/rbac';
+import { canAccessPath, landingPathFor, type Role } from '@/lib/auth/rbac';
 
 /**
  * Auth server actions.
@@ -47,6 +49,21 @@ export interface ActionResult {
 }
 
 const GENERIC_FAILURE = 'That email or password is not right.';
+
+/**
+ * The one role this form may create.
+ *
+ * Students and guardians do not self-register. A student or guardian account is
+ * issued by the teacher who owns the class, from `/classes`, and joins that
+ * teacher's organisation as a member.
+ *
+ * This is named rather than inlined at the call site because it is a policy, not
+ * a default. The schema has no `role` field at all, so Zod strips one from a
+ * crafted post, and `registerSchema` therefore has no value to tamper with. This
+ * constant is what the account actually gets. Changing it is a product
+ * decision, not a refactor.
+ */
+const SELF_REGISTERED_ROLE = 'instructor' as const;
 
 async function guardRateLimit(scope: string, limit = RATE_LIMITS.auth) {
   const requestHeaders = await headers();
@@ -133,11 +150,10 @@ export async function loginAction(
     { remember: formData.get('remember') === 'on' },
   );
 
-  // Clamp the requested destination to what this role may actually open. Without
-  // it a guardian deep-linking to /overview was shown the forbidden screen as the
-  // first page after signing in.
-  const requested = safeNext(formData.get('next'));
-  redirect(canAccessPath(user.role, requested) ? requested : landingPathFor(user.role));
+  // Clamped to what this role may actually open. Without it a guardian
+  // deep-linking to /overview was shown the forbidden screen as the first page
+  // after signing in.
+  redirect(safeNext(formData.get('next'), user.role));
 }
 
 export async function registerAction(
@@ -157,6 +173,8 @@ export async function registerAction(
     name: formData.get('name'),
     email: formData.get('email'),
     password: formData.get('password'),
+    acceptedTerms: formData.get('acceptedTerms'),
+    acceptedPrivacy: formData.get('acceptedPrivacy'),
   });
 
   if (!parsed.success) {
@@ -174,7 +192,7 @@ export async function registerAction(
       name: parsed.data.name,
       email: parsed.data.email,
       password: parsed.data.password,
-      role: 'instructor',
+      role: SELF_REGISTERED_ROLE,
       redirectTo: `${siteUrl()}/auth/callback`,
     });
   } catch {
@@ -185,6 +203,35 @@ export async function registerAction(
       message: 'We could not create that account. Check the details and try again.',
     };
   }
+
+  /*
+   * Consent is recorded before anything else happens with the new account, and
+   * it is recorded server-side from the validated result rather than from the
+   * posted form. The parse above is what makes the tick trustworthy; this call
+   * is what makes it durable.
+   *
+   * `recordConsent` swallows its own failure by design, so an unavailable
+   * audit table cannot deny an account the person is entitled to open. That
+   * trade is written down in `src/lib/auth/consent.ts`.
+   */
+  const requestHeaders = await headers();
+  const ip = requestHeaders.get('x-forwarded-for')?.split(',')[0]?.trim() ?? null;
+  await recordConsent({
+    userId: result.user.id,
+    email: result.user.email,
+    subject: 'terms',
+    source: 'self_registration',
+    ip,
+    userAgent: requestHeaders.get('user-agent'),
+  });
+  await recordConsent({
+    userId: result.user.id,
+    email: result.user.email,
+    subject: 'privacy',
+    source: 'self_registration',
+    ip,
+    userAgent: requestHeaders.get('user-agent'),
+  });
 
   if (result.awaitingConfirmation) {
     // No session issued. The proxy would refuse one, so issuing it here would
@@ -343,14 +390,17 @@ function flatten(error: z.ZodError): Record<string, string> {
 }
 
 /**
- * Only a single-slash-prefixed relative path is accepted. Rejecting absolute
- * URLs and the protocol-relative `//evil.example` form closes the open
- * redirect, and auth paths are refused so a signed-in user cannot be sent back
- * to the login form by their own `next` value.
+ * Only a same-origin relative path is accepted as a post-login destination.
+ *
+ * The predicate itself lives in `src/lib/security/redirect.ts` because `proxy.ts`
+ * needs the identical rule when it builds the `?next=` value, and the two copies
+ * had already drifted: both rejected `//evil.com` and both accepted `/\evil.com`,
+ * which the URL parser normalises to `//evil.com`. Sharing one tested
+ * implementation is the fix.
  */
-function safeNext(raw: FormDataEntryValue | null): string {
-  if (typeof raw !== 'string') return '/overview';
-  if (!raw.startsWith('/') || raw.startsWith('//')) return '/overview';
-  if (raw.startsWith('/login') || raw.startsWith('/register')) return '/overview';
-  return raw;
+function safeNext(raw: FormDataEntryValue | null, role: Role): string {
+  return safeNextPath(raw, {
+    fallback: landingPathFor(role),
+    allow: (path) => canAccessPath(role, path),
+  });
 }

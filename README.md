@@ -37,6 +37,8 @@ parent/guardian views.
 | Design system | Viridian accent ramp, Geist type scale, motion tokens, brand tooling |
 | Responsive | Measured across 12 routes at 7 widths: no horizontal scroll, 44px touch targets on touch widths, 16px fields so iOS does not zoom. Enforced by `e2e/responsive.spec.ts` |
 | Authentication | Email + password via Supabase Auth, email verification, password reset, RBAC |
+| Consent | `/terms`, `/privacy` and `/cookies`, written to match what the code actually does. Signup is gated on accepting the first two, checked server-side, and each acceptance is written to an append-only table the account holder cannot edit. A cookie banner withdraws the one optional thing there is, the stored theme preference |
+| Accounts | Teachers and administrators register themselves. Students and guardians do not: a teacher issues those accounts from the class roster, and the database refuses to let anyone but the class owner link an account to a child's record |
 | Onboarding | Three first-run questions: what is taught, how it is graded, the first class. Skippable, saves as it goes, resumes where it stopped |
 | Tenancy | `organizations` and `memberships`, resolved through the signed-in account so no caller can address another school's records |
 | Administration | `/admin`, gated on `org:manage`: people and roles, classes, organisation settings, and the live permission matrix |
@@ -295,17 +297,27 @@ replaying the same day twice updates rather than duplicates.
 | Control | Implementation |
 |---|---|
 | Injection | Every server action validates with Zod before touching the data layer |
-| Broken access control | Two-layer RBAC; every table has an ownership RLS policy |
-| Session handling | `httpOnly`, `SameSite=Lax`, `Secure` in production. Never `localStorage` |
+| Broken access control | Two-layer RBAC; every table has RLS. `profiles.role` and `profiles.org_id` are column-granted away from the account holder, because RLS restricts rows and cannot restrict columns |
+| Cross-tenant reads | Every cross-account policy joins the caller's own active membership. Postgres ORs permissive policies, so a role test without a tenant check is a data leak, not a scoping |
+| Offline isolation | The service worker caches public documents only. Authenticated documents are `NetworkOnly`, so one teacher's gradebook is never served to the next user of a shared device |
+| Session handling | `httpOnly`, `SameSite=Lax`, `Secure` in production. Never `localStorage`. Signing refuses a secret under 32 bytes in production rather than signing with a guessable key |
 | Account enumeration | Login, signup and password reset return one generic message |
-| CSRF | Cross-origin state-changing requests are rejected in `proxy.ts`; the post-login destination travels in the form body and is re-validated |
-| Rate limiting | In-process limiter on auth and password-reset endpoints |
+| CSRF | Cross-origin state-changing requests are rejected in `proxy.ts`; the post-login destination travels in the form body and is re-validated against a known origin, not against a list of string shapes |
+| SSRF | The push endpoint is https-only and matched against the known push-service hosts by DNS label, at subscription time and again at send time |
+| Rate limiting | In-process limiter on auth and password-reset endpoints. The bypass flag is ignored in production unless a second deliberate variable is also set |
 | Secrets | Server-only variables read through `lib/env.ts`; the service key is never imported by a client module |
 | Headers | `nosniff`, `Referrer-Policy`, `X-Frame-Options: DENY`, `Permissions-Policy`, HSTS in production |
+| Consent records | Append-only, service-role-only. The account holder can neither read, forge nor edit a record, because a value the subject can rewrite is not evidence |
 
 Student data is handled under FERPA-aligned defaults and COPPA-aware choices.
-Access is role-scoped. See `docs/SECURITY.md` for the full posture, including
-what is implemented and what is planned.
+Access is role-scoped. See `docs/SECURITY.md` for the full posture, the audit
+findings and what is implemented versus planned, and `/privacy` for what the
+product tells a parent.
+
+> The two most important security properties in that document, the column-scoped
+> `profiles` grant and the tenant-scoped class reads, live in the SQL migration.
+> They are correct as written and reviewed, but have not been exercised against a
+> running Postgres. `PROJECT_STATUS.md` records the test that settles it.
 
 ---
 

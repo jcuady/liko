@@ -11,6 +11,7 @@ import {
   permissionForPath,
 } from '@/lib/auth/rbac';
 import { isSameOrigin } from '@/lib/security/rate-limit';
+import { safeNextPath } from '@/lib/security/redirect';
 
 /**
  * RBAC route gate.
@@ -31,16 +32,6 @@ const SECURITY_HEADERS: Record<string, string> = {
   'X-Frame-Options': 'DENY',
   'Permissions-Policy': 'camera=(), microphone=(), geolocation=(), interest-cohort=()',
 };
-
-/** Only same-origin relative paths may be used as a post-login destination. */
-function safeNext(raw: string | null): string {
-  if (!raw) return '/overview';
-  // Reject protocol-relative ("//evil.com") and absolute URLs, which are the
-  // two shapes an open redirect actually needs.
-  if (!raw.startsWith('/') || raw.startsWith('//')) return '/overview';
-  if (raw.startsWith('/login') || raw.startsWith('/register')) return '/overview';
-  return raw;
-}
 
 export async function proxy(request: NextRequest) {
   const { pathname, search } = request.nextUrl;
@@ -79,7 +70,7 @@ export async function proxy(request: NextRequest) {
   // No valid session on a protected route.
   if (!session) {
     const url = new URL('/login', request.url);
-    url.searchParams.set('next', safeNext(pathname + search));
+    url.searchParams.set('next', safeNextPath(pathname + search, { fallback: '/overview' }));
     const response = NextResponse.redirect(url, { headers });
     if (request.cookies.has(SESSION_COOKIE)) {
       // A cookie that failed verification is worse than none: drop it.

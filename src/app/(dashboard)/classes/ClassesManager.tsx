@@ -9,6 +9,7 @@ import { ArchiveIcon, PlusIcon, UsersIcon } from '@phosphor-icons/react';
 import { Button } from '@/components/ui/button';
 import { Input, Select } from '@/components/ui/input';
 import { FormField } from '@/components/ui/form-field';
+import { Switch } from '@/components/ui/switch';
 import { Badge, Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { EmptyState } from '@/components/ui/feedback';
 import {
@@ -428,6 +429,8 @@ function NewClassDialog() {
 
 function NewStudentDialog({ classId }: { classId: string }) {
   const [open, setOpen] = React.useState(false);
+  const [issueLogin, setIssueLogin] = React.useState(false);
+  const [issued, setIssued] = React.useState<{ name: string; password: string } | null>(null);
   const refresh = useRefreshAfterWrite();
 
   const create = useMutation({
@@ -438,11 +441,58 @@ function NewStudentDialog({ classId }: { classId: string }) {
         return;
       }
       toast.success(result.message);
-      setOpen(false);
       await refresh();
+      if (result.issuedPassword) {
+        // Kept open so the password is on screen when it is needed, rather than
+        // handed over in a toast that disappears on its own.
+        setIssued({ name: result.message.replace(' added with a login.', ''), password: result.issuedPassword });
+      } else {
+        setOpen(false);
+      }
     },
     onError: () => toast.error('That student could not be added. Try again.'),
   });
+
+  if (issued) {
+    return (
+      <Dialog open onOpenChange={(next) => { if (!next) setIssued(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Login created</DialogTitle>
+            <DialogDescription>
+              Write this password down and hand it over now. It is shown once and
+              cannot be shown again.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="flex flex-col gap-3">
+            <div className="rounded-[12px] border border-accent bg-accent-subtle p-4">
+              <p className="text-label">{issued.name}</p>
+              <p className="tabular mt-2 select-all break-all text-[1.0625rem] font-semibold text-ink">
+                {issued.password}
+              </p>
+            </div>
+            <p className="text-meta text-ink-muted">
+              Ask them to change it after the first sign-in. Do not send it in an
+              email that others can read.
+            </p>
+          </div>
+
+          <DialogFooter>
+            <Button
+              onClick={() => {
+                setIssued(null);
+                setIssueLogin(false);
+                setOpen(false);
+              }}
+            >
+              Done
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    );
+  }
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -471,6 +521,10 @@ function NewStudentDialog({ classId }: { classId: string }) {
               guardianName: String(form.get('guardianName') ?? ''),
               guardianEmail: String(form.get('guardianEmail') ?? ''),
               guardianPhone: String(form.get('guardianPhone') ?? ''),
+              issueLogin,
+              loginEmail: String(form.get('loginEmail') ?? ''),
+              loginRole: String(form.get('loginRole') ?? 'student'),
+              temporaryPassword: String(form.get('temporaryPassword') ?? ''),
             });
           }}
         >
@@ -493,6 +547,76 @@ function NewStudentDialog({ classId }: { classId: string }) {
               <Input {...props} name="guardianPhone" type="tel" autoComplete="off" />
             )}
           </FormField>
+
+          {/*
+            The login is opt-in and off by default, because most students will
+            never need one. The explanation sits above the control rather than in
+            a tooltip, because the whole point is that this is the only way a
+            student account comes into existence, and that is not a fact anyone
+            should have to discover by reading the code.
+          */}
+          <div className="flex flex-col gap-3 rounded-[12px] border border-border bg-surface-sunken p-4">
+            <label className="flex items-center justify-between gap-4">
+              <span className="text-[0.9375rem] font-medium text-ink">
+                Create a LIKO login
+              </span>
+              <Switch
+                checked={issueLogin}
+                onCheckedChange={setIssueLogin}
+                aria-label="Create a LIKO login for this student"
+              />
+            </label>
+
+            <p className="text-meta text-ink-muted">
+              Students and guardians cannot sign up themselves. This is the only
+              place their account is created, and it is tied to this class.
+            </p>
+
+            {issueLogin ? (
+              <div className="flex flex-col gap-4">
+                <FormField id="student-login-role" label="Login is for">
+                  {(props) => (
+                    <Select {...props} name="loginRole" defaultValue="student">
+                      <option value="student">The student</option>
+                      <option value="guardian">The guardian</option>
+                    </Select>
+                  )}
+                </FormField>
+
+                <FormField
+                  id="student-login-email"
+                  label="Login email"
+                  required
+                  hint="Must be an address they can open."
+                >
+                  {(props) => (
+                    <Input
+                      {...props}
+                      name="loginEmail"
+                      type="email"
+                      inputMode="email"
+                      autoComplete="off"
+                    />
+                  )}
+                </FormField>
+
+                <FormField
+                  id="student-login-password"
+                  label="Temporary password"
+                  hint="Leave blank and one will be generated. They can change it after signing in."
+                >
+                  {(props) => (
+                    <Input
+                      {...props}
+                      name="temporaryPassword"
+                      type="text"
+                      autoComplete="off"
+                    />
+                  )}
+                </FormField>
+              </div>
+            ) : null}
+          </div>
 
           <DialogFooter>
             <Button variant="secondary" onClick={() => setOpen(false)}>

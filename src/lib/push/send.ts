@@ -3,6 +3,7 @@ import 'server-only';
 import webpush from 'web-push';
 
 import { serverEnv } from '@/lib/env';
+import { isAllowedPushEndpoint } from '@/lib/push/endpoint';
 import { createSupabaseAdmin } from '@/lib/supabase/server';
 
 /**
@@ -31,6 +32,15 @@ import { createSupabaseAdmin } from '@/lib/supabase/server';
  * `web-push` only. It is never returned from a route, never logged, and never
  * included in a payload. Only the public key reaches the browser, and it reaches
  * it through `NEXT_PUBLIC_VAPID_PUBLIC_KEY`.
+ *
+ * AND THE ENDPOINT IS CHECKED AGAIN HERE. This is the request the server makes
+ * on someone else's behalf, so the row is re-validated against the push-service
+ * allowlist before `sendNotification` is called. The subscribe route already
+ * refuses an endpoint that is not https on a push service, but that is only one
+ * door: rows written before the rule existed are still in the table, and a later
+ * write path that forgets the check would be another. Defence in depth is the
+ * whole point here, because a failure here is a request leaving the deployment
+ * to an address the client chose.
  */
 
 type Row = Record<string, unknown>;
@@ -141,6 +151,23 @@ export async function sendPushToUser(userId: string, payload: PushPayload): Prom
     // A row without usable keys cannot be delivered to and cannot be re-keyed.
     // Counting it as failed keeps it visible in the sweep response.
     if (!endpoint || !p256dh || !auth) {
+      summary.failed += 1;
+      continue;
+    }
+
+    /*
+     * The allowlist is re-applied here, not trusted from the row. An endpoint
+     * that is not an https URL on a push service is never dispatched, so a
+     * hostile row cannot make the server fetch it from the at-risk cron or any
+     * other dispatch path.
+     *
+     * It is counted as failed rather than pruned. A 404 or 410 is proof the
+     * service is gone and the row is dead; "not a push service" only proves this
+     * check disagrees with whatever wrote the row, and deleting a teacher's
+     * device because the allowlist was wrong would be the worse mistake. The row
+     * stays visible in the sweep until it is replaced or removed.
+     */
+    if (!isAllowedPushEndpoint(endpoint)) {
       summary.failed += 1;
       continue;
     }

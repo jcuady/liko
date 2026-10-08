@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 
 import { requireSession } from '@/lib/auth/guards';
+import { isAllowedPushEndpoint } from '@/lib/push/endpoint';
 import { isSameOrigin, clientKey, consume, type RateLimitConfig } from '@/lib/security/rate-limit';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 
@@ -23,16 +24,41 @@ import { createSupabaseServerClient } from '@/lib/supabase/server';
  * The upsert is keyed on the unique `endpoint`. A browser that re-subscribes
  * after an expiry hands back the same endpoint, so this updates the keys rather
  * than creating a duplicate row the sweep would then have to prune.
+ *
+ * THE ENDPOINT IS CHECKED BEFORE IT IS STORED. `endpoint` is a URL the client
+ * chose and the server will later be asked to fetch it, so it has to be an https
+ * URL on a real push service. Without that check, a signed-in teacher could
+ * subscribe `http://169.254.169.254/latest/meta-data/`, the row would be written
+ * happily, and the daily at-risk sweep would make the request from the server
+ * with no response returned to them. The rule itself lives in
+ * `@/lib/push/endpoint` and is applied again in `send.ts`, because rows written
+ * before it existed are still in the table.
+ *
+ * The failure message says only that the endpoint is unsupported. It does not
+ * list the allowed hosts, and it does not describe what this server can reach.
  */
 
 const subscriptionSchema = z.object({
-  endpoint: z.string().url().max(2048),
+  endpoint: z
+    .string()
+    .url()
+    .max(2048)
+    .refine(isAllowedPushEndpoint, { message: 'Unsupported push endpoint' }),
   keys: z.object({
     p256dh: z.string().min(1).max(512),
     auth: z.string().min(1).max(512),
   }),
 });
 
+/**
+ * Deliberately NOT restricted to the push allowlist, unlike POST above.
+ * Unsubscribing has to keep working for every row the table can hold, including
+ * a row written before the allowlist existed and including any row a browser
+ * hands back that this server has never seen. Narrowing this schema would
+ * strand exactly the rows that most need removing, and the DELETE is scoped to
+ * the caller's own `user_id` anyway, so an odd URL here removes nothing but the
+ * caller's own row.
+ */
 const unsubscribeSchema = z.object({
   endpoint: z.string().url().max(2048),
 });

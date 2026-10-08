@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 
 /**
  * Auth and access-control behaviour.
@@ -15,6 +15,17 @@ function uniqueEmail() {
 }
 
 const PASSWORD = 'Good-Pass-1';
+
+/**
+ * Ticks both consent boxes.
+ *
+ * Every test that gets past the form has to call this. That is the point of the
+ * gate: there is no path into the product that does not pass through it.
+ */
+async function acceptConsent(page: Page) {
+  await page.getByLabel(/I agree to the Terms of Use/).check();
+  await page.getByLabel(/I have read the Privacy Notice/).check();
+}
 
 test.describe('protected routes', () => {
   test('an anonymous visitor is redirected to sign in', async ({ page }) => {
@@ -53,6 +64,7 @@ test.describe('registration', () => {
     await page.getByLabel(/Full name/).fill('Maya Okonkwo');
     await page.getByLabel(/^Email/).fill(uniqueEmail());
     await page.getByLabel(/Password/).fill(PASSWORD);
+    await acceptConsent(page);
 
     await page.getByRole('button', { name: /Create workspace/i }).click();
 
@@ -110,6 +122,7 @@ test.describe('sign in', () => {
     await page.getByLabel(/Full name/).fill('Maya Okonkwo');
     await page.getByLabel(/^Email/).fill(email);
     await page.getByLabel(/Password/).fill(PASSWORD);
+    await acceptConsent(page);
     await page.getByRole('button', { name: /Create workspace/i }).click();
     // Fixture mode verifies at signup, so registration goes straight through to
     // onboarding rather than the verification dead end.

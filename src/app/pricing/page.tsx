@@ -2,11 +2,11 @@ import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 
 import { MarketingNav } from '@/components/layout/MarketingNav';
+import { Footer } from '@/components/layout/Footer';
 import { getSession } from '@/lib/auth/guards';
 import { PricingTiers } from './components/PricingTiers';
 import { PriceComparison } from './components/PriceComparison';
 import { BillingFaq } from './components/BillingFaq';
-import { PricingFooter } from './components/PricingFooter';
 
 const TITLE = 'LIKO pricing. One plan per teacher, not per student.';
 const DESCRIPTION =
@@ -66,7 +66,7 @@ export default async function PricingPage() {
         <BillingFaq />
       </main>
 
-      <PricingFooter />
+      <Footer />
     </>
   );
 }

@@ -97,6 +97,17 @@ export interface StudentRecord {
   guardianEmail: string | null;
   guardianPhone: string | null;
   archivedAt: string | null;
+  /**
+   * The LIKO login issued for this student, if any. Null is the normal case:
+   * most students on a roster never need to sign in.
+   *
+   * This is the only thing that lets a student or guardian account see anything,
+   * and it is set exclusively by a teacher from the roster. Nothing in the
+   * public signup path can produce one, which is what makes "teachers create
+   * student accounts" a rule the database enforces rather than a promise in a
+   * terms page.
+   */
+  accountId: string | null;
 }
 
 export const assessmentTypeSchema = z.enum([

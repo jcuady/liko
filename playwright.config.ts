@@ -28,6 +28,13 @@ export default defineConfig({
 
   use: {
     baseURL,
+    /*
+     * The consent cookie is pre-set for every test. The banner it suppresses is a
+     * fixed overlay at the foot of every public page, so leaving it unanswered
+     * would have it intercept clicks in specs written before it existed. The
+     * specs that test the banner clear the cookie themselves.
+     */
+    storageState: './e2e/storage-state.json',
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
   },
@@ -58,8 +65,14 @@ export default defineConfig({
        * The suite signs in as the same demo accounts dozens of times from one
        * address, which trips the credential limiter that protects production.
        * Throttling is a deployed control, so it is lifted for this server only.
+       *
+       * `next start` runs with NODE_ENV=production, and the limiter ignores a
+       * bare bypass flag in production on purpose. That is why BOTH variables are
+       * set here: the combination is the deliberate two-key override the limiter
+       * documents, not a re-opening of the single-flag hole.
        */
       LIKO_RATE_LIMIT_DISABLED: 'true',
+      LIKO_E2E: 'true',
     },
   },
 });

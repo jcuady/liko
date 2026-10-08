@@ -121,6 +121,14 @@ function createStore(): FixtureStore {
       },
     ],
     students: [
+      /*
+       * `accountId` is null on every seeded row, which is the honest default:
+       * most students on a roster never need to sign in, and a demo that
+       * pre-linked five children to logins would misrepresent the normal state.
+       * The `student@` and `guardian@` demo accounts exist for the permission
+       * matrix; they are not attached to a roster row until a teacher issues a
+       * login from /classes, which is the only thing that can set this column.
+       */
       ...fixtureStudents.map((student) => ({
         id: student.id,
         classId: CLASS_ID,
@@ -131,6 +139,7 @@ function createStore(): FixtureStore {
         guardianEmail: null,
         guardianPhone: null,
         archivedAt: null,
+        accountId: null,
       })),
       ...secondClassStudents.map((student) => ({
         id: student.id,
@@ -142,6 +151,7 @@ function createStore(): FixtureStore {
         guardianEmail: null,
         guardianPhone: null,
         archivedAt: null,
+        accountId: null,
       })),
     ],
     attendance: demoAttendance(),

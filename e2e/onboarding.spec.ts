@@ -21,6 +21,11 @@ async function register(page: Page): Promise<void> {
   await page.getByLabel(/Full name/).fill('Wanda Fitzgerald');
   await page.getByLabel(/^Email/).fill(uniqueEmail());
   await page.getByLabel(/Password/).fill(PASSWORD);
+  // Signup is gated on accepting the terms and the privacy notice. Every test
+  // that reaches the wizard has to agree first, because there is no route into
+  // the product that does not.
+  await page.getByLabel(/I agree to the Terms of Use/).check();
+  await page.getByLabel(/I have read the Privacy Notice/).check();
   await page.getByRole('button', { name: /Create workspace/i }).click();
   await expect(page).toHaveURL(/\/welcome/);
 }

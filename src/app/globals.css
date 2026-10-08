@@ -314,6 +314,78 @@
   .measure {
     max-width: 65ch;
   }
+
+  /*
+     Long-form reading style for /terms, /privacy and /cookies.
+
+     A legal document is paragraphs and lists, not marketing sections, so it gets
+     one class rather than a stack of utilities repeated on every node. The
+     measure is deliberately narrower than the page's 65ch: at 70 characters the
+     eye loses the start of the next line on a long screen, which is exactly the
+     wrong failure for text people are meant to read carefully.
+
+     Colour comes from the same tokens as everything else, so the document follows
+     the theme toggle like the rest of the product.
+  */
+  .legal-body {
+    max-width: 68ch;
+    font-size: 1rem;
+    line-height: 1.7;
+    color: var(--ink-muted);
+  }
+
+  .legal-body > * + * {
+    margin-top: 1rem;
+  }
+
+  .legal-body h3 {
+    font-size: 1.0625rem;
+    line-height: 1.35;
+    font-weight: 600;
+    color: var(--ink);
+    margin-top: 1.75rem;
+  }
+
+  .legal-body ul,
+  .legal-body ol {
+    padding-left: 1.35rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .legal-body ul {
+    list-style: disc;
+  }
+
+  .legal-body ol {
+    list-style: decimal;
+  }
+
+  .legal-body li::marker {
+    color: var(--ink-subtle);
+  }
+
+  .legal-body strong {
+    font-weight: 600;
+    color: var(--ink);
+  }
+
+  .legal-body a {
+    color: var(--accent);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  .legal-body a:hover {
+    text-decoration: none;
+  }
+
+  .legal-body a:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
 }
 
 /* ==========================================================================

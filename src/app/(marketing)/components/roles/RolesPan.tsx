@@ -1,11 +1,10 @@
 'use client';
 
 import * as React from 'react';
-import gsap from 'gsap';
-import { ScrollTrigger } from 'gsap/ScrollTrigger';
+import { motion, useScroll, useTransform } from 'motion/react';
 
 import { cn } from '@/lib/utils';
-import { useIsDesktop } from '@/lib/hooks/use-media-query';
+import { useIsDesktop, usePrefersReducedMotion } from '@/lib/hooks/use-media-query';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 const PANELS = [
@@ -45,64 +44,73 @@ const PANELS = [
 ];
 
 /**
- * Roles. A GSAP horizontal pan on desktop, a tab set on mobile.
+ * Roles. A scroll-driven horizontal pan on desktop, a tab set on mobile.
  *
- * Canonical skeleton: the wrapper pins, the inner track scrubs, and `end` is
- * computed from the track's actual scroll width so the pan ends exactly when the
- * last panel is fully in view. `invalidateOnRefresh` keeps that distance
- * correct after a resize.
+ * Canonical skeleton: the panel row pins, the inner track is scrubbed sideways,
+ * and the pan travels exactly as far as the track actually overflows, so it
+ * ends when the last panel is fully in view rather than somewhere past it.
  *
- * The track is padded to the page gutter rather than starting at the viewport
- * edge, so the first panel lines up with every other heading on the page, and
- * `distance` accounts for that padding. Getting this wrong is what makes a pan
- * read as broken content spilling off the screen instead of a deliberate slide.
+ * That distance is measured, not assumed, because three panels at a fixed width
+ * overflow by a different amount at every breakpoint. The measurement feeds two
+ * things that have to agree: the track's `x`, and the height of the runway
+ * spacer below the pinned panel row. If they disagree the pan either runs past
+ * the last panel or stops short of it, which is what makes a pan read as broken
+ * content spilling off the screen instead of a deliberate slide.
+ *
+ * The runway spacer is why the scroll area is at least a viewport tall: that
+ * makes the area's scrollable range equal the measured overflow, so the scrub
+ * completes exactly as the pinned row reaches the end of its travel.
+ *
+ * The pinned row is `position: sticky`, so the hold is resolved by the
+ * compositor rather than by a scroll handler rewriting layout every frame.
  *
  * Arrow keys move between panels, because a scroll-driven pan that only responds
  * to a wheel is unusable by keyboard.
  */
 export function RolesPan({ className }: { className?: string }) {
   const isDesktop = useIsDesktop();
+  const reduceMotion = usePrefersReducedMotion();
+  const areaRef = React.useRef<HTMLDivElement>(null);
   const wrapperRef = React.useRef<HTMLDivElement>(null);
   const trackRef = React.useRef<HTMLDivElement>(null);
-  const contextRef = React.useRef<gsap.Context | null>(null);
   const [active, setActive] = React.useState('preschool');
+  const [distance, setDistance] = React.useState(0);
+
+  // Reduced motion keeps the same panel row, unscrubbed and natively
+  // scrollable, so all three panels stay reachable instead of being clipped.
+  const pan = isDesktop && !reduceMotion;
 
   React.useEffect(() => {
-    if (!isDesktop) return;
-    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-
-    const wrapper = wrapperRef.current;
     const track = trackRef.current;
-    if (!wrapper || !track) return;
-
-    gsap.registerPlugin(ScrollTrigger);
+    if (!track || !pan) {
+      setDistance(0);
+      return;
+    }
 
     // The track starts one gutter in, so it must travel a gutter less than its
     // raw overflow or the final panel stops short of the right-hand margin.
-    const distance = () =>
-      Math.max(0, track.scrollWidth - window.innerWidth);
+    const measure = () => {
+      const next = Math.max(0, track.scrollWidth - window.innerWidth);
+      setDistance((current) => (Math.abs(current - next) < 1 ? current : next));
+    };
 
-    contextRef.current = gsap.context(() => {
-      gsap.to(track, {
-        x: () => -distance(),
-        ease: 'none',
-        scrollTrigger: {
-          trigger: wrapper,
-          start: 'top top',
-          end: () => `+=${distance()}`,
-          pin: true,
-          scrub: 1,
-          anticipatePin: 1,
-          invalidateOnRefresh: true,
-        },
-      });
-    }, wrapper);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(track);
+    window.addEventListener('resize', measure);
 
     return () => {
-      contextRef.current?.revert();
-      contextRef.current = null;
+      observer.disconnect();
+      window.removeEventListener('resize', measure);
     };
-  }, [isDesktop]);
+  }, [pan]);
+
+  const { scrollYProgress } = useScroll({
+    target: areaRef,
+    offset: ['start start', 'end end'],
+  });
+
+  const x = useTransform(scrollYProgress, [0, 1], [0, -distance]);
 
   const onKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     if (!isDesktop) return;
@@ -113,13 +121,19 @@ export function RolesPan({ className }: { className?: string }) {
     const next = (index + step + PANELS.length) % PANELS.length;
     setActive(PANELS[next].id);
 
-    const wrapper = wrapperRef.current;
-    if (!wrapper) return;
-    const travelled =
-      wrapper.scrollWidth - wrapper.clientWidth || document.documentElement.scrollWidth;
-    window.scrollBy({
-      top: (travelled / (PANELS.length - 1)) * step,
-      behavior: 'smooth',
+    const behavior: ScrollBehavior = reduceMotion ? 'auto' : 'smooth';
+
+    if (pan) {
+      window.scrollBy({
+        top: (distance / (PANELS.length - 1)) * step,
+        behavior,
+      });
+      return;
+    }
+
+    wrapperRef.current?.scrollBy({
+      left: (trackRef.current?.scrollWidth ?? 0) / PANELS.length * step,
+      behavior,
     });
   };
 
@@ -145,23 +159,38 @@ export function RolesPan({ className }: { className?: string }) {
   }
 
   return (
-    <div
-      ref={wrapperRef}
-      className={cn('pan-bleed overflow-hidden', className)}
-      onKeyDown={onKeyDown}
-      role="group"
-      aria-label="LIKO by level"
-    >
+    <div ref={areaRef} className={cn(pan && 'min-h-dvh')}>
       <div
-        ref={trackRef}
-        className="pan-track flex will-change-transform"
+        ref={wrapperRef}
+        className={cn(
+          'pan-bleed',
+          pan ? 'sticky top-0 overflow-hidden' : 'overflow-x-auto',
+          className,
+        )}
+        onKeyDown={onKeyDown}
+        role="group"
+        aria-label="LIKO by level"
       >
-        {PANELS.map((panel) => (
-          <div key={panel.id} className="pan-item">
-            <RolePanel panel={panel} />
-          </div>
-        ))}
+        <motion.div
+          ref={trackRef}
+          style={pan ? { x } : undefined}
+          className="pan-track flex will-change-transform"
+        >
+          {PANELS.map((panel) => (
+            <div key={panel.id} className="pan-item">
+              <RolePanel panel={panel} />
+            </div>
+          ))}
+        </motion.div>
       </div>
+
+      {/*
+        The runway. Gives the pinned row exactly as much scroll as the track
+        overflows by, so the scrub and the hold always finish together.
+      */}
+      {pan && distance > 0 ? (
+        <div aria-hidden="true" style={{ height: distance }} />
+      ) : null}
     </div>
   );
 }

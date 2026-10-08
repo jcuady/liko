@@ -1,7 +1,3 @@
-'use client';
-
-import * as React from 'react';
-
 import { SectionHeader } from './SectionHeader';
 import { Reveal } from './Reveal';
 import {

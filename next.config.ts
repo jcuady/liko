@@ -27,6 +27,17 @@ const withSerwist = withSerwistInit({
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
+  experimental: {
+    /*
+     * The marketing page and the app shell both import named icons from the
+     * Phosphor package. Without this the barrel entry is pulled in whole and
+     * every named icon drags the rest of the set along with it. Listing the
+     * package here rewrites those named imports to their individual modules,
+     * so a server component that forgets the `/dist/ssr` entry still fails
+     * loudly at build time instead of quietly shipping the context-based one.
+     */
+    optimizePackageImports: ['@phosphor-icons/react'],
+  },
   images: {
     formats: ['image/avif', 'image/webp'],
   },

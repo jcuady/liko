@@ -24,10 +24,71 @@ declare const self: ServiceWorkerGlobalScope & typeof globalThis;
  * somewhere:
  *
  *   - Hashed build assets are immutable, so CacheFirst is both safe and fast.
- *   - Documents must stay fresh, so NetworkFirst with an offline fallback.
- *   - API reads tolerate brief staleness; writes are never served from cache.
- *   - Failed writes go to a BackgroundSync queue instead of being lost.
+ *   - Public documents must stay fresh, so NetworkFirst with an offline
+ *     fallback.
+ *   - Authenticated documents are NEVER cached. See the two document rules
+ *     below; this is the single most consequential line in this file.
+ *   - Writes are never served from cache and are queued when offline.
+ *
+ * There is no `/api/` GET rule any more. The one that existed had no legitimate
+ * target: every browser-side read goes through server components talking
+ * straight to PostgREST, never through `/api/`. The only GET handler under
+ * `/api/` was `/api/cron/at-risk`, which is called by the scheduler rather than
+ * by a browser, so the rule was caching a cron payload keyed by URL in a cache
+ * on the user's own device. Deleting it removed a leak rather than a feature.
  */
+
+/**
+ * Documents whose responses are safe to keep on disk after the network drops.
+ *
+ * Everything reachable without a session belongs here. Adding an authenticated
+ * route to this list is the one change to this file that could leak student
+ * data, so the comment on each entry says why it is safe rather than leaving
+ * that to be inferred.
+ *
+ * `/login` and `/register` are here because they render nothing about any
+ * particular person. `/reset-password` is here because the token lives in the
+ * URL fragment and the page is a static form; the response contains no
+ * workspace data.
+ */
+const PUBLIC_DOCUMENTS: readonly string[] = [
+  '/',
+  '/pricing',
+  '/terms',
+  '/privacy',
+  '/cookies',
+  '/login',
+  '/register',
+  '/forgot-password',
+  '/reset-password',
+  '/verify-email',
+  '/offline',
+];
+
+/**
+ * True for a top-level page load.
+ *
+ * `destination === 'document'` is the accurate signal and is what the original
+ * rule used in its `fallbacks` entry. `mode === 'navigate'` is kept as an
+ * additional signal because a browser that omits `destination` on a top-level
+ * navigation should be treated as a document rather than falling through to no
+ * rule at all.
+ *
+ * Deliberately NOT matched: App Router RSC segment requests, which carry no
+ * destination and use cors mode. Those are the payload behind a client-side
+ * navigation. They were never cached and must not start being cached; they are
+ * covered by the authenticated-document rule below, which serves them from the
+ * network only.
+ */
+function isDocument(request: Request): boolean {
+  return request.destination === 'document' || request.mode === 'navigate';
+}
+
+function isPublicDocument(pathname: string): boolean {
+  // Strip the trailing slash so `/pricing/` and `/pricing` are one entry.
+  const path = pathname.length > 1 && pathname.endsWith('/') ? pathname.slice(0, -1) : pathname;
+  return PUBLIC_DOCUMENTS.includes(path);
+}
 
 const serwist = new Serwist({
   precacheEntries: self.__SW_MANIFEST ?? [],
@@ -84,33 +145,64 @@ const serwist = new Serwist({
       }),
     },
     {
-      // Documents: prefer the network, fall back to cache, then to /offline.
-      matcher: ({ request }) => request.mode === 'navigate',
+      /*
+       * Documents: prefer the network, fall back to cache, then to /offline.
+       *
+       * ONLY FOR PUBLIC DOCUMENTS, AND THAT RESTRICTION IS THE WHOLE POINT.
+       *
+       * The previous matcher was `request.mode === 'navigate'`, which is every
+       * document request the browser makes, including `/overview`, `/grades`,
+       * `/attendance` and `/slides`. Those responses contain student names,
+       * marks and grades. The cache is keyed by URL and survives for an hour,
+       * so on a shared device teacher B signing in on a flaky network is served
+       * teacher A's cached dashboard HTML out of the cache, signed-in and
+       * rendered, with no error and no indication it is stale.
+       *
+       * This is now an ALLOWLIST rather than a rule about request shape. That
+       * choice is about which way a mistake fails: a public page missing from
+       * this list simply loses its offline fallback, whereas a private page
+       * wrongly admitted would ship one school's roster to the next person at
+       * the machine. A new authenticated route is therefore private by default,
+       * with no action required, which is the correct default for a data leak.
+       */
+      matcher: ({ url, request }) =>
+        url.origin === self.location.origin &&
+        isDocument(request) &&
+        isPublicDocument(url.pathname),
       handler: new NetworkFirst({
         cacheName: 'liko-pages',
         networkTimeoutSeconds: 3,
         plugins: [
-          new ExpirationPlugin({ maxEntries: 40, maxAgeSeconds: 60 * 60 }),
+          new ExpirationPlugin({ maxEntries: 20, maxAgeSeconds: 60 * 60 }),
         ],
       }),
     },
     {
-      matcher: ({ url }) =>
-        url.origin === self.location.origin && url.pathname.startsWith('/api/'),
-      method: 'GET' as const,
-      handler: new NetworkFirst({
-        cacheName: 'liko-api',
-        networkTimeoutSeconds: 5,
-        plugins: [
-          new ExpirationPlugin({ maxEntries: 120, maxAgeSeconds: 60 * 5 }),
-        ],
-      }),
+      /*
+       * Everything else that is a page load: served from the network, never
+       * stored. This covers every authenticated route (`/overview`, `/grades`,
+       * `/attendance`, `/slides`, `/settings`, ...) and, deliberately, the App
+       * Router RSC payload behind a client-side navigation, which is exactly
+       * the same private data arriving by a different transport.
+       *
+       * They still work offline: when the network fails, the `fallbacks` entry
+       * above catches the document request and serves `/offline`. What is
+       * removed is the cache, not the offline experience. A teacher on a train
+       * gets the offline page rather than a colleague's gradebook.
+       */
+      matcher: ({ url, request }) =>
+        url.origin === self.location.origin &&
+        isDocument(request) &&
+        !isPublicDocument(url.pathname),
+      handler: new NetworkOnly(),
     },
     {
+      /*
+       * Writes bypass every cache. When offline they are parked in a
+       * background-sync queue and replayed on reconnect.
+       */
       matcher: ({ url }) =>
         url.origin === self.location.origin && url.pathname.startsWith('/api/'),
-      // Writes bypass every cache. When offline they are parked in a
-      // background-sync queue and replayed on reconnect.
       method: 'POST' as const,
       handler: new NetworkOnly({
         plugins: [

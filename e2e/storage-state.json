@@ -1,0 +1,16 @@
+{
+  "$comment": "Pre-answered cookie consent for the end-to-end suite. The banner is a fixed overlay, so without this it would sit over the bottom of every public page and intercept clicks in specs that were written before it existed. Tests that exercise the banner itself clear the cookie first. This carries no session: an anonymous visitor is still anonymous.",
+  "cookies": [
+    {
+      "name": "liko_consent",
+      "value": "all",
+      "domain": "127.0.0.1",
+      "path": "/",
+      "expires": -1,
+      "httpOnly": false,
+      "secure": false,
+      "sameSite": "Lax"
+    }
+  ],
+  "origins": []
+}

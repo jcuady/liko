@@ -199,6 +199,87 @@ create trigger students_set_updated_at
   for each row execute function public.set_updated_at();
 
 -- ---------------------------------------------------------------------------
+-- The link between a student record and a LIKO login
+--
+-- Students and guardians do not self-register. A teacher creates the account
+-- from the roster and it lands here, which is what makes "teachers create
+-- accounts for them" an enforceable rule rather than a sentence in the terms:
+-- the public signup path has no role that can produce one of these, and every
+-- account that can see a student row reaches it through this column.
+--
+-- NULL for the common case, which is a student in a class that never needs a
+-- login. A roster row with no account is the normal state, not a broken one.
+--
+-- `on delete set null` because deleting an account must not delete a child's
+-- school record. The gradebook and attendance history outlive any one login.
+--
+-- Added after the initial table so the migration stays idempotent, matching how
+-- the profile columns were added above.
+-- ---------------------------------------------------------------------------
+alter table public.students
+  add column if not exists account_id uuid
+    references auth.users (id) on delete set null;
+
+create index if not exists students_account_idx
+  on public.students (account_id)
+  where account_id is not null;
+
+-- A logged-in student or guardian may read the one record that is theirs, and
+-- nothing else on the table. This ORs with the owner policy above, which is the
+-- point: a teacher keeps seeing the whole roster, and a parent sees one row.
+drop policy if exists "linked reads own student row" on public.students;
+create policy "linked reads own student row" on public.students
+  for select using (account_id = auth.uid());
+
+-- The link itself is not self-editable.
+--
+-- WHAT IS ACTUALLY ENFORCING THIS. The primary boundary is the policy above.
+-- "own rows" is the only UPDATE policy on `students` and it requires
+-- `owner_id = auth.uid()`, so a linked account has no route to UPDATE the row at
+-- all, linked or not. This trigger is the second layer, not the first, and it is
+-- here because RLS protects columns only by accident: the day someone widens
+-- those policies, or adds an update grant for guardians so they can fix a phone
+-- number, this still holds the link.
+--
+-- WHY A TRIGGER AND NOT A COLUMN GRANT. The shape used on `profiles` above,
+-- `revoke update` plus a narrow `grant update (...)`, cannot work here. The same
+-- table is written by two callers with very different rights: the teacher who
+-- owns the roster and edits freely, and the linked account. A grant is per-role,
+-- not per-row, so it cannot tell them apart. A trigger can, because it can see
+-- who is asking.
+--
+-- `auth.uid()` is NULL when the service role writes, which is what lets the
+-- server-side create and link paths through untouched. It only fires on UPDATE,
+-- so the initial insert is unaffected, and on that insert `old.owner_id` is still
+-- null anyway.
+--
+-- KNOWN LIMITATION, DELIBERATE: a guardian cannot correct their own phone number
+-- on the record. Granting that needs the policies above widened first, and it is
+-- a product decision rather than a security one.
+create or replace function public.protect_student_account_link()
+returns trigger
+language plpgsql
+security invoker
+set search_path = public
+as $$
+begin
+  if new.account_id is distinct from old.account_id
+     and auth.uid() is not null
+     and auth.uid() <> old.owner_id
+  then
+    raise exception 'the login linked to a student record can only be set by the class owner'
+      using errcode = '42501';
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists students_protect_account_link on public.students;
+create trigger students_protect_account_link
+  before update on public.students
+  for each row execute function public.protect_student_account_link();
+
+-- ---------------------------------------------------------------------------
 -- attendance: unique per class/student/day so marking is idempotent and an
 -- offline replay can never duplicate a day
 -- ---------------------------------------------------------------------------
@@ -526,6 +607,45 @@ create trigger slides_set_updated_at
   for each row execute function public.set_updated_at();
 
 -- ---------------------------------------------------------------------------
+-- consent_events: append-only log of what each account agreed to, and when
+--
+-- WHY THIS IS A SEPARATE TABLE AND NOT A COLUMN ON `profiles`.
+--
+-- `profiles` is reachable by an account on its own row, and RLS restricts
+-- rows, not columns, so what keeps a column off that reach is the column
+-- grant below rather than the policy. A `terms_accepted_at` column added to
+-- `profiles` without also being left out of that grant would therefore be a
+-- timestamp the account holder is free to edit, which is exactly the value
+-- that has to be beyond their reach to be worth keeping.
+--
+-- Row level security is enabled below and NO policy is ever created for this
+-- table. With no policy, PostgREST returns nothing for select and rejects insert
+-- for the authenticated role, so the only writer is the service role, which
+-- bypasses RLS. The account can neither read nor forge a record.
+--
+-- Append-only on purpose: re-accepting after the terms change adds a row instead
+-- of overwriting, so "what had this person agreed to on the day they signed up"
+-- still has an answer after the text has been edited.
+-- ---------------------------------------------------------------------------
+create table if not exists public.consent_events (
+  id          uuid primary key default gen_random_uuid(),
+  user_id     uuid not null references auth.users (id) on delete cascade,
+  email       text not null,
+  subject     text not null check (subject in ('terms', 'privacy', 'cookies')),
+  -- The version of the published text in force at the moment of acceptance. A
+  -- record under an old version is not evidence for the current text.
+  version     text not null,
+  source      text not null default 'self_registration'
+              check (source in ('self_registration', 'teacher_invite', 'cookie_banner')),
+  ip          text,
+  user_agent  text,
+  accepted_at timestamptz not null default now()
+);
+
+create index if not exists consent_events_user_idx
+  on public.consent_events (user_id, accepted_at desc);
+
+-- ---------------------------------------------------------------------------
 -- RLS
 --
 -- Ownership rule for every tenant table. Writes and reads both require
@@ -544,6 +664,9 @@ alter table public.student_history   enable row level security;
 alter table public.push_subscriptions enable row level security;
 alter table public.decks             enable row level security;
 alter table public.slides            enable row level security;
+-- Enabled with deliberately NO policy. See the table comment above: the
+-- authenticated role gets nothing here, and only the service role writes.
+alter table public.consent_events    enable row level security;
 
 do $$
 declare
@@ -563,32 +686,116 @@ begin
   end loop;
 end $$;
 
--- profiles is keyed by id rather than owner_id.
+-- ---------------------------------------------------------------------------
+-- profiles: row scope AND column scope
+--
+-- RLS restricts rows, never columns. A `for all` policy on a table keyed by
+-- id therefore hands every account UPDATE on *every* column of its own row,
+-- and `role` and `org_id` are precisely the two columns an account must not
+-- reach: `role` is the permission matrix, `org_id` is the tenancy boundary.
+-- A row policy cannot express that, because there is no row a caller may
+-- update `role` on -- it is a column question wearing a row's clothes.
+--
+-- So the boundary is drawn twice, and the column grant below is the part
+-- that actually holds. The signup trigger and the service-role paths still
+-- write both columns, because the service role bypasses RLS and the trigger
+-- is SECURITY DEFINER. An attacker who skips the server action entirely and
+-- PATCHes PostgREST with their own access token gets a permission denied on
+-- `role`, not a promotion. The allowlist in the server action is a second
+-- layer over this one, not the layer that protects the column.
+--
+-- Column scope is the set `saveProfile` writes plus the two a caller owns
+-- outright; `email` stays out because it mirrors auth.users.
+-- ---------------------------------------------------------------------------
 drop policy if exists "profiles own row" on public.profiles;
 create policy "profiles own row" on public.profiles
-  for all using (id = auth.uid()) with check (id = auth.uid());
+  for select using (
+    id = auth.uid()
+    or exists (
+      select 1
+      from public.memberships mine
+      join public.memberships theirs
+        on theirs.org_id = mine.org_id
+      where mine.user_id = auth.uid()
+        and mine.role = 'admin'
+        and mine.status = 'active'
+        and theirs.user_id = profiles.id
+    )
+  );
 
--- An admin can read across the classes they administer without being able to
--- read a class they do not own. Write stays owner-only.
+drop policy if exists "profiles own update" on public.profiles;
+create policy "profiles own update" on public.profiles
+  for update using (id = auth.uid()) with check (id = auth.uid());
+
+-- Table-level UPDATE goes first, otherwise the column grant below would only
+-- ever add to a blanket right that was already there. `id` is the key, `role`
+-- and `org_id` are server-owned, and the timestamps are the database's.
+-- `updated_at` still advances: the set_updated_at trigger assigns NEW, and a
+-- trigger's assignment is not a privilege-checked UPDATE target list.
+revoke update on public.profiles from authenticated;
+grant update (full_name, avatar_url, timezone, school_name, subjects,
+              default_grade_level, grading_policy_id)
+  on public.profiles to authenticated;
+
+-- ---------------------------------------------------------------------------
+-- classes: reads outside the owner
+--
+-- PERMISSIVE POLICIES OR TOGETHER. Postgres evaluates every `for select`
+-- policy on a table and keeps a row when ANY one of them says yes, so a
+-- broad policy silently widens the narrow ones beside it however carefully
+-- those were written. Before adding a select policy here, the question is
+-- never "is this policy tight" but "is this policy tight AND is every other
+-- select policy tight", because one loose one defeats all of them. That is
+-- what made the previous version of these two policies a cross-tenant read:
+-- each looked scoped to the caller, and together they returned every class.
+--
+-- HOW A CLASS IS REACHABLE TO A TENANT. `classes` has no `org_id` (see the
+-- table definition above), so a class belongs to whichever organisation its
+-- owner belongs to, and `memberships` answers both halves of that test: the
+-- owner's membership says which org the class sits in, the caller's
+-- membership says whether the caller administers that same org. Deliberately
+-- not routed through `profiles.org_id`, which exists on the table but is
+-- never written by any application path -- a tenancy check built on it would
+-- match nothing and silently hand admins an empty list rather than a scoped
+-- one. Writes stay owner-only; `own rows` above is `for all` and unchanged.
+-- ---------------------------------------------------------------------------
 drop policy if exists "admin reads classes" on public.classes;
 create policy "admin reads classes" on public.classes
   for select using (
     exists (
-      select 1 from public.profiles p
-      where p.id = auth.uid() and p.role = 'admin'
+      select 1
+      from public.memberships mine
+      join public.memberships owner_m
+        on owner_m.org_id = mine.org_id
+       and owner_m.user_id = classes.owner_id
+      where mine.user_id = auth.uid()
+        and mine.role = 'admin'
+        and mine.status = 'active'
+        and owner_m.status = 'active'
     )
   );
 
--- Students and guardians see a roster only through a class they are linked to.
--- The link table is not part of this migration, so today the roster is
--- owner-only; the policy exists so adding the link table later does not require
--- re-auditing every table.
+-- A student or guardian sees the class their own record sits on, and no other.
+--
+-- The join column now exists. `students.account_id` is set when a teacher issues
+-- a login from the roster, so "is this account on this class" is answerable by
+-- the database rather than by a role test that is true of every student
+-- everywhere. The archived row is excluded so that removing a child from a
+-- roster also removes their access to it, which is what archiving is for.
+--
+-- The previous policy here tested `role in ('student','guardian')` against the
+-- caller's own profile. That is true of every student account in every school,
+-- so it returned every class row in the table while its comment claimed a
+-- scoping the body did not perform.
 drop policy if exists "linked read classes" on public.classes;
 create policy "linked read classes" on public.classes
   for select using (
     exists (
-      select 1 from public.profiles p
-      where p.id = auth.uid() and p.role in ('student', 'guardian')
+      select 1
+      from public.students s
+      where s.class_id = classes.id
+        and s.account_id = auth.uid()
+        and s.archived_at is null
     )
   );
 

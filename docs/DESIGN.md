@@ -174,13 +174,18 @@ exactly the moment a user is watching most closely.
 
 ### The library split
 
-**`motion`** handles all UI state, layout transitions, hover physics, and
-viewport reveals. **GSAP** handles only the two landing-page scroll narratives:
-the Flow sticky stack and the Roles horizontal pan.
+**`motion`** handles all UI state, layout transitions, hover physics, viewport
+reveals, and both landing-page scroll narratives: the Flow sticky stack and the
+Roles horizontal pan.
 
-They must never appear in the same component tree. They compete for the same
-frames, and mixing them produces dropped frames under load. Both GSAP sections
-live in isolated `'use client'` leaves with `gsap.context()` cleanup.
+There is exactly one animation runtime on `/`. It used to be two, GSAP +
+ScrollTrigger for the two narratives and Motion for everything else, which put
+two full runtimes in the same page chunk: the GSAP chunks came to 50 KB and
+94 KB before compression and the `/` route carried both. Pinning is native
+`position: sticky` now rather than JS scroll pinning, which is also why
+`<main>` uses `overflow-x-clip` rather than `overflow-x-hidden`: the latter
+computes the other axis to `auto`, making the element a scrollport, and sticky
+resolves against the nearest scrollport, so it would never have stuck.
 
 ### Scroll reveals
 
@@ -216,7 +221,7 @@ Three separate guards keep content visible, and all three are needed:
 - Popovers scale from their trigger. Only modals stay centred.
 - Hover states sit behind `@media (hover: hover) and (pointer: fine)`.
 - `window.addEventListener('scroll')` is banned outright. Use Motion
-  `useScroll`, GSAP `ScrollTrigger`, or `IntersectionObserver`.
+  `useScroll`, or `IntersectionObserver`.
 - Keyboard-initiated actions do not animate at all.
 - Toasts use CSS transitions, not keyframes, so a rapid burst retargets instead
   of restarting from zero.

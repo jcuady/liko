@@ -23,8 +23,10 @@ import { usePrefersReducedMotion } from '@/lib/hooks/use-media-query';
  * reveal that stays at `opacity: 0` hides content from exactly the visitors who
  * asked for less movement, which is the worst possible failure here.
  *
- * Motion owns UI state and these reveals. The two GSAP scroll narratives keep
- * their own component trees and never share one.
+ * Motion owns UI state, these reveals, and the two scroll narratives in the
+ * Flow and Roles sections. It is the only animation runtime this route ships,
+ * so a visitor downloads one animation library rather than two competing for
+ * the same frames.
  */
 export function Reveal({
   children,

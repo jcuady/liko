@@ -17,14 +17,21 @@ export const metadata: Metadata = {
  * Sits beside the planner because a deck and a lesson plan are the same job:
  * preparing something to teach with. Both are gated on `plan:write`, so a role
  * that can plan a lesson can build the slides for it.
+ *
+ * WHY THE COUNTS ARE BATCHED. This read the full slide records of every deck to
+ * call `.length` on each one, so the list screen transferred every slide's
+ * title, body, and speaker notes to render a badge. `countSlidesByDeck` fetches
+ * one row per slide and returns totals, so the payload is a deck id per slide
+ * and the page costs two reads instead of 1 + N.
  */
 export default async function SlidesPage() {
   const session = await requirePagePermission('plan:write');
   const store = await data();
 
   const decks = await store.listDecks(session.userId);
-  const slideCounts = await Promise.all(
-    decks.map(async (deck) => (await store.listSlides(session.userId, deck.id)).length),
+  const slideCounts = await store.countSlidesByDeck(
+    session.userId,
+    decks.map((deck) => deck.id),
   );
 
   return (
@@ -34,7 +41,7 @@ export default async function SlidesPage() {
         description="Build a deck for a lesson and present it from here. Printing to PDF is in your browser's hands."
       />
       <DecksList
-        decks={decks.map((deck, index) => ({ ...deck, slideCount: slideCounts[index] ?? 0 }))}
+        decks={decks.map((deck) => ({ ...deck, slideCount: slideCounts[deck.id] ?? 0 }))}
       />
     </div>
   );

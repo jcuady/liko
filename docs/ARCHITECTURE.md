@@ -9,8 +9,7 @@
 | Type | Geist + Geist Mono | Self-hosted via `next/font` |
 | Icons | Phosphor | One family, no emoji |
 | Components | Radix primitives + CVA | Vendored in `src/components/ui` |
-| Client motion | `motion` | All UI state and reveals |
-| Scroll motion | GSAP + ScrollTrigger | Two landing sections only |
+| Client motion | `motion` | The only animation runtime, including the two landing scroll narratives |
 | Server state | TanStack Query v5 | |
 | Forms | React Hook Form + Zod 4 | |
 | PWA | Serwist | Requires webpack |
@@ -231,7 +230,7 @@ Four layers, no overlap.
 
 **Never `useState` for a value driven by scroll or pointer.** It re-renders the
 tree every frame and collapses on mobile. Scroll-linked and pointer-linked motion
-uses Motion values or GSAP.
+uses Motion values.
 
 **Query keys come from the factory in `lib/query/keys.ts`**, so invalidation is
 never ad hoc.
