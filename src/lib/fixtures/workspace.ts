@@ -96,9 +96,16 @@ export const questionTypes = [
   { id: 'numeric', label: 'Numeric' },
 ];
 
-/** Rubric rows shown in the assess stage miniature. */
-export const rubricRows = [
-  { criterion: 'Method', points: 12, earned: 10 },
-  { criterion: 'Working', points: 8, earned: 7 },
-  { criterion: 'Conclusion', points: 5, earned: 3 },
+/**
+ * Weighted assessment marks shown in the assess stage miniature.
+ *
+ * This replaced a rubric table. LIKO has no rubrics, so the Flow card was
+ * demonstrating a feature that does not exist, and the assess stage claimed
+ * "rubric and marks in the same row". What the gradebook actually holds is
+ * assessments carrying a weight and a mark, which is what this shows.
+ */
+export const markRows = [
+  { assessment: 'Quiz: reaction rates', weight: 20, mark: 17 },
+  { assessment: 'Lab report', weight: 30, mark: 24 },
+  { assessment: 'End of unit exam', weight: 50, mark: 41 },
 ];

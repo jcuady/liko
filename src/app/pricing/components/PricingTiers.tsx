@@ -2,12 +2,19 @@
 
 import * as React from 'react';
 import Link from 'next/link';
-import { CheckIcon } from '@phosphor-icons/react';
+import { CheckIcon, InfoIcon } from '@phosphor-icons/react';
 
 import { Button } from '@/components/ui/button';
 import { Reveal } from '@/app/(marketing)/components/Reveal';
 import { SectionHeader } from '@/app/(marketing)/components/SectionHeader';
-import { PLANS, priceFor, priceNote, savingPercent, type Cycle } from '../plans';
+import {
+  EARLY_ACCESS,
+  PLANS,
+  priceFor,
+  priceNote,
+  savingPercent,
+  type Cycle,
+} from '../plans';
 
 /**
  * Pricing tiers.
@@ -53,6 +60,21 @@ export function PricingTiers() {
         </SectionHeader>
 
         <div className="mt-10 flex flex-wrap items-center gap-4">
+          {/*
+            Said on the page rather than in the footer, because the number above
+            it is a future price. Someone comparing tiers is making a decision
+            about money, and "no card is taken" is the fact that decides it.
+          */}
+          <p className="flex w-full items-start gap-2 rounded-[12px] border border-border bg-surface-sunken px-4 py-3 text-[0.9375rem] leading-relaxed text-ink-muted">
+            <InfoIcon
+              size={18}
+              weight="fill"
+              aria-hidden="true"
+              className="mt-0.5 shrink-0 text-accent"
+            />
+            <span>{EARLY_ACCESS}</span>
+          </p>
+
           <div
             role="group"
             aria-label="Billing period"

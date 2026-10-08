@@ -450,7 +450,7 @@ create table if not exists public.organizations (
   slug          text not null unique
                 check (slug ~ '^[a-z0-9][a-z0-9-]{1,62}$'),
   plan          text not null default 'solo'
-                check (plan in ('solo', 'school', 'district')),
+                check (plan in ('solo', 'teacher', 'school')),
   seat_limit    integer not null default 5 check (seat_limit > 0),
   billing_email text,
   created_at    timestamptz not null default now(),

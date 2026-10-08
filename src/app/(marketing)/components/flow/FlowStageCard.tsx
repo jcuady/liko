@@ -7,8 +7,8 @@ import { TrendLine } from '@/components/product/TrendLine';
 import type { StageDefinition } from './stages';
 import {
   gradeTrend,
+  markRows,
   questionTypes,
-  rubricRows,
   standards,
 } from '@/lib/fixtures/workspace';
 import { students } from '@/lib/fixtures/workspace';
@@ -119,42 +119,46 @@ function Artifact({ kind }: { kind: StageDefinition['artifact'] }) {
         </ul>
       );
 
-    case 'rubric':
+    case 'marks':
       return (
         <table className="w-full text-left">
-          <caption className="sr-only">Rubric rows with points available and points earned.</caption>
+          <caption className="sr-only">
+            Assessments with the weight each one carries and the mark earned.
+          </caption>
           <thead>
             <tr className="border-b border-border text-[0.6875rem] text-ink-subtle">
               <th scope="col" className="pb-2 font-medium">
-                Criterion
+                Assessment
               </th>
               <th scope="col" className="pb-2 text-center font-medium">
-                Points
+                Weight
               </th>
               <th scope="col" className="pb-2 text-center font-medium">
-                Earned
+                Mark
               </th>
             </tr>
           </thead>
           <tbody>
-            {rubricRows.map((row) => (
-              <tr key={row.criterion} className="border-b border-border last:border-0">
+            {markRows.map((row) => (
+              <tr key={row.assessment} className="border-b border-border last:border-0">
                 <th
                   scope="row"
                   className="py-2.5 text-[0.875rem] font-normal text-ink"
                 >
-                  {row.criterion}
+                  {row.assessment}
                 </th>
                 <td className="tabular py-2.5 text-center text-[0.875rem] text-ink-subtle">
-                  {row.points}
+                  {row.weight}%
                 </td>
                 <td
                   className={cn(
                     'tabular py-2.5 text-center text-[0.875rem] font-semibold',
-                    row.earned >= row.points * 0.8 ? 'text-accent' : 'text-warning',
+                    // The mark is out of the weight, which is how the gradebook
+                    // stores it: a weight of 30 is 30 available.
+                    row.mark >= row.weight * 0.8 ? 'text-accent' : 'text-warning',
                   )}
                 >
-                  {row.earned}
+                  {row.mark}/{row.weight}
                 </td>
               </tr>
             ))}

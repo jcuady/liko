@@ -11,7 +11,7 @@ export interface StageDefinition {
   cost: string;
   capability: string;
   /** Real artifact shape rendered inside the card. */
-  artifact: 'standards' | 'questions' | 'rubric' | 'grade' | 'trend';
+  artifact: 'standards' | 'questions' | 'marks' | 'grade' | 'trend';
 }
 
 export const STAGES: StageDefinition[] = [
@@ -34,10 +34,10 @@ export const STAGES: StageDefinition[] = [
   {
     id: 'assess',
     label: 'Assess',
-    title: 'Mark against the rubric you already wrote.',
-    cost: 'Rubrics live in a doc while the marks live in a spreadsheet.',
-    capability: 'Rubric and marks in the same row.',
-    artifact: 'rubric',
+    title: 'Weight the marks the way you actually grade.',
+    cost: 'The weighting lives in a spreadsheet, so every class is recalculated by hand.',
+    capability: 'Assessments carry their own weight, and the gradebook does the rest.',
+    artifact: 'marks',
   },
   {
     id: 'grade',

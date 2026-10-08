@@ -6,8 +6,25 @@
  * front, not a discount hidden in the small print, which is why the toggle
  * swaps a number rather than relabelling the same one.
  *
- * Every feature listed is something the product does or the pages already say
- * it does. Nothing here is aspirational.
+ * EVERY ROW HERE IS A THING THE PRODUCT DOES.
+ *
+ * That rule used to be stated and not enforced. The page used to promise CSV and
+ * JSON export, class lists imported from a spreadsheet or an LMS, rubrics
+ * attached to marks, invoicing for departments, and email support within a
+ * business day. None of those exist: there is no export code, no import code, no
+ * rubric anywhere in the source, no billing, and no support queue. Worse, the
+ * tiers implied capability differences that are not enforced either, so a
+ * Starter account could create as many classes as a School one could and the
+ * table would still say it could not.
+ *
+ * A pricing page is a set of promises made to people before they have paid
+ * anything. Claiming a feature that does not exist is not a marketing problem,
+ * it is the kind of thing that ends in a regulator or a chargeback, so the
+ * honest version of this page is narrower. Plan gating is a real gap, recorded
+ * in PROJECT_STATUS.md, and it is not going to be papered over with copy.
+ *
+ * NOTE ON `monthly`/`annual`. They are the rates that will apply when billing
+ * opens. Nothing is charged today and no card is taken; see EARLY_ACCESS.
  */
 
 export type Cycle = 'monthly' | 'annual';
@@ -15,9 +32,26 @@ export type Cycle = 'monthly' | 'annual';
 /** A cell in the comparison table: `true` means included, a string is the wording. */
 export type Cell = boolean | string;
 
+/**
+ * Mirrors the check constraint on `organizations.plan`.
+ *
+ * The database is the durable vocabulary, so the page uses its words rather than
+ * inventing a second set. This was previously `'starter' | 'teacher' | 'school'`
+ * here against `'solo' | 'school' | 'district'` in SQL, with only `school`
+ * overlapping, which meant two of the three ids on this page could not have been
+ * written to the column they refer to and one legal value had no card.
+ */
+export type PlanId = 'solo' | 'teacher' | 'school';
+
+export const PLAN_IDS: readonly PlanId[] = ['solo', 'teacher', 'school'];
+
+export function isPlanId(value: unknown): value is PlanId {
+  return typeof value === 'string' && (PLAN_IDS as readonly string[]).includes(value);
+}
+
 export type Plan = {
-  /** Used for the `/register?plan=` link, so it has to stay stable. */
-  id: string;
+  /** Used for the `/register?plan=` link, and stored on the organisation. */
+  id: PlanId;
   name: string;
   audience: string;
   /** Per month, billed monthly. Zero means the plan is free. */
@@ -36,22 +70,22 @@ export type Plan = {
 
 export const PLANS: Plan[] = [
   {
-    id: 'starter',
-    name: 'Starter',
+    id: 'solo',
+    name: 'Solo',
     audience: 'One teacher, one class',
     monthly: 0,
     annual: 0,
     unit: 'forever',
-    blurb: 'The whole workspace on a single class. No card, no end date.',
+    blurb: 'The whole workspace, for a teacher running a single class.',
     features: [
-      'One active class, up to 40 students',
+      'Classes at preschool, K-12 or university level',
+      'Roster with guardian names, emails and phone numbers',
       'Attendance register that queues without signal',
-      'Gradebook with a trail behind every mark',
-      'One active unit plan',
-      'Rubrics attached to marks',
-      'CSV and JSON export, whenever you want it',
+      'Gradebook graded on percentage, letter, GPA or GWA',
+      'Lesson plans and a slides deck per class',
+      'Student history showing on-track, watch and at-risk',
     ],
-    cta: 'Start free',
+    cta: 'Create a free account',
   },
   {
     id: 'teacher',
@@ -60,16 +94,16 @@ export const PLANS: Plan[] = [
     monthly: 12,
     annual: 9,
     unit: 'per month',
-    blurb: 'Every class you teach, with nothing counted twice.',
+    blurb: 'Everything in Solo, for a teacher whose timetable filled up.',
     features: [
-      'Unlimited active classes and students',
-      'Unlimited unit plans',
-      'At-risk flags on every student you teach',
-      'Rubrics attached to marks',
-      'Class list imported from a spreadsheet',
-      'Email support within one business day',
+      'Everything in Solo, without a per-class ceiling',
+      'Assessments, quizzes and exams with weighted marks',
+      'Milestone grading alongside letter and point scales',
+      'Every change to a mark is kept, with who made it',
+      'Push notifications when a student is flagged at risk',
+      'Works offline and syncs when the connection returns',
     ],
-    cta: 'Start free trial',
+    cta: 'Create a free account',
     recommended: true,
   },
   {
@@ -80,18 +114,26 @@ export const PLANS: Plan[] = [
     annual: 18,
     unit: 'per teacher, per month',
     perTeacher: true,
-    blurb: 'One place to see every class you administer.',
+    blurb: 'One place to administer every class in a department.',
     features: [
-      'A staff account for every teacher you administer',
-      'Every class you administer in one view',
-      'Class lists imported by spreadsheet or your LMS',
-      'At-risk flags across the whole department',
-      'One invoice for the department',
-      'Priority email support',
+      'Everything in Teacher, across every class you administer',
+      'A staff account for each teacher you onboard',
+      'The admin console: people, classes, organisation and access',
+      'Role separation between instructor and administrator',
+      'Tenant isolation, so one school cannot read another',
+      'Append-only consent records that an account cannot edit',
     ],
-    cta: 'Start free trial',
+    cta: 'Create a free account',
   },
 ];
+
+/**
+ * Stated on the page rather than buried. Until billing opens every plan costs
+ * nothing, no card is taken, and the tiers above differ only in the price that
+ * will eventually apply.
+ */
+export const EARLY_ACCESS =
+  'Early access: every plan is free today and no card is taken. The prices above are what each plan will cost when billing opens, and we will ask before that happens.';
 
 /** The rate the toggle shows, per cycle. */
 export function priceFor(plan: Plan, cycle: Cycle): number {
@@ -104,19 +146,17 @@ export function savingPercent(plan: Plan): number {
   return Math.round(((plan.monthly - plan.annual) / plan.monthly) * 100);
 }
 
-/** The line under the price. It changes with the cycle, because the bill does. */
+/**
+ * The line under the price.
+ *
+ * It cannot say "billed monthly" or "cancel whenever you want", because neither
+ * is true yet. What it can say is that nothing is charged, which is a better
+ * sentence than a promise about an invoice that does not exist.
+ */
 export function priceNote(plan: Plan, cycle: Cycle): string {
-  if (plan.monthly === 0) return 'Free forever. No card, no end date.';
-
+  if (plan.monthly === 0) return 'Free, and no card is taken.';
   const per = plan.perTeacher ? ' per teacher' : '';
-
-  if (cycle === 'annual') {
-    const year = plan.annual * 12;
-    const saved = (plan.monthly - plan.annual) * 12;
-    return `$${year} a year${per}. That is $${saved} less than paying month to month.`;
-  }
-
-  return `Billed month to month${per}. Cancel whenever you want.`;
+  return `Will be $${priceFor(plan, cycle)}${per} a month when billing opens.`;
 }
 
 export type ComparisonGroup = {
@@ -128,48 +168,72 @@ export type ComparisonGroup = {
  * Stated plainly, one cell per plan, in the plan order above. No row says
  * "everything in the plan above", because that hides the one thing a reader
  * comparing plans is trying to find out.
+ *
+ * REWRITTEN, because it was the least truthful part of the page. It used to
+ * promise export, spreadsheet and LMS import, rubrics, invoicing and support
+ * tiers, none of which exist, and it used to differentiate the plans by limits
+ * that nothing enforces.
+ *
+ * What replaces it differentiates on things that are true: how many accounts
+ * you administer, whether you get the admin console, and how much of each
+ * school's data you can see. The limit row says the same thing in all three
+ * columns precisely because there is no limit yet, rather than pretending the
+ * first column is capped.
  */
 export const COMPARISON: ComparisonGroup[] = [
   {
-    title: 'Classes and students',
+    title: 'Your workspace',
     rows: [
-      { label: 'Active classes', cells: ['1', 'Unlimited', 'Unlimited'] },
-      { label: 'Students per class', cells: ['40', 'Unlimited', 'Unlimited'] },
       {
-        label: 'Import a class list',
-        cells: ['Not included', 'From a spreadsheet', 'From a spreadsheet or your LMS'],
+        label: 'Accounts you can administer',
+        cells: ['Your own', 'Your own', 'Everyone in your school'],
       },
-      { label: 'Attendance taken without signal', cells: [true, true, true] },
+      {
+        label: 'Admin console',
+        cells: ['Not included', 'Not included', 'Included'],
+      },
+      {
+        label: 'Classes you can open',
+        cells: ['Every class you own', 'Every class you own', 'Every class you administer'],
+      },
+      {
+        label: 'Whether other schools can see your classes',
+        cells: ['No', 'No', 'No'],
+      },
     ],
   },
   {
     title: 'Teaching and marking',
     rows: [
-      { label: 'Active unit plans', cells: ['1', 'Unlimited', 'Unlimited'] },
+      { label: 'Preschool, K-12 and university levels', cells: [true, true, true] },
       {
-        label: 'At-risk flags',
-        cells: ['Not included', 'Your own classes', 'Every class you administer'],
+        label: 'Grading scales',
+        cells: [
+          'Percentage, letter, GPA, GWA',
+          'Percentage, letter, GPA, GWA',
+          'Percentage, letter, GPA, GWA',
+        ],
       },
-      { label: 'Rubrics attached to marks', cells: [true, true, true] },
-      { label: 'Audit trail behind every mark', cells: [true, true, true] },
+      { label: 'Slides decks with present mode', cells: [true, true, true] },
+      { label: 'Attendance taken without signal', cells: [true, true, true] },
+      {
+        label: 'At-risk flags on students',
+        cells: ['Your own students', 'Your own students', 'Every student you administer'],
+      },
     ],
   },
   {
-    title: 'School and data',
+    title: 'Pricing',
     rows: [
-      { label: 'Export any class as CSV or JSON', cells: [true, true, true] },
       {
-        label: 'Staff accounts you administer',
-        cells: ['Not included', 'Not included', 'Included'],
+        label: 'What you pay today',
+        cells: ['Nothing', 'Nothing', 'Nothing'],
       },
       {
-        label: 'How you are billed',
-        cells: ['Not billed', 'By card, monthly or annual', 'One annual invoice'],
+        label: 'What it will cost',
+        cells: ['Nothing', '$9 to $12 a month', '$18 to $24 per teacher a month'],
       },
-      {
-        label: 'Support',
-        cells: ['Documentation', 'Email, one business day', 'Priority email'],
-      },
+      { label: 'Card details needed to sign up', cells: [false, false, false] },
     ],
   },
 ];

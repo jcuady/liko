@@ -10,11 +10,20 @@ import { SectionHeader } from '@/app/(marketing)/components/SectionHeader';
 import { Reveal } from '@/app/(marketing)/components/Reveal';
 
 /**
- * Billing questions only.
+ * Pricing questions only.
  *
  * The landing FAQ already answers the product questions, so repeating them here
  * would just be a second place to fall out of date. What a pricing page has to
  * answer on its own is what gets charged, when, and what happens to the data.
+ *
+ * REWRITTEN. Every answer here used to describe a subscription system: a trial
+ * with an end date, monthly charges, a cancellation button in settings, annual
+ * refunds, and a CSV export of any class. None of that exists. There is no
+ * billing, no trial, no cancellation flow and no export. A reader who trusted
+ * this section would have gone looking for a button that is not there.
+ *
+ * So the section now answers the questions that have real answers, and says
+ * plainly when something does not exist yet rather than describing it warmly.
  *
  * Single-open accordion, and the list reveals as one block: staggering the rows
  * would make a reader wait out a queue of motion before they could open the
@@ -23,24 +32,28 @@ import { Reveal } from '@/app/(marketing)/components/Reveal';
 
 const ITEMS = [
   {
-    q: 'What is the difference between the trial and the free plan?',
-    a: 'The trial runs the paid workspace on your own classes while you decide. When it ends you move to the free Starter plan unless you pick a paid one. No card is needed to begin, and nothing is charged until you choose a plan.',
+    q: 'What does it cost right now?',
+    a: 'Nothing. LIKO is in early access, every plan is free, and no card is taken when you sign up. The prices shown on this page are what each plan will cost when billing opens, and we will tell you before that happens.',
+  },
+  {
+    q: 'Will I be moved onto a paid plan automatically?',
+    a: 'No. When billing opens we will ask you to choose, and say what it costs. Nothing will be charged to an account that has not agreed to a price, and you can stay on the free tier if you would rather.',
   },
   {
     q: 'Do you charge per student?',
-    a: 'No. A Teacher plan covers you and every student in every class you run, so a class of thirty costs the same as a class of twelve. School plans are charged per teacher on the staff list, not per student.',
+    a: 'No, and that will not change. A class of thirty costs the same as a class of twelve, because the work being done is the same. Where a school plan charges per teacher, it is charged per teacher on the staff list, never per student.',
   },
   {
-    q: 'When am I charged?',
-    a: 'Monthly billing charges on the same day each month. Annual billing charges once for the year at the rate shown, which works out lower per month. Nothing is charged during a trial.',
+    q: 'Can I move between plans later?',
+    a: 'Once plans do anything, moving to a lower one takes effect at your next renewal so a term you have already paid for is not cut short, and moving to a higher one takes effect immediately. Until then there is nothing to move between, because the plans cost the same.',
   },
   {
-    q: 'Can I move between plans, or cancel?',
-    a: 'Any time, from your settings, with no support ticket. Annual billing is charged for the year you bought, so the sooner you decide the less you have paid for. Your data stays exportable afterwards, so cancelling does not mean losing it.',
+    q: 'What happens to my data if I leave?',
+    a: 'Write to us and we will help you get your classes, gradebooks and student history out of LIKO first, then delete what is left. There is no self-service export button yet, so please ask rather than assuming one is there.',
   },
   {
-    q: 'What happens to my data if I cancel?',
-    a: 'Export any class, gradebook, or student history as CSV or JSON whenever you need it, before you cancel or after. Nothing about your classes is locked behind a paid plan.',
+    q: 'Is anything locked behind a paid plan?',
+    a: 'No. Right now every feature in LIKO is available to every teacher on every plan, which is the point of early access: you should not have to pay to find out whether the thing is any good.',
   },
 ];
 
@@ -56,9 +69,9 @@ export function BillingFaq() {
           <div className="lg:col-span-4">
             <div className="lg:sticky lg:top-24">
               <SectionHeader
-                label="Billing"
+                label="Pricing"
                 id="billing-title"
-                title="What you are agreeing to."
+                title="What you pay, and when."
               />
             </div>
           </div>

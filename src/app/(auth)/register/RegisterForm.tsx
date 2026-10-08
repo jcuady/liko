@@ -3,7 +3,7 @@
 import * as React from 'react';
 import Link from 'next/link';
 import { useFormState } from 'react-dom';
-import { CheckCircleIcon, WarningCircleIcon } from '@phosphor-icons/react';
+import { CheckCircleIcon, SparkleIcon, WarningCircleIcon } from '@phosphor-icons/react';
 
 import { Checkbox } from '@/components/ui/checkbox';
 import {
@@ -22,7 +22,14 @@ const REQUIREMENTS = [
   'A number',
 ];
 
-export function RegisterForm({ prefilledEmail }: { prefilledEmail: string }) {
+export function RegisterForm({
+  prefilledEmail,
+  chosenPlan,
+}: {
+  prefilledEmail: string;
+  /** Set when the visitor arrived from a pricing card. */
+  chosenPlan?: { id: string; name: string } | null;
+}) {
   const [result, formAction] = useFormState<ActionResult | null, FormData>(
     registerAction,
     null,
@@ -32,11 +39,27 @@ export function RegisterForm({ prefilledEmail }: { prefilledEmail: string }) {
   return (
     <>
       <AuthHeading
-        title="Start your free trial"
+        title="Create your account"
         description="No credit card required. Setup in 2 minutes."
       />
 
       <FormMessages result={result} />
+
+      {chosenPlan ? (
+        <p className="flex items-start gap-2 rounded-[12px] border border-accent bg-accent-subtle px-4 py-3 text-[0.9375rem] leading-relaxed text-ink-muted">
+          <SparkleIcon
+            size={17}
+            weight="fill"
+            aria-hidden="true"
+            className="mt-0.5 shrink-0 text-accent"
+          />
+          <span>
+            You picked <strong className="font-semibold text-ink">{chosenPlan.name}</strong>.
+            Nothing is charged and no card is needed. You can change your mind
+            later.
+          </span>
+        </p>
+      ) : null}
 
       <form action={formAction} className="mt-6 flex flex-col gap-5" noValidate>
         <Field

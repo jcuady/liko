@@ -14,10 +14,24 @@ import {
  * carries no reassurance microcopy, so this is where that promise lives.
  */
 
+/**
+ * REWRITTEN, because four of the seven answers were fiction.
+ *
+ * This list used to describe a time-limited free trial, importing a class list
+ * from a spreadsheet or an LMS, exporting any class as CSV or JSON, an AI
+ * feature that scoped student records to a single request, and cancelling from
+ * settings. None of those exist in the product. There is no trial, no import,
+ * no export, no AI feature and no cancellation flow.
+ *
+ * The questions are the ones a teacher actually asks, so they stay. The answers
+ * say what is true, including where the honest answer is "not yet, ask us".
+ * A landing page is the one place on the site that cannot afford to be
+ * aspirational, because it is what a visitor decides on.
+ */
 const ITEMS = [
   {
-    q: 'What does the free trial include?',
-    a: 'The full workspace, on your own classes, for as long as the trial runs. No credit card is needed to begin, and nothing is charged until you choose a plan. Setup takes about two minutes.',
+    q: 'What does it cost?',
+    a: 'Nothing right now. LIKO is in early access: every feature is free, no card is taken when you sign up, and there is no end date. We will tell you before billing opens.',
   },
   {
     q: 'Does it work without a signal?',
@@ -25,11 +39,11 @@ const ITEMS = [
   },
   {
     q: 'Can I bring my existing class list in?',
-    a: 'Yes. Import from a spreadsheet, or connect an LMS. Import maps your existing columns onto LIKO terms, and nothing is overwritten during the import.',
+    a: 'Not yet. There is no spreadsheet or LMS import today, and students are added one at a time from the class roster. If that is what is stopping you, say so and you will be told the moment it lands.',
   },
   {
     q: 'Can I get my data out?',
-    a: 'Always, in a format you can open without us. Export any class, gradebook, or student history as CSV or JSON at any time, including from a trial.',
+    a: 'Your classes, gradebooks and student history are yours, and we will get them out for you. There is no self-service export button yet, so write to us and we will arrange it rather than have you discover the gap when you need it.',
   },
   {
     q: 'How does LIKO handle student data?',
@@ -40,12 +54,8 @@ const ITEMS = [
     a: 'Yes. Department heads and administrators can see across every class they administer, and manage staff accounts, without being able to read a class they do not teach.',
   },
   {
-    q: 'What happens to my data if I use AI features?',
-    a: 'Anything you explicitly send is scoped to that request. Student records are never included in a model prompt unless you attach them yourself, and the request log is visible to you.',
-  },
-  {
-    q: 'Can I cancel?',
-    a: 'At any time, from your settings, with no support ticket. Your data stays exportable afterwards, so cancelling does not mean losing it.',
+    q: 'Do students get their own accounts?',
+    a: 'No. A teacher creates a login for a student or guardian from the class roster, so an account always belongs to a class, a teacher and a school. Students cannot sign themselves up, which is how we keep the link between a child and a school record checkable.',
   },
 ];
 

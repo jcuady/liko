@@ -207,6 +207,110 @@ test.describe('legal documents', () => {
   });
 });
 
+test.describe('marketing claims match the product', () => {
+  /*
+   * These pages used to promise a time-limited free trial, CSV and JSON export,
+   * class lists imported from a spreadsheet or an LMS, rubrics attached to
+   * marks, department invoicing, priority email support, a cancellation flow in
+   * settings, and an AI feature that scoped student records to a request. None
+   * of them exist. The FAQ also had a question about AI data handling on a
+   * product with no AI in it at all.
+   *
+   * These tests are the guard. Adding a claim without building the feature now
+   * fails the suite instead of shipping.
+   */
+  /*
+   * Matched as CLAIMS, not as bare words.
+   *
+   * The first version banned the words "CSV", "spreadsheet" and "LMS", and
+   * immediately flagged the honest sentence "there is no spreadsheet or LMS
+   * import today" along with a line on the landing page describing a teacher's
+   * timings living in a spreadsheet as the problem being solved. Both are true
+   * and neither is a feature claim.
+   *
+   * So the words go, and the shapes of the old promises stay.
+   */
+  const FICTION = [
+    /free trial/i,
+    /rubric/i,
+    /business day/i,
+    /priority email/i,
+    /AI features?\b/i,
+    /export[^.]{0,40}(CSV|JSON)/i,
+    /import from a spreadsheet/i,
+    /connect an LMS/i,
+    /annual invoice/i,
+    /billed (monthly|annually)/i,
+  ];
+
+  for (const route of ['/', '/pricing']) {
+    test(`${route} does not advertise features that do not exist`, async ({ page }) => {
+      await page.goto(route);
+      const body = (await page.textContent('body')) ?? '';
+
+      for (const fiction of FICTION) {
+        expect(body, `${route} still claims ${fiction}`).not.toMatch(fiction);
+      }
+    });
+  }
+
+  test('says plainly that no card is taken', async ({ page }) => {
+    await page.goto('/pricing');
+    await expect(page.getByText(/no card is taken/i).first()).toBeVisible();
+  });
+
+  test('the testimonials say they are written, not collected', async ({ page }) => {
+    /*
+     * Three quotes attributed to named teachers with job titles, presented as
+     * testimonials, when LIKO has no customers and the names are the demo
+     * accounts. The section works as a statement of intent; it must not read as
+     * evidence.
+     */
+    await page.goto('/#proof');
+    await expect(
+      page.getByText(/written examples|not testimonials|no customers yet/i).first(),
+    ).toBeVisible();
+  });
+
+  test('the plan carried from a pricing card reaches the signup form', async ({
+    page,
+  }) => {
+    await page.goto('/pricing');
+    await page.getByRole('link', { name: /Create a free account/i }).first().click();
+    await expect(page.getByText(/You picked/)).toBeVisible();
+  });
+
+  /*
+   * `?plan=` is a public URL anyone can edit, so an unrecognised value has to
+   * read as "no choice" rather than being echoed back into the page.
+   */
+  test('an unrecognised plan is ignored rather than trusted', async ({ page }) => {
+    await page.goto('/register?plan=enterprise-unlimited');
+    await expect(page.getByText(/You picked/)).toHaveCount(0);
+    // And the form still works, rather than erroring on a bad parameter.
+    await expect(page.getByRole('button', { name: /Create workspace/i })).toBeVisible();
+  });
+
+  test('each plan id can actually be stored on an organisation', async ({ page }) => {
+    /*
+     * The pricing page used to sell `starter | teacher | school` while the
+     * `organizations.plan` check constraint allowed `solo | school | district`.
+     * Only `school` was in both, so two of the three ids on the page could not
+     * have been written to the column they referred to. This asserts the page
+     * only links with ids the database accepts.
+     */
+    await page.goto('/pricing');
+    const hrefs = await page.locator('a[href*="/register?plan="]').evaluateAll((links) =>
+      links.map((link) => new URL((link as HTMLAnchorElement).href).searchParams.get('plan')),
+    );
+
+    expect(hrefs.length).toBeGreaterThan(0);
+    for (const plan of hrefs) {
+      expect(['solo', 'teacher', 'school']).toContain(plan);
+    }
+  });
+});
+
 test.describe('cookie banner', () => {
   test('appears on a public page and records the choice', async ({ page, context }) => {
     await withoutConsent(context);

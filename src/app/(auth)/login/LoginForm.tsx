@@ -85,7 +85,7 @@ export function LoginForm({ next }: { next: string }) {
             href="/register"
             className="font-medium text-accent underline-offset-4 hover:underline"
           >
-            Start a free trial
+            Create a free account
           </Link>
         </AuthFooter>
       </div>

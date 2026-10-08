@@ -234,9 +234,12 @@ export default function PrivacyPage() {
                 </li>
               </ul>
               <p>
-                When a subscription ends you can export your data for 30 days. We
-                hold it for that window so the export can be taken, then delete
-                it, keeping only what a tax or legal obligation requires.
+                When a subscription ends, write to us and we will help you get
+                out of LIKO first, then delete what remains, keeping only what a
+                tax or legal obligation requires. There is no self-service
+                export button yet, so please ask rather than assuming it is
+                there; we would rather do it by hand than have you discover it
+                was missing after you needed it.
               </p>
             </>
           ),

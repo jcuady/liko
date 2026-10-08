@@ -13,7 +13,7 @@ test.describe('landing page', () => {
     await expect(h1).toBeVisible();
     await expect(h1).toHaveText(/Every teaching task/i);
 
-    const cta = page.getByRole('link', { name: 'Start free trial' }).first();
+    const cta = page.getByRole('link', { name: 'Start free' }).first();
     await expect(cta).toBeVisible();
   });
 
@@ -40,7 +40,7 @@ test.describe('landing page', () => {
   test('the primary CTA routes to registration', async ({ page }) => {
     await page.goto('/');
     await page
-      .getByRole('link', { name: 'Start free trial' })
+      .getByRole('link', { name: 'Start free' })
       .first()
       .click();
     await expect(page).toHaveURL(/\/register/);
@@ -51,7 +51,7 @@ test.describe('landing page', () => {
   }) => {
     await page.goto('/');
     await page.getByPlaceholder('Enter your email here').fill('teacher@school.edu');
-    await page.getByRole('button', { name: /Start free trial/i }).click();
+    await page.getByRole('button', { name: /Start free/i }).click();
     await expect(page).toHaveURL(/\/register\?email=teacher%40school\.edu/);
     await expect(page.getByLabel('Email')).toHaveValue('teacher@school.edu');
   });
@@ -59,7 +59,7 @@ test.describe('landing page', () => {
   test('the hero email field rejects a malformed address', async ({ page }) => {
     await page.goto('/');
     await page.getByPlaceholder('Enter your email here').fill('not-an-email');
-    await page.getByRole('button', { name: /Start free trial/i }).click();
+    await page.getByRole('button', { name: /Start free/i }).click();
 
     // Scoped to the field's own error, because Next renders a global
     // route-announcer element that also carries role="alert".
@@ -100,16 +100,20 @@ test.describe('landing page', () => {
     }
   });
 
-  test('the FAQ answers the trial question first', async ({ page }) => {
+  test('the FAQ answers the cost question first, and says it is free', async ({ page }) => {
     await page.goto('/#faq');
-    const first = page.getByRole('button', { name: /free trial/i }).first();
+    const first = page.getByRole('button', { name: /what does it cost/i }).first();
     await expect(first).toBeVisible();
     await first.click();
 
-    // Scoped to the accordion item, because the closing panel also mentions the
-    // trial terms and the two must not read as identical copy.
+    /*
+     * It used to open with "What does the free trial include?" There is no
+     * trial, so the first question a teacher sees was about a product that does
+     * not exist. The panel now has to say the thing that is true.
+     */
     const panel = page.locator('#faq').getByRole('region').first();
-    await expect(panel).toContainText('No credit card');
+    await expect(panel).toContainText('Nothing right now');
+    await expect(panel).toContainText('no card is taken');
   });
 
   test('the closing panel and the FAQ do not repeat the same sentence', async ({
@@ -119,7 +123,9 @@ test.describe('landing page', () => {
 
     const faqAnswer = await page
       .locator('#faq')
-      .getByText(/No credit card/)
+      // Was "No credit card". The FAQ now says "no card is taken", because
+      // there is no trial and therefore no credit-card question to answer.
+      .getByText(/no card is taken/i)
       .first()
       .innerText();
     const cta = await page.locator('#final-cta-title').locator('..').innerText();

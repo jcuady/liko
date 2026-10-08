@@ -76,6 +76,41 @@ Authorisation is two independent layers. `proxy.ts` gates routes before render, 
 | Push notifications | Done | Done | Unverified on iOS | Passing (subscription) | Implemented, NOT VERIFIED for delivery |
 | PWA and offline | Done | Done | Verified | Passing | Complete |
 | Responsive layout | Done | n/a | n/a | Passing | Complete |
+| Billing and payments | Not started | Not started | n/a | n/a | **NOT STARTED.** No Stripe, no checkout, no subscription state, no invoices |
+| Plan gating | Column exists, unused | Not started | n/a | n/a | **NOT STARTED.** `organizations.plan` is stored but no code reads it to limit anything |
+| Class list import | Not started | Not started | n/a | n/a | **NOT STARTED.** No spreadsheet or LMS import |
+| Data export | Not started | Not started | n/a | n/a | **NOT STARTED.** No CSV or JSON export |
+
+### Claims versus reality
+
+An audit of every marketing and legal claim against the source found that a
+substantial part of the public site described features that do not exist. This
+is recorded here because the fix was editorial but the finding is not:
+
+- `/pricing` and `/` promised CSV and JSON export, class lists imported from a
+  spreadsheet or an LMS, rubrics attached to marks, department invoicing,
+  priority email support, and a cancellation flow in settings. None of those
+  exist. `grep` for `csv`, `Blob`, `spreadsheet` and `rubric` across `src`
+  returns nothing.
+- Every plan card and FAQ answer described a subscription system: monthly
+  charges, annual refunds, a trial with an end date. There is no billing code at
+  all.
+- The three plans implied capability differences, but no code reads
+  `organizations.plan` or `seat_limit` to gate anything, so all three tiers are
+  identical in the product.
+- The landing FAQ had a question about what happens to student data in AI
+  features. There are no AI features; `grep` for `openai`, `anthropic`, `gemini`
+  and `llm` across `src` returns nothing.
+- `?plan=` from the pricing cards was read by nothing, so a visitor who
+  compared three tiers arrived at a register form that discarded their choice.
+
+All of the above is now rewritten to describe what the product does, and
+`e2e/legal.spec.ts` fails the build if any of those claims reappear. Two real
+bugs were fixed alongside it: the plan ids the page sold
+(`starter | teacher | school`) overlapped the `organizations.plan` check
+constraint (`solo | school | district`) on only one value, so two of the three
+ids could never have been stored and `district` had no card; and the vocabulary
+is now one list in three places.
 
 ## Completed
 

@@ -59,8 +59,15 @@ export function PriceComparison() {
           */}
           <div className="-mx-6 mt-12 overflow-x-auto md:mx-0">
             <table className="w-full min-w-[44rem] border-collapse text-left">
+              {/*
+                Built from PLANS rather than written out. This caption said
+                "Starter" while the plan it names is called "Solo", and a
+                hand-kept list of names is exactly how the page ended up selling
+                two vocabularies in the first place.
+              */}
               <caption className="sr-only">
-                Feature comparison across the Starter, Teacher, and School plans
+                Feature comparison across the{' '}
+                {PLANS.map((plan) => plan.name).join(', ')} plans
               </caption>
               <thead>
                 <tr>

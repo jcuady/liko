@@ -78,7 +78,7 @@ export function HeroEmailForm() {
           ) : null}
         </div>
         <Button type="submit" size="lg" className="group shrink-0 gap-2">
-          Start free trial
+          Start free
           <ArrowRightIcon
             size={16}
             weight="bold"

@@ -22,7 +22,7 @@ import type { Quote } from './ProofCarousel';
 const QUOTES: Quote[] = [
   {
     quote:
-      'I stopped maintaining a parallel spreadsheet the week I moved my gradebook over. The first time I needed to explain a mark to a parent, I had the rubric right there.',
+      'I stopped maintaining a parallel spreadsheet the week I moved my gradebook over. The first time I needed to explain a mark to a parent, I had the reasoning behind it right there.',
     name: 'Maya Okonkwo',
     role: 'Chemistry teacher, four sections',
   },
@@ -55,6 +55,25 @@ export function Proof() {
         />
 
         <ProofCarousel quotes={QUOTES} />
+
+        {/*
+          These three are written, not collected. LIKO has no customers yet, so
+          presenting them as testimonials under real-looking names and job titles
+          is fabricated social proof, and the names are the demo accounts, which
+          makes it worse rather than better: someone comparing the two would find
+          a coincidence that is not one.
+
+          The section works as a statement of what the product is for, and it
+          looks better than an empty state. What it must not do is imply that a
+          named person said it. The caveat sits directly under the quotes, where
+          anyone who has just read one will see it, matching how `StatsBand`
+          handles the figures above.
+        */}
+        <p className="mt-10 max-w-[52ch] text-[0.8125rem] leading-relaxed text-ink-muted">
+          These three are written examples of how teachers describe the change,
+          not testimonials. LIKO has no customers yet, so nobody here has said
+          any of it.
+        </p>
       </div>
     </section>
   );

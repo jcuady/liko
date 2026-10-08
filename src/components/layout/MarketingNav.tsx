@@ -12,7 +12,7 @@ import { LikoLogo } from '@/components/brand/LikoLogo';
 /**
  * Marketing nav. One line at desktop, full-screen menu below.
  *
- * The CTA label is "Start free trial" here, in the hero, and in the footer.
+ * The CTA label is "Start free" here, in the hero, and in the footer.
  * One label per intent, repeated verbatim, so nobody has to wonder whether
  * "Sign up" and "Get started" go to the same place.
  *
@@ -99,7 +99,7 @@ export function MarketingNav() {
 
         <div className="flex items-center gap-2">
           <Button asChild size="sm" className="hidden sm:inline-flex">
-            <Link href="/register">Start free trial</Link>
+            <Link href="/register">Start free</Link>
           </Button>
 
           <Sheet open={open} onOpenChange={setOpen}>
@@ -136,7 +136,7 @@ export function MarketingNav() {
               </ul>
               <Button asChild size="lg" className="mt-6">
                 <Link href="/register" onClick={() => setOpen(false)}>
-                  Start free trial
+                  Start free
                 </Link>
               </Button>
             </SheetContent>

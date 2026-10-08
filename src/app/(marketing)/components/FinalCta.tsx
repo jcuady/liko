@@ -52,7 +52,7 @@ export function FinalCta() {
                   className="group pressable gap-2 bg-white text-accent shadow-[var(--shadow-md)] hover:bg-white/90"
                 >
                   <Link href="/register">
-                    Start free trial
+                    Start free
                     <ArrowRightIcon
                       size={16}
                       weight="bold"

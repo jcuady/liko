@@ -178,30 +178,38 @@ export default function TermsPage() {
         },
         {
           id: 'fees',
-          heading: 'Plans, fees and cancellation',
+          heading: 'Plans and fees',
           body: (
             <>
               <p>
                 LIKO is sold per teacher, never per student. Prices are shown on
-                the pricing page and are exclusive of tax. A free plan covers one
-                class.
+                the pricing page and are exclusive of tax.
               </p>
               <p>
-                Subscriptions renew automatically at the end of the current term.
-                Cancel before the renewal date and you keep access to the end of
-                the term you have paid for. Cancel afterwards and the next term
-                is not charged.
+                <strong>LIKO is currently in early access and nothing is
+                charged.</strong> No card is taken when you create an account and
+                no invoice is raised. The prices on the pricing page are what
+                each plan will cost when billing opens, and we will tell you
+                before that happens rather than after.
               </p>
               <p>
-                Changing to a lower plan takes effect at the next renewal so that
-                a term already paid for is not interrupted. Changing to a higher
-                plan takes effect immediately, and we charge the difference for
-                the rest of the term.
+                When billing does open, these are the terms that will apply.
+                Subscriptions renew at the end of the term you have paid for.
+                Cancelling before the renewal date leaves you with access until
+                the end of that term; cancelling afterwards means the next term
+                is not charged. Moving to a lower plan takes effect at the next
+                renewal, so a term already paid for is not interrupted. Moving to
+                a higher plan takes effect immediately.
               </p>
               <p>
-                If we change the price of a plan you are on, we will tell you at
-                least 30 days before the change applies to you, and you may cancel
-                instead without penalty.
+                If the price of a plan changes, we will tell you at least 30 days
+                before it applies to you, and you may cancel instead without
+                penalty.
+              </p>
+              <p>
+                Until billing opens, closing an account is the whole of the
+                cancellation process. There is nothing to cancel and nothing to
+                be refunded.
               </p>
             </>
           ),
@@ -216,11 +224,11 @@ export default function TermsPage() {
                 to us and we will close them within 30 days.
               </p>
               <p>
-                When an agreement ends you may export your data for 30 days. We
-                keep it for that period so an export can be taken, then we delete
-                it. We will tell you when the export window closes. Section 11 of
-                the Privacy Notice explains what is kept after that, and for how
-                long.
+                When an agreement ends, write to us and we will close your
+                accounts within 30 days. Before we do, tell us what you need out
+                of LIKO and we will arrange it, because the records are yours
+                through your school. Section 11 of the Privacy Notice sets out
+                what we keep after an account closes, and for how long.
               </p>
               <p>
                 We may suspend or close an account if it is used to break these
