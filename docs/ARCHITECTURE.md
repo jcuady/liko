@@ -288,6 +288,23 @@ deployed control, and an end-to-end run that signs in as the same demo account
 repeatedly would otherwise be blocked by the very limiter that protects
 production.
 
+### Two traps in this codebase that cost real time
+
+**Server components must import icons from `@phosphor-icons/react/dist/ssr`.**
+The plain entry pulls a React context into the server bundle, and the route fails
+at build time with `createContext is not a function` during page-data
+collection, which names neither the file nor the import. Client components use
+the plain entry. `verify-email/page.tsx` has always done it the other way.
+
+**The fixture workspace is one shared, mutable store, and Playwright runs specs
+in parallel against one server.** Two tests writing to the demo workspace see
+each other. This has produced two brittle assertions that looked like product
+bugs: an onboarding test asserting an exact count of grading scales, which moved
+when a sibling test authored one, and a present-mode test asserting "1 of 5"
+when a sibling had added a slide. Assert on behaviour the test owns, or read the
+shared value and compare against it, rather than pinning a total. A test that
+mutates shared state should also put it back.
+
 ### The `'use server'` export rule
 
 A `'use server'` module may only export async functions. Any other export is
