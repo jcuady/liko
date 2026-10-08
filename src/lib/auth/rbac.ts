@@ -114,15 +114,21 @@ export function isUnscoped(role: Role | undefined, permission: Permission): bool
 /**
  * Route to permission map. Used by `src/proxy.ts` to decide whether a pathname
  * needs a session and which permission it demands.
+ *
+ * Every prefix here must have a page behind it. `/analytics` used to be listed
+ * while no such route existed, so the proxy happily admitted a request to a URL
+ * that then 404ed. The analytics surface lives inside `/overview`, which is why
+ * `/overview` is mapped here to `analytics:read` to match the inner gate that
+ * `overview/page.tsx` already performs.
  */
 export const ROUTE_PERMISSIONS: { prefix: string; permission: Permission }[] = [
+  { prefix: '/overview', permission: 'analytics:read' },
   { prefix: '/grades', permission: 'grade:read' },
   { prefix: '/assess', permission: 'assess:write' },
   { prefix: '/plan', permission: 'plan:write' },
   { prefix: '/attendance', permission: 'attendance:write' },
   { prefix: '/classes', permission: 'class:read' },
   { prefix: '/history', permission: 'history:read' },
-  { prefix: '/analytics', permission: 'analytics:read' },
   { prefix: '/settings', permission: 'class:read' },
 ];
 
@@ -142,7 +148,6 @@ export const PROTECTED_PREFIXES = [
   '/assess',
   '/grades',
   '/history',
-  '/analytics',
   '/settings',
 ];
 
@@ -150,6 +155,31 @@ export function isProtectedPath(pathname: string): boolean {
   return PROTECTED_PREFIXES.some(
     (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
   );
+}
+
+/**
+ * True when `role` is allowed to open `pathname`.
+ *
+ * Used to clamp the post-login destination. A role with no entry for the route
+ * is allowed, because `permissionForPath` returns null for paths that carry no
+ * permission of their own and those are still session-gated by the proxy.
+ */
+export function canAccessPath(role: Role | undefined, pathname: string): boolean {
+  const permission = permissionForPath(pathname);
+  if (permission === null) return true;
+  return can(role, permission);
+}
+
+/**
+ * Where a signed-in user lands by default.
+ *
+ * `/overview` is gated on `analytics:read`, which only instructors and admins
+ * hold. Sending a student or guardian there showed them the forbidden screen as
+ * the first page after login, so they start on `/classes`, the one workspace
+ * route their scoped `class:read` grant opens.
+ */
+export function landingPathFor(role: Role | undefined): string {
+  return can(role, 'analytics:read') ? '/overview' : '/classes';
 }
 
 /**

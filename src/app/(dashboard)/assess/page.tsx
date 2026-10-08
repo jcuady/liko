@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 
 import { PageHeader } from '../components/PageHeader';
-import { requirePermission, requireSession } from '@/lib/auth/guards';
+import { requirePagePermission } from '@/lib/auth/guards';
 import { data } from '@/lib/api/client';
 
 import { AssessmentList } from './AssessmentList';
@@ -19,8 +19,7 @@ export const metadata: Metadata = {
  * to build against, and it says so rather than showing an empty table.
  */
 export default async function AssessPage() {
-  const session = await requireSession();
-  await requirePermission('assess:write');
+  const session = await requirePagePermission('assess:write');
 
   const store = await data();
   const classes = await store.listClasses(session.userId);

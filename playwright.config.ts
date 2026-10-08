@@ -13,10 +13,18 @@ export default defineConfig({
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
-  workers: process.env.CI ? 1 : undefined,
   reporter: [['list']],
+  /*
+   * Sign-in costs roughly half a second because the password hash is deliberately
+   * memory hard. With one worker per core, a run that signs in for every spec
+   * stacks enough of those behind each other to blow the default 10s assertion
+   * timeout and report a hung form as a failure. The bound below keeps the burst
+   * small, and the longer assertion timeout absorbs a legitimately slow sign-in
+   * without hiding a real hang.
+   */
+  workers: process.env.CI ? 1 : 4,
   timeout: 45_000,
-  expect: { timeout: 10_000 },
+  expect: { timeout: 20_000 },
 
   use: {
     baseURL,
@@ -46,6 +54,12 @@ export default defineConfig({
         process.env.LIKO_SESSION_SECRET ??
         'e2e-only-secret-0000000000000000000000000000',
       NEXT_PUBLIC_SITE_URL: baseURL,
+      /*
+       * The suite signs in as the same demo accounts dozens of times from one
+       * address, which trips the credential limiter that protects production.
+       * Throttling is a deployed control, so it is lifted for this server only.
+       */
+      LIKO_RATE_LIMIT_DISABLED: 'true',
     },
   },
 });

@@ -3,6 +3,7 @@ import 'server-only';
 import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { cookies } from 'next/headers';
+import { cache } from 'react';
 
 import { serverEnv } from '@/lib/env';
 
@@ -38,32 +39,50 @@ if (typeof window !== 'undefined') {
   );
 }
 
-export async function createSupabaseServerClient(): Promise<SupabaseClient | null> {
-  const env = await serverEnv();
-  if (!env.supabaseAnonKey) return null;
+/*
+ * WHY THESE TWO ARE MEMOISED.
+ *
+ * `createServerClient` is not cheap: it awaits the cookie store and builds a
+ * fresh Supabase client, including its own GoTrue instance, on every call. The
+ * data seam calls it once per operation, so the overview page alone built four
+ * or five identical clients for a single render, each re-reading the same
+ * cookies.
+ *
+ * `cache()` collapses that to one per request. The scope is exactly right: the
+ * client is bound to the request's session, so sharing it across a request is
+ * safe and sharing it across requests would not be.
+ *
+ * `createSupabaseAs` is deliberately NOT memoised, because it is keyed by a
+ * caller-supplied bearer token.
+ */
+export const createSupabaseServerClient = cache(
+  async (): Promise<SupabaseClient | null> => {
+    const env = await serverEnv();
+    if (!env.supabaseAnonKey) return null;
 
-  const store = await cookies();
+    const store = await cookies();
 
-  return createServerClient(env.supabaseUrl, env.supabaseAnonKey, {
-    cookies: {
-      getAll() {
-        return store.getAll();
-      },
-      setAll(cookiesToSet) {
-        try {
-          for (const { name, value, options } of cookiesToSet) {
-            store.set(name, value, normalizeCookieOptions(options));
+    return createServerClient(env.supabaseUrl, env.supabaseAnonKey, {
+      cookies: {
+        getAll() {
+          return store.getAll();
+        },
+        setAll(cookiesToSet) {
+          try {
+            for (const { name, value, options } of cookiesToSet) {
+              store.set(name, value, normalizeCookieOptions(options));
+            }
+          } catch {
+            // Called from a Server Component, where cookies are read-only.
+            // The middleware-free path is acceptable: the session is already
+            // persisted from the server action that established it, and a refresh
+            // that cannot persist simply means the next request refreshes again.
           }
-        } catch {
-          // Called from a Server Component, where cookies are read-only.
-          // The middleware-free path is acceptable: the session is already
-          // persisted from the server action that established it, and a refresh
-          // that cannot persist simply means the next request refreshes again.
-        }
+        },
       },
-    },
-  });
-}
+    });
+  },
+);
 
 function normalizeCookieOptions(options: CookieOptions): CookieOptions {
   return {
@@ -79,14 +98,16 @@ function normalizeCookieOptions(options: CookieOptions): CookieOptions {
  * Server-only client using the secret key, which bypasses RLS. Never call this
  * with a user-supplied filter and assume RLS will catch a mistake.
  */
-export async function createSupabaseAdmin(): Promise<SupabaseClient | null> {
-  const env = await serverEnv();
-  if (!env.hasServiceRole) return null;
+export const createSupabaseAdmin = cache(
+  async (): Promise<SupabaseClient | null> => {
+    const env = await serverEnv();
+    if (!env.hasServiceRole) return null;
 
-  return createClient(env.supabaseUrl, env.serviceRoleKey, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
-}
+    return createClient(env.supabaseUrl, env.serviceRoleKey, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+  },
+);
 
 /** Explicitly bearer-authenticated client, for route handlers carrying a token. */
 export async function createSupabaseAs(

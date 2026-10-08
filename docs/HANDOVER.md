@@ -65,16 +65,25 @@ node -e "const fs=require('fs');const p='.env.local';let s=fs.readFileSync(p,'ut
 node --env-file=.env.local scripts/seed.mjs
 ```
 
-The seed creates three verified test accounts, all with password
+The seed creates five verified test accounts, all with password
 `LikoDemo!2026`:
 
-| Email | Role |
-|---|---|
-| `maya@liko.test` | Teacher |
-| `dev@liko.test` | Admin |
-| `ingrid@liko.test` | Parent |
+| Email | Role | Notes |
+|---|---|---|
+| `maya@liko.test` | instructor | Owns Chemistry, Period 2 |
+| `dev@liko.test` | admin | Owns Science, Period 4 |
+| `ingrid@liko.test` | instructor | Owns Physical Science, Year 1 |
+| `student@liko.test` | student | Owns no class, holds only scoped grants |
+| `guardian@liko.test` | guardian | Owns no class, holds only linked grants |
 
-The script refuses to run under `NODE_ENV=production`.
+The last two exist so every column of the RBAC matrix is reachable by a real
+account. An earlier version of this document described Ingrid as a parent; the
+seed has always created her as an instructor, and the fixture store now mirrors
+the seed exactly.
+
+The same five accounts are seeded into the in-memory store when
+`LIKO_DATA_MODE=fixtures`, so `pnpm dev` and the Playwright suite have working
+logins without a database. The script refuses to run under `NODE_ENV=production`.
 
 > These are demo credentials in a public repository. Delete them, or change the
 > password, before any real launch.

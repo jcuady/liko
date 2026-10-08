@@ -71,6 +71,14 @@ const USERS = [
     classCode: 'PHYS-1',
     level: 'university',
   },
+  // The RBAC matrix has four roles. These two exist so every column of it is
+  // reachable by a real account: without them the `student` and `guardian`
+  // rows could only ever be tested by hand-editing a JWT.
+  //
+  // They own no class. `class:read` for both is scoped (`own` / `linked`) rather
+  // than unrestricted, and a class they own would defeat the point of the test.
+  { email: 'student@liko.test', name: 'Noor Haddad', role: 'student', teaches: false },
+  { email: 'guardian@liko.test', name: 'Priya Raman', role: 'guardian', teaches: false },
 ];
 
 const STUDENT_NAMES = [
@@ -124,6 +132,12 @@ async function seed() {
       .from('profiles')
       .update({ full_name: spec.name, role: spec.role })
       .eq('id', ownerId);
+
+    // Students and guardians hold no roster, so there is nothing to seed below.
+    if (spec.teaches === false) {
+      console.log(`  ${spec.role} account, no class to seed`);
+      continue;
+    }
 
     const { data: existingClass } = await supabase
       .from('classes')

@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 
 import { PageHeader } from '../components/PageHeader';
-import { requirePermission, requireSession } from '@/lib/auth/guards';
+import { requirePagePermission } from '@/lib/auth/guards';
 import { data } from '@/lib/api/client';
 
 import { StudentHistory } from './StudentHistory';
@@ -24,8 +24,7 @@ export default async function HistoryPage({
 }: {
   searchParams: Promise<{ class?: string; student?: string }>;
 }) {
-  const session = await requireSession();
-  await requirePermission('history:read');
+  const session = await requirePagePermission('history:read');
 
   const params = await searchParams;
   const store = await data();

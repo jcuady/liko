@@ -4,7 +4,7 @@ import { OverviewDashboard } from '@/components/product/OverviewDashboard';
 import { AtRiskHeatmap } from '@/components/product/AtRiskHeatmap';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { PageHeader } from '../components/PageHeader';
-import { requirePermission, requireSession } from '@/lib/auth/guards';
+import { requirePagePermission } from '@/lib/auth/guards';
 import { data } from '@/lib/api/client';
 import type { Student } from '@/lib/api/types';
 
@@ -31,8 +31,7 @@ export default async function OverviewPage({
 }: {
   searchParams: Promise<{ class?: string }>;
 }) {
-  const session = await requireSession();
-  await requirePermission('analytics:read');
+  const session = await requirePagePermission('analytics:read');
 
   const params = await searchParams;
   const store = await data();

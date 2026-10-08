@@ -174,15 +174,80 @@ keyboard-focused control.
 ## Testing
 
 **Vitest** covers the pure logic where a bug is expensive: the RBAC matrix, route
-permission mapping, password hashing and verification, reset-token hashing, Zod
-schemas, rate limiting, CSRF origin checks, and the API contracts.
+permission mapping, password hashing and verification, Zod schemas, rate
+limiting, CSRF origin checks, the grading policy engine, the API contracts, and
+the `'use server'` export rule described below.
 
 **Playwright** drives a production build, because the service worker and the
 cache strategies under test do not exist in dev. It covers the landing page
 (including no horizontal scroll at six widths, heading hierarchy, the absence of
-em dashes and emoji), the auth round trip, RBAC refusal, session storage hygiene,
+em dashes and emoji), the auth round trip, the full RBAC matrix per role,
+the interactive controls on every workspace screen, session storage hygiene,
 manifest validity, icon resolution, service-worker registration, and the offline
 fallback.
+
+The suite sets `LIKO_RATE_LIMIT_DISABLED` for its own server. Throttling is a
+deployed control, and an end-to-end run that signs in as the same demo account
+repeatedly would otherwise be blocked by the very limiter that protects
+production.
+
+### The `'use server'` export rule
+
+A `'use server'` module may only export async functions. Any other export is
+replaced, on the client, by a reference proxy, so an import that resolves fine
+can still be the wrong shape at runtime.
+
+This bit twice. `ASSESSMENT_TYPES` was fixed by moving it to `assess/options.ts`.
+`SEVERITY_OPTIONS` was still sitting in `history/actions.ts`, which made
+`SEVERITY_OPTIONS.map` throw and dropped `/history` into the error boundary for
+every signed-in user, and no test had ever opened that route with a session.
+Presentation constants belong in a plain module beside the actions;
+`src/lib/server-module-exports.test.ts` now scans the tree and fails if one
+reappears.
+
+## The fixture workspace
+
+`LIKO_DATA_MODE=fixtures` serves a complete demo workspace: two classes, eleven
+students, three assessments with a full gradebook, three lesson plans, five
+weeks of marked registers, behaviour entries, and a cumulative history per
+student. It is derived from the marketing roster so the marks a student holds
+are the marks that roster already claimed, and it is deterministic, so an
+assertion about a grade means the same thing on every run.
+
+Two things about it are load-bearing and were both wrong first:
+
+**The store lives on `globalThis`.** A module-level `const store` is per
+*bundle*, not per process, and Next gives a page and its server action separate
+copies. A `createClass` write updated the action's copy while the page
+re-render read the page's copy, so creating a class reported success and
+nothing appeared. Storing it globally makes it a real singleton for the life of
+the process, which is what an in-memory workspace has to be.
+
+**A behaviour entry is also a line on the cumulative record.** The history page
+puts the entry form beside the timeline it feeds, so `addBehaviourLog` writes
+both `behaviour_logs` and `student_history` in each adapter. Writing only the
+first left the note saved, the toast truthful, and the timeline permanently
+silent about it.
+
+In `supabase` mode none of this file is reachable.
+
+## Grading policies
+
+`src/lib/grading/policy.ts` treats a grading scale as data: a descending set of
+bands, each carrying a label and optionally a grade point. Five ship built in,
+percentage, letter, milestone, GPA (4.00) and GWA (5.00, the Philippine General
+Weighted Average), and `validatePolicy` accepts a user-defined scale of any
+shape.
+
+The percentage stays the single stored truth and a policy is only a view over
+it, so a mark can read as 85, a B, and 3.75 without any of those being a second
+source of truth that can disagree with the others.
+
+**Current state: the engine and its tests exist, the gradebook still reads
+`grades/scales.ts`.** Moving the gradebook onto policies, persisting a per-class
+policy choice, and building the scale editor are the remaining work. GWA marks
+below 51 deliberately carry no grade point rather than a 0.00, because a failing
+mark is recorded as a remark in that system.
 
 ## Build order for the next module
 

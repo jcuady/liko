@@ -1,5 +1,14 @@
 import { assertRealDataMode } from '@/lib/data-mode';
 import {
+  demoAssessments,
+  demoAttendance,
+  demoBehaviour,
+  demoGrades,
+  demoHistory,
+  demoPlans,
+  secondClassStudents,
+} from '@/lib/fixtures/workspace-seed';
+import {
   attendance,
   heatmap,
   stats,
@@ -37,13 +46,14 @@ import type { WorkspaceData } from './client';
  */
 
 const CLASS_ID = 'cls_demo_01';
+const SECOND_CLASS_ID = 'cls_demo_02';
 const OWNER = 'demo-owner';
 
 function guard(operation: string): void {
   assertRealDataMode(operation);
 }
 
-const store: {
+interface FixtureStore {
   classes: ClassRecord[];
   students: StudentRecord[];
   attendance: Map<string, Record<string, AttendanceStatus>>;
@@ -52,36 +62,83 @@ const store: {
   plans: LessonPlanRecord[];
   behaviour: BehaviourLogRecord[];
   history: HistoryRecord[];
-} = {
-  classes: [
-    {
-      id: CLASS_ID,
-      ownerId: OWNER,
-      name: 'Chemistry, Period 2',
-      code: 'CHEM-2',
-      level: 'k12',
-      meetsPerWeek: 5,
-      archivedAt: null,
-    },
-  ],
-  students: fixtureStudents.map((student) => ({
-    id: student.id,
-    classId: CLASS_ID,
-    ownerId: OWNER,
-    fullName: student.name,
-    initials: student.initials,
-    guardianName: null,
-    guardianEmail: null,
-    guardianPhone: null,
-    archivedAt: null,
-  })),
-  attendance: new Map<string, Record<string, AttendanceStatus>>(),
-  assessments: [],
-  grades: [],
-  plans: [],
-  behaviour: [],
-  history: [],
+}
+
+function createStore(): FixtureStore {
+  return {
+    classes: [
+      {
+        id: CLASS_ID,
+        ownerId: OWNER,
+        name: 'Chemistry, Period 2',
+        code: 'CHEM-2',
+        level: 'k12',
+        meetsPerWeek: 5,
+        archivedAt: null,
+      },
+      {
+        // A second class, so the class filter and the roster switcher have
+        // something to move between. With one class they were inert controls.
+        id: SECOND_CLASS_ID,
+        ownerId: OWNER,
+        name: 'Biology, Period 4',
+        code: 'BIO-4',
+        level: 'k12',
+        meetsPerWeek: 4,
+        archivedAt: null,
+      },
+    ],
+    students: [
+      ...fixtureStudents.map((student) => ({
+        id: student.id,
+        classId: CLASS_ID,
+        ownerId: OWNER,
+        fullName: student.name,
+        initials: student.initials,
+        guardianName: null,
+        guardianEmail: null,
+        guardianPhone: null,
+        archivedAt: null,
+      })),
+      ...secondClassStudents.map((student) => ({
+        id: student.id,
+        classId: SECOND_CLASS_ID,
+        ownerId: OWNER,
+        fullName: student.name,
+        initials: student.initials,
+        guardianName: null,
+        guardianEmail: null,
+        guardianPhone: null,
+        archivedAt: null,
+      })),
+    ],
+    attendance: demoAttendance(),
+    assessments: demoAssessments,
+    grades: demoGrades,
+    plans: demoPlans,
+    behaviour: demoBehaviour,
+    history: demoHistory,
+  };
+}
+
+/**
+ * WHY THE STORE LIVES ON `globalThis`.
+ *
+ * A module-level `const store` is per *bundle*, not per process. Next gives a
+ * page and the server action it calls separate copies of a shared module, so a
+ * `createClass` write updated the action's copy while the page re-render read
+ * the page's copy. The dialog reported success and nothing appeared: creating a
+ * class, or adding a student, silently did nothing until a server restart.
+ *
+ * Storing it on the global object makes it a real singleton for the life of the
+ * process, which is what an in-memory demo workspace has to be. In `supabase`
+ * mode this file is unreachable, so nothing here is load-bearing in production.
+ */
+const globalScope = globalThis as typeof globalThis & {
+  __likoFixtureStore?: FixtureStore;
 };
+
+const store: FixtureStore = (globalScope.__likoFixtureStore ??= createStore());
 
 function seededKey(classId: string, date: string): string {
   return `${classId}:${date}`;
@@ -254,6 +311,18 @@ export const fixtures: WorkspaceData = {
       },
       ...store.behaviour,
     ];
+
+    /*
+     * A behaviour entry is also a line on the cumulative record. The history page
+     * deliberately puts the entry form beside the timeline it feeds, and promises
+     * the entry stays on the record. Writing only `behaviour` meant the note was
+     * saved, the toast said it was, and the timeline never showed it.
+     */
+    await fixtures.appendHistory(_userId, {
+      studentId: input.studentId,
+      eventType: input.severity === 'note' ? 'note' : 'intervention',
+      payload: { entry: input.entry, severity: input.severity },
+    });
   },
 
   async appendHistory(_userId, input) {

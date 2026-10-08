@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 
 import { PageHeader } from '../components/PageHeader';
-import { requirePermission, requireSession } from '@/lib/auth/guards';
+import { requirePagePermission } from '@/lib/auth/guards';
 import { data } from '@/lib/api/client';
 import type { AttendanceStatus } from '@/lib/api/types';
 
@@ -30,8 +30,7 @@ export default async function AttendancePage({
 }: {
   searchParams: Promise<{ class?: string; date?: string }>;
 }) {
-  const session = await requireSession();
-  await requirePermission('attendance:write');
+  const session = await requirePagePermission('attendance:write');
 
   const params = await searchParams;
   const store = await data();

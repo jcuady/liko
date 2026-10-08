@@ -12,7 +12,8 @@ import { Textarea } from '@/components/ui/input';
 import { queryKeys } from '@/lib/query/keys';
 import type { HistoryRecord } from '@/lib/api/types';
 
-import { SEVERITY_OPTIONS, addBehaviourLog, loadHistory } from './actions';
+import { addBehaviourLog, loadHistory } from './actions';
+import { SEVERITY_OPTIONS } from './options';
 
 /**
  * The cumulative record for one student.

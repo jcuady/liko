@@ -9,7 +9,7 @@ import {
   loginSchema,
   registerSchema,
 } from '@/lib/schemas/auth';
-import { RATE_LIMITS, clientKey, consume } from '@/lib/security/rate-limit';
+import { RATE_LIMITS, clientKey, consume, consumeCredential } from '@/lib/security/rate-limit';
 
 import { checkPasswordStrength } from '@/lib/auth/password';
 import { clearSessionCookie, setSessionCookie } from '@/lib/auth/cookie';
@@ -22,6 +22,7 @@ import {
   verifyEmailToken,
 } from '@/lib/auth/store';
 import { isSupabaseMode } from '@/lib/data-mode';
+import { canAccessPath, landingPathFor } from '@/lib/auth/rbac';
 
 /**
  * Auth server actions.
@@ -59,6 +60,27 @@ async function guardRateLimit(scope: string, limit = RATE_LIMITS.auth) {
   }
 }
 
+/**
+ * Credential-endpoint guard.
+ *
+ * Counts per IP *and* per account, plus a looser per-IP ceiling. Keying on the
+ * IP alone was the previous behaviour and it meant one school network shared a
+ * single ten-attempt allowance, so the tenth sign-in that morning locked out
+ * everyone else in the building.
+ */
+async function guardCredentialLimit(scope: string, email: unknown) {
+  const requestHeaders = await headers();
+  const subject = String(email ?? '').trim().toLowerCase() || 'unknown';
+  const result = consumeCredential(
+    new Request('https://internal', { headers: requestHeaders }),
+    scope,
+    subject,
+  );
+  if (!result.allowed) {
+    throw new Error('RATE_LIMITED');
+  }
+}
+
 function siteUrl(): string {
   return process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:3000';
 }
@@ -68,7 +90,7 @@ export async function loginAction(
   formData: FormData,
 ): Promise<ActionResult> {
   try {
-    await guardRateLimit('login');
+    await guardCredentialLimit('login', formData.get('email'));
   } catch {
     return {
       ok: false,
@@ -111,7 +133,11 @@ export async function loginAction(
     { remember: formData.get('remember') === 'on' },
   );
 
-  redirect(safeNext(formData.get('next')));
+  // Clamp the requested destination to what this role may actually open. Without
+  // it a guardian deep-linking to /overview was shown the forbidden screen as the
+  // first page after signing in.
+  const requested = safeNext(formData.get('next'));
+  redirect(canAccessPath(user.role, requested) ? requested : landingPathFor(user.role));
 }
 
 export async function registerAction(
@@ -119,7 +145,7 @@ export async function registerAction(
   formData: FormData,
 ): Promise<ActionResult> {
   try {
-    await guardRateLimit('register');
+    await guardCredentialLimit('register', formData.get('email'));
   } catch {
     return {
       ok: false,
@@ -173,7 +199,7 @@ export async function registerAction(
     emailVerified: true,
   });
 
-  redirect('/overview');
+  redirect(landingPathFor(result.user.role));
 }
 
 /** Re-sends the confirmation email from /verify-email. */

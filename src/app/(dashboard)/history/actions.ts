@@ -27,13 +27,6 @@ export async function loadHistory(studentId: string): Promise<HistoryRecord[]> {
 
 const SEVERITIES: Severity[] = ['note', 'praise', 'concern', 'intervention'];
 
-export const SEVERITY_OPTIONS: { value: Severity; label: string }[] = [
-  { value: 'note', label: 'Note' },
-  { value: 'praise', label: 'Praise' },
-  { value: 'concern', label: 'Concern' },
-  { value: 'intervention', label: 'Intervention' },
-];
-
 export async function addBehaviourLog(input: {
   classId: string;
   studentId: string;

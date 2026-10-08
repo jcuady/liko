@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 
 import { PageHeader } from '../components/PageHeader';
-import { requirePermission, requireSession } from '@/lib/auth/guards';
+import { requirePagePermission } from '@/lib/auth/guards';
 import { data } from '@/lib/api/client';
 
 import { LessonPlanner } from './LessonPlanner';
@@ -18,8 +18,7 @@ export const metadata: Metadata = {
  * the teacher owns and the planner switches between them.
  */
 export default async function PlanPage() {
-  const session = await requireSession();
-  await requirePermission('plan:write');
+  const session = await requirePagePermission('plan:write');
 
   const store = await data();
   const classes = await store.listClasses(session.userId);

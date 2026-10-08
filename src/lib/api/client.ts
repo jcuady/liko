@@ -487,6 +487,20 @@ const supabaseAdapter: WorkspaceData = {
       severity: input.severity,
     });
     throwIf(error);
+
+    /*
+     * A behaviour entry is also a line on the cumulative record. The history page
+     * puts the entry form beside the timeline it feeds, so writing only
+     * `behaviour_logs` left the note saved and invisible on the timeline it was
+     * written from. Same invariant the fixture adapter carries.
+     */
+    const { error: historyError } = await supabase.from('student_history').insert({
+      owner_id: userId,
+      student_id: input.studentId,
+      event_type: input.severity === 'note' ? 'note' : 'intervention',
+      payload: { entry: input.entry, severity: input.severity },
+    });
+    throwIf(historyError);
   },
 
   async appendHistory(userId, input) {

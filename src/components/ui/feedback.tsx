@@ -1,5 +1,18 @@
-'use client';
-
+/**
+ * Skeleton and EmptyState.
+ *
+ * WHY THERE IS NO `use client` HERE. Both are pure presentational markup with
+ * no state, no hooks, and no handlers. Marking the module as a Client Component
+ * made `EmptyState`'s `icon` prop a function crossing the server/client
+ * boundary, which React refuses: "Functions cannot be passed directly to Client
+ * Components". Every Server Component that rendered an empty state with an icon
+ * therefore 500ed. `/settings/profile` was one of them, so the profile page was
+ * broken for every signed-in user.
+ *
+ * With the directive removed, a Server Component can pass an icon component and
+ * a Client Component can still import the same module, where it simply becomes
+ * part of the client bundle.
+ */
 import * as React from 'react';
 
 import { cn } from '@/lib/utils';

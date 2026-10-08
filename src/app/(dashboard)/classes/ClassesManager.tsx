@@ -2,6 +2,7 @@
 
 import * as React from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { ArchiveIcon, PlusIcon, UsersIcon } from '@phosphor-icons/react';
 
@@ -30,7 +31,23 @@ import { archiveClass, archiveStudent, createClass, createStudent } from './acti
  * Reads arrive as server props and are handed to the query cache as `initialData`,
  * so the first paint is the server's answer rather than a spinner over the same
  * data. Writes go through server actions, and every one of them calls the seam.
+ *
+ * WHY EVERY WRITE REFRESHES THE ROUTER. This component renders `classes` from
+ * props, not from a `useQuery` observer, so `invalidateQueries` had nothing to
+ * re-render and a freshly created class or student simply did not appear until
+ * a full reload. `router.refresh()` re-runs the server component, which is the
+ * only thing that can update server props. The invalidation is kept because other
+ * screens (grades, attendance, history) do observe those keys.
  */
+
+function useRefreshAfterWrite() {
+  const router = useRouter();
+  const queryClient = useQueryClient();
+  return React.useCallback(async () => {
+    await queryClient.invalidateQueries({ queryKey: queryKeys.classes() });
+    router.refresh();
+  }, [queryClient, router]);
+}
 
 const LEVEL_LABELS: Record<ClassLevel, string> = {
   preschool: 'Preschool',
@@ -115,6 +132,7 @@ export function ClassesManager({ classes }: { classes: ClassSummary[] }) {
 
 function RosterPanel({ classRecord }: { classRecord: ClassSummary }) {
   const [studentToArchive, setStudentToArchive] = React.useState<string | null>(null);
+  const refresh = useRefreshAfterWrite();
 
   const archive = useMutation({
     mutationFn: archiveStudent,
@@ -127,6 +145,7 @@ function RosterPanel({ classRecord }: { classRecord: ClassSummary }) {
       }
       toast.success(result.message);
       setStudentToArchive(null);
+      void refresh();
     },
     onError: () => toast.error('That student could not be archived. Try again.'),
   });
@@ -139,6 +158,7 @@ function RosterPanel({ classRecord }: { classRecord: ClassSummary }) {
         return;
       }
       toast.success(result.message);
+      void refresh();
     },
     onError: () => toast.error('That class could not be archived. Try again.'),
   });
@@ -284,7 +304,7 @@ function RosterPanel({ classRecord }: { classRecord: ClassSummary }) {
 
 function NewClassDialog() {
   const [open, setOpen] = React.useState(false);
-  const queryClient = useQueryClient();
+  const refresh = useRefreshAfterWrite();
 
   const create = useMutation({
     mutationFn: createClass,
@@ -295,7 +315,7 @@ function NewClassDialog() {
       }
       toast.success(result.message);
       setOpen(false);
-      await queryClient.invalidateQueries({ queryKey: queryKeys.classes() });
+      await refresh();
     },
     onError: () => toast.error('That class could not be created. Try again.'),
   });
@@ -382,7 +402,7 @@ function NewClassDialog() {
 
 function NewStudentDialog({ classId }: { classId: string }) {
   const [open, setOpen] = React.useState(false);
-  const queryClient = useQueryClient();
+  const refresh = useRefreshAfterWrite();
 
   const create = useMutation({
     mutationFn: createStudent,
@@ -393,7 +413,7 @@ function NewStudentDialog({ classId }: { classId: string }) {
       }
       toast.success(result.message);
       setOpen(false);
-      await queryClient.invalidateQueries({ queryKey: queryKeys.classes() });
+      await refresh();
     },
     onError: () => toast.error('That student could not be added. Try again.'),
   });

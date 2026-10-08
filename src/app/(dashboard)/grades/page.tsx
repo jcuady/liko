@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 
 import { PageHeader } from '../components/PageHeader';
-import { requirePermission, requireSession } from '@/lib/auth/guards';
+import { requirePagePermission } from '@/lib/auth/guards';
 import { data } from '@/lib/api/client';
 
 import { Gradebook } from './Gradebook';
@@ -19,8 +19,7 @@ export const metadata: Metadata = {
  * display concern, which is why nothing on this page converts a score.
  */
 export default async function GradesPage() {
-  const session = await requireSession();
-  await requirePermission('grade:read');
+  const session = await requirePagePermission('grade:read');
 
   const store = await data();
   const classes = await store.listClasses(session.userId);

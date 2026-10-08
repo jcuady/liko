@@ -42,3 +42,28 @@ export async function requirePermission(
 
   return session;
 }
+
+/**
+ * The page-level counterpart to `requirePermission`.
+ *
+ * Same check, different failure mode. A server action wants a thrown error it
+ * can report back to the caller, but a page does not: throwing there unwinds
+ * into the error boundary, so an under-privileged role met the error page
+ * instead of the `/forbidden` screen the app already ships for exactly this.
+ * This redirects there and never returns.
+ *
+ * Used by every dashboard page. The proxy enforces the same matrix before
+ * render, so this is the second layer catching a proxy bypass, a tampered
+ * session cookie, or a page whose route entry was missing.
+ */
+export async function requirePagePermission(
+  permission: Permission,
+): Promise<SessionPayload> {
+  const session = await requireSession();
+
+  if (!can(session.role, permission)) {
+    redirect('/forbidden');
+  }
+
+  return session;
+}

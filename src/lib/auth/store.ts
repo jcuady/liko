@@ -62,6 +62,89 @@ export interface AuthResult {
 
 const users = new Map<string, StoredUser>();
 
+/**
+ * Demo accounts for `fixtures` mode.
+ *
+ * WHY THESE EXIST. The map above is process-local and starts empty, so before
+ * this, a fresh `pnpm dev` had no account anyone could sign in with: the three
+ * users `scripts/seed.mjs` creates only ever existed in Supabase mode, which
+ * needs OAuth and a service role key. Every documented test user was therefore
+ * unusable in the default mode and in the Playwright suite.
+ *
+ * They mirror `scripts/seed.mjs` exactly, same addresses, names, roles and
+ * password, so a demo behaves identically whether it is backed by the in-memory
+ * map or by a seeded database. All four RBAC roles are represented, because the
+ * `student` and `guardian` columns of the matrix had no account that could ever
+ * reach them.
+ *
+ * Ids are fixed strings rather than uuids so a restart reproduces the same
+ * identity. Fixture reads ignore the owner id anyway (`src/lib/api/fixtures.ts`
+ * returns the demo workspace to any signed-in user), so this is for stability of
+ * debugging output, not for data isolation.
+ */
+const DEMO_PASSWORD = 'LikoDemo!2026';
+
+const DEMO_USERS: ReadonlyArray<{
+  id: string;
+  name: string;
+  email: string;
+  role: Role;
+}> = [
+  { id: 'usr_demo_maya', name: 'Maya Okonkwo', email: 'maya@liko.test', role: 'instructor' },
+  { id: 'usr_demo_dev', name: 'Dev Ramanathan', email: 'dev@liko.test', role: 'admin' },
+  {
+    id: 'usr_demo_ingrid',
+    name: 'Ingrid Halvorsen',
+    email: 'ingrid@liko.test',
+    role: 'instructor',
+  },
+  { id: 'usr_demo_noor', name: 'Noor Haddad', email: 'student@liko.test', role: 'student' },
+  {
+    id: 'usr_demo_priya',
+    name: 'Priya Raman',
+    email: 'guardian@liko.test',
+    role: 'guardian',
+  },
+];
+
+/**
+ * Populates the demo accounts once per process. Hashing is scrypt and therefore
+ * async, so this is a memoised promise rather than a top-level await: every
+ * caller awaits the same work, and concurrent first requests cannot each start
+ * their own hash.
+ *
+ * It seeds on every process start rather than only when the map happens to be
+ * empty. Guarding on `users.size` looked harmless, but in a run where any
+ * account registered first the demo accounts were skipped, so the three
+ * documented test users silently stopped existing and every demo sign-in failed
+ * with a generic credential error. Seed each demo account if it is absent.
+ */
+let demoSeed: Promise<void> | null = null;
+
+function ensureDemoUsers(): Promise<void> {
+  if (!demoSeed) {
+    demoSeed = (async () => {
+      const missing = DEMO_USERS.filter((demo) => !users.has(demo.email));
+      if (missing.length === 0) return;
+
+      const passwordHash = await hashForFixture(DEMO_PASSWORD);
+      const createdAt = new Date().toISOString();
+      for (const demo of missing) {
+        users.set(demo.email, {
+          id: demo.id,
+          name: demo.name,
+          email: demo.email,
+          passwordHash,
+          role: demo.role,
+          emailVerified: true,
+          createdAt,
+        });
+      }
+    })();
+  }
+  return demoSeed;
+}
+
 export interface CreateUserInput {
   name: string;
   email: string;
@@ -116,7 +199,10 @@ async function loadSupabaseUser(email: string) {
 export async function findUserByEmail(email: string): Promise<StoredUser | null> {
   const key = normalizeEmail(email);
 
-  if (!isSupabaseMode()) return users.get(key) ?? null;
+  if (!isSupabaseMode()) {
+    await ensureDemoUsers();
+    return users.get(key) ?? null;
+  }
 
   const admin = await createSupabaseAdmin();
   if (!admin) return null;
@@ -288,6 +374,7 @@ export async function verifyCredentials(
   const key = normalizeEmail(email);
 
   if (!isSupabaseMode()) {
+    await ensureDemoUsers();
     const user = users.get(key);
 
     if (!user) {

@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 
 import { PageHeader } from '../components/PageHeader';
-import { requirePermission, requireSession } from '@/lib/auth/guards';
+import { requirePagePermission } from '@/lib/auth/guards';
 import { data } from '@/lib/api/client';
 
 import { ClassesManager, type ClassSummary } from './ClassesManager';
@@ -22,8 +22,7 @@ export const metadata: Metadata = {
  * than a slightly slower page.
  */
 export default async function ClassesPage() {
-  const session = await requireSession();
-  await requirePermission('class:read');
+  const session = await requirePagePermission('class:read');
 
   const store = await data();
   const classes = await store.listClasses(session.userId);
