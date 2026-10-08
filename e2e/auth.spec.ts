@@ -47,7 +47,7 @@ test.describe('protected routes', () => {
 });
 
 test.describe('registration', () => {
-  test('creates an account and reaches the workspace', async ({ page }) => {
+  test('creates an account and reaches onboarding', async ({ page }) => {
     await page.goto('/register');
 
     await page.getByLabel(/Full name/).fill('Maya Okonkwo');
@@ -61,13 +61,17 @@ test.describe('registration', () => {
       send a confirmation email, so gating an account behind a verification step
       that can never be completed would reproduce the exact dead end this
       replaces: `proxy.ts` refuses unverified sessions and /verify-email had no
-      way to flip the flag. Fixture accounts are therefore verified at signup and
-      land in the workspace.
+      way to flip the flag. Fixture accounts are therefore verified at signup.
 
       Under `LIKO_DATA_MODE=supabase` the same form routes to /verify-email
       instead, and /auth/callback completes verification from the emailed link.
+
+      A new teacher then lands on /welcome rather than the workspace. An empty
+      overview answers none of the questions a teacher has, and every later
+      screen has to guess. The wizard asks them once.
     */
-    await expect(page).toHaveURL(/\/overview/);
+    await expect(page).toHaveURL(/\/welcome/);
+    await expect(page.getByRole('heading', { name: 'What do you teach?' })).toBeVisible();
     // `main`, not the workspace nav: both the desktop sidebar and the mobile
     // tab bar are labelled "Workspace", and only one of them renders at any
     // given width, so that locator is ambiguous.
@@ -107,9 +111,9 @@ test.describe('sign in', () => {
     await page.getByLabel(/^Email/).fill(email);
     await page.getByLabel(/Password/).fill(PASSWORD);
     await page.getByRole('button', { name: /Create workspace/i }).click();
-    // Fixture mode verifies at signup, so registration lands in the workspace.
-    // See the note on the registration test above.
-    await expect(page).toHaveURL(/\/overview/);
+    // Fixture mode verifies at signup, so registration goes straight through to
+    // onboarding rather than the verification dead end.
+    await expect(page).toHaveURL(/\/welcome/);
 
     // Registering leaves a session, and the proxy redirects a signed-in
     // visitor away from /login. Sign out before exercising the sign-in form.

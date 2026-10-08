@@ -255,6 +255,40 @@ wizard: the wizard belongs to signup, where collecting answers in an order that
 builds context has a job to do. Editing an existing profile has no such order.
 Both paths write the same shape.
 
+## First-run setup
+
+Registration sends a new teacher to `/welcome`, not to the workspace. An empty
+overview answers none of the questions a teacher has, and every later screen has
+to guess. Asked once here, the rest of the product can be specific.
+
+Three questions, because each one removes a decision from every later screen:
+what is taught, how it is graded, and the first class that ties the two together.
+Anything else would be the product asking questions it could ask later, when the
+teacher has the context to answer them.
+
+**It is idempotent by construction, not by a flag.** `/welcome` reads the
+profile and the roster and redirects onward when the teacher has already
+answered. There is no `onboarded` boolean to drift out of step with reality, so
+the route is safe to reach by URL, safe to abandon and return to, and safe for a
+user who already had a workspace before it existed.
+
+**Each step writes immediately.** A wizard that loses everything when the tab
+closes is worse than no wizard, and a half-answered profile is still better than
+an empty one.
+
+**It can be skipped in one click.** Not everyone teaches the same way, and a
+teacher who wants none of it can reach the workspace and fill it in when it
+matters. Forcing it would convert a convenience into a wall.
+
+**A student or guardian is never shown it.** There is no class to name and no
+scale to choose, so the route would be three questions with no answer available,
+and the server sends them to `/classes` instead.
+
+The scale chosen on step two becomes the class's own scale rather than only the
+teacher's default, because that is the scale the teacher just said they use. The
+name typed at registration is carried across rather than rebuilt from the email
+address, since the wizard never asks for one.
+
 ## Grading policies
 
 `src/lib/grading/policy.ts` treats a grading scale as data: a descending set of

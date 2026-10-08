@@ -338,7 +338,7 @@ export const demoPolicies: GradingPolicyRecord[] = [
  * real data rather than empty fields.
  */
 export const demoProfile: ProfileRecord = {
-  id: OWNER,
+  id: 'usr_demo_maya',
   email: 'maya@liko.test',
   fullName: 'Maya Okonkwo',
   role: 'instructor',
@@ -347,6 +347,62 @@ export const demoProfile: ProfileRecord = {
   defaultGradeLevel: 'k12',
   gradingPolicyId: 'percentage',
 };
+
+/**
+ * A profile for every demo account, not just the teacher the workspace belongs to.
+ *
+ * `getProfile` keys on the signed-in user id, so seeding one record under the
+ * workspace owner left the four other documented test accounts with a blank
+ * synthesised profile: an empty school, no subjects, no default scale. The
+ * visible symptom was `/welcome` refusing to skip itself for a teacher who had
+ * been set up all along, and `/settings/profile` opening blank.
+ *
+ * Each carries the answers that account's role would actually have collected, so
+ * the wizard and the profile form both open on real data for every test user.
+ */
+export const demoProfiles: ProfileRecord[] = [
+  demoProfile,
+  {
+    id: 'usr_demo_dev',
+    email: 'dev@liko.test',
+    fullName: 'Dev Ramanathan',
+    role: 'admin',
+    schoolName: 'Northfield Science Academy',
+    subjects: ['Physics', 'Electronics'],
+    defaultGradeLevel: 'k12',
+    gradingPolicyId: 'percentage',
+  },
+  {
+    id: 'usr_demo_ingrid',
+    email: 'ingrid@liko.test',
+    fullName: 'Ingrid Halvorsen',
+    role: 'instructor',
+    schoolName: 'Northfield Science Academy',
+    subjects: ['Biology', 'Marine Science'],
+    defaultGradeLevel: 'k12',
+    gradingPolicyId: 'letter',
+  },
+  {
+    id: 'usr_demo_noor',
+    email: 'student@liko.test',
+    fullName: 'Noor Haddad',
+    role: 'student',
+    schoolName: 'Northfield Science Academy',
+    subjects: [],
+    defaultGradeLevel: null,
+    gradingPolicyId: null,
+  },
+  {
+    id: 'usr_demo_priya',
+    email: 'guardian@liko.test',
+    fullName: 'Priya Raman',
+    role: 'guardian',
+    schoolName: 'Northfield Science Academy',
+    subjects: [],
+    defaultGradeLevel: null,
+    gradingPolicyId: null,
+  },
+];
 
 /**
  * Marked registers for the last three weeks.

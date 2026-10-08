@@ -1,4 +1,5 @@
 import { assertRealDataMode } from '@/lib/data-mode';
+import { findUserById, isDemoAccount } from '@/lib/auth/store';
 import {
   BUILT_IN_POLICIES,
   validatePolicy,
@@ -13,7 +14,7 @@ import {
   demoHistory,
   demoPlans,
   demoPolicies,
-  demoProfile,
+  demoProfiles,
   secondClassStudents,
 } from '@/lib/fixtures/workspace-seed';
 import {
@@ -73,7 +74,8 @@ interface FixtureStore {
   behaviour: BehaviourLogRecord[];
   history: HistoryRecord[];
   policies: GradingPolicyRecord[];
-  profile: ProfileRecord;
+  /** Keyed by user id. The demo account is seeded; anyone else starts blank. */
+  profiles: Map<string, ProfileRecord>;
 }
 
 function createStore(): FixtureStore {
@@ -133,7 +135,7 @@ function createStore(): FixtureStore {
     behaviour: demoBehaviour,
     history: demoHistory,
     policies: demoPolicies,
-    profile: demoProfile,
+    profiles: new Map(demoProfiles.map((profile) => [profile.id, profile])),
   };
 }
 
@@ -178,9 +180,17 @@ function seededKey(classId: string, date: string): string {
 }
 
 export const fixtures: WorkspaceData = {
-  async listClasses() {
+  async listClasses(userId) {
     guard('listClasses');
-    return store.classes;
+    /*
+     * The seeded demo workspace belongs to the demo accounts. Anyone who
+     * registered during a demo session sees only the classes they created
+     * themselves, which is both what really happens and what lets first-run
+     * onboarding mean anything: otherwise a brand new teacher appears to own a
+     * full roster and the wizard skips itself as already answered.
+     */
+    if (isDemoAccount(userId)) return store.classes;
+    return store.classes.filter((row) => row.ownerId === userId);
   },
 
   async listStudents(_userId, classId) {
@@ -203,24 +213,34 @@ export const fixtures: WorkspaceData = {
     return store.attendance.get(seededKey(classId, date)) ?? attendance;
   },
 
-  async listAssessments() {
+  /*
+   * These four took a classId and ignored it, so switching class in the
+   * gradebook, planner, or assessment list kept showing the previous class's
+   * rows. The Supabase adapter has always filtered correctly, which is exactly
+   * why the fixture quietly disagreed with production instead of the other way
+   * round.
+   */
+  async listAssessments(_userId, classId) {
     guard('listAssessments');
-    return store.assessments;
+    return store.assessments.filter((row) => row.classId === classId);
   },
 
-  async listGrades() {
+  async listGrades(_userId, classId) {
     guard('listGrades');
-    return store.grades;
+    const assessmentIds = new Set(
+      store.assessments.filter((row) => row.classId === classId).map((row) => row.id),
+    );
+    return store.grades.filter((row) => assessmentIds.has(row.assessmentId));
   },
 
-  async listLessonPlans() {
+  async listLessonPlans(_userId, classId) {
     guard('listLessonPlans');
-    return store.plans;
+    return store.plans.filter((row) => row.classId === classId);
   },
 
-  async listBehaviourLogs() {
+  async listBehaviourLogs(_userId, classId) {
     guard('listBehaviourLogs');
-    return store.behaviour;
+    return store.behaviour.filter((row) => row.classId === classId);
   },
 
   async getStudentHistory(_userId, studentId) {
@@ -238,11 +258,14 @@ export const fixtures: WorkspaceData = {
     store.attendance.set(key, existing);
   },
 
-  async createClass(_userId, input) {
+  async createClass(userId, input) {
     guard('createClass');
     const record: ClassRecord = {
       id: `cls_${store.classes.length + 1}`,
-      ownerId: OWNER,
+      // The real owner, not the demo owner, or a class a teacher just created
+      // would be invisible to them: `listClasses` hands out the seeded demo
+      // workspace only to the demo accounts.
+      ownerId: userId,
       gradingPolicyId: null,
       ...input,
       archivedAt: null,
@@ -374,12 +397,22 @@ export const fixtures: WorkspaceData = {
     ];
   },
 
-  async listPolicies() {
+  async listPolicies(userId) {
     guard('listPolicies');
-    return [...builtInPolicies(), ...store.policies];
+    /*
+     * Authored scales belong to the account that wrote them, exactly as classes
+     * do. Returning the whole list handed every newly registered teacher the
+     * demo organisation's two custom scales on the onboarding screen, which is
+     * both a data leak and a wrong first impression: those are not scales they
+     * wrote and cannot edit.
+     */
+    return [
+      ...builtInPolicies(),
+      ...store.policies.filter((policy) => isDemoAccount(userId) || policy.ownerId === userId),
+    ];
   },
 
-  async savePolicy(_userId, input) {
+  async savePolicy(userId, input) {
     guard('savePolicy');
     const problems = validatePolicy(input);
     if (problems.length > 0) {
@@ -391,13 +424,16 @@ export const fixtures: WorkspaceData = {
       if (!existing) {
         throw new DataError('NOT_FOUND', 'That scale no longer exists.');
       }
+      if (!isDemoAccount(userId) && existing.ownerId !== userId) {
+        throw new DataError('FORBIDDEN', 'That scale belongs to another account.');
+      }
       Object.assign(existing, { name: input.name, kind: input.kind, bands: input.bands });
       return existing;
     }
 
     const record: GradingPolicyRecord = {
       id: `pol_${store.policies.length + 1}`,
-      ownerId: OWNER,
+      ownerId: userId,
       name: input.name,
       kind: input.kind,
       bands: input.bands,
@@ -415,14 +451,61 @@ export const fixtures: WorkspaceData = {
     );
   },
 
-  async getProfile() {
+  async getProfile(userId) {
     guard('getProfile');
-    return store.profile;
+
+    const saved = store.profiles.get(userId);
+    if (saved) return saved;
+
+    /*
+     * One profile per account, not one profile for the process.
+     *
+     * This was a single object, so every teacher who registered inherited the
+     * demo account's school, subjects, and scale, which made `/welcome` see the
+     * setup as already answered and redirect every new account straight past the
+     * wizard. The profile follows the person, exactly as the `profiles` row does
+     * in Supabase.
+     *
+     * The name and address come from the auth store, mirroring the
+     * `handle_new_user` trigger, which copies them out of the signup metadata.
+     */
+    const account = await findUserById(userId);
+
+    /*
+     * The lookup above awaits, and `findUserById` seeds the demo accounts on
+     * first use, which hashes with scrypt. A request that arrived in that gap
+     * can already have written a real profile, so the cache is re-read before
+     * this synthesised record is stored. Without the re-read, a stale
+     * synthesise lands last and overwrites the name and answers the teacher
+     * had just saved, which surfaced as a registration losing its name whenever
+     * two requests for the same account overlapped.
+     */
+    const written = store.profiles.get(userId);
+    if (written) return written;
+
+    const synthesised: ProfileRecord = {
+      id: userId,
+      email: account?.email ?? '',
+      fullName: account?.name ?? '',
+      role: account?.role ?? 'instructor',
+      schoolName: null,
+      subjects: [],
+      defaultGradeLevel: null,
+      gradingPolicyId: null,
+    };
+
+    store.profiles.set(userId, synthesised);
+    return synthesised;
   },
 
-  async updateProfile(_userId, input) {
+  async updateProfile(userId, input) {
     guard('updateProfile');
-    store.profile = { ...store.profile, ...input };
-    return store.profile;
+    const existing = await fixtures.getProfile(userId);
+    // `getProfile` synthesises a record rather than returning null, so this cast
+    // is only satisfying the seam's nullable signature. Spreading the union
+    // directly would widen every field of `ProfileRecord` to optional.
+    const record: ProfileRecord = { ...(existing as ProfileRecord), ...input };
+    store.profiles.set(userId, record);
+    return record;
   },
 };

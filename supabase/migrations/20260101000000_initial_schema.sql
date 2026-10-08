@@ -107,6 +107,14 @@ create table if not exists public.classes (
 create index if not exists classes_owner_idx on public.classes (owner_id)
   where archived_at is null;
 
+-- One class per code per teacher. The short code is typed constantly as a
+-- filter, so a duplicate would make every lookup ambiguous. Case-folded
+-- because `createClass` upper-cases it, and partial so archiving a class frees
+-- its code for reuse.
+create unique index if not exists classes_owner_code_key
+  on public.classes (owner_id, upper(code))
+  where archived_at is null;
+
 create trigger classes_set_updated_at
   before update on public.classes
   for each row execute function public.set_updated_at();

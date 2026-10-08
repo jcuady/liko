@@ -141,6 +141,10 @@ export function permissionForPath(pathname: string): Permission | null {
 
 /** Paths that always require a signed-in session, regardless of role. */
 export const PROTECTED_PREFIXES = [
+  // Onboarding runs after signup and before the workspace. It needs a session
+  // because it writes the profile, but no permission entry: the steps are about
+  // saying who you are, not about doing anything with anyone's records.
+  '/welcome',
   '/overview',
   '/classes',
   '/attendance',

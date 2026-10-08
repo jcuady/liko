@@ -56,6 +56,21 @@ export async function createClass(input: {
 
   try {
     const store = await data();
+
+    /*
+     * The code is how a teacher refers to a class all day, and the gradebook,
+     * planner and attendance screens all accept it as a filter. Two classes on
+     * one code make every one of those lookups ambiguous, so this is refused
+     * with the offending code named rather than left to fail as a unique
+     * violation or, before the constraint existed, to create a second row.
+     */
+    const taken = (await store.listClasses(session.userId)).some(
+      (item) => item.code.trim().toUpperCase() === code,
+    );
+    if (taken) {
+      return { ok: false, message: `${code} is already in use.` };
+    }
+
     await store.createClass(session.userId, { name, code, level: input.level, meetsPerWeek });
   } catch {
     return { ok: false, message: 'That class could not be created. Try again.' };

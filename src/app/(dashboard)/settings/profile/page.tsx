@@ -39,7 +39,7 @@ export default async function ProfilePage() {
 
       <ProfileForm
         profile={{
-          email: profile?.email ?? session.email,
+          email: profile?.email || session.email,
           // The session carries no display name, so the profile is the source.
           // Falling back to the address's local part beats an empty field a
           // teacher has to overwrite before they can save anything.

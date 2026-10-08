@@ -256,7 +256,12 @@ export interface ProfileRecord {
 
 export interface ProfileInput {
   fullName: string;
-  schoolName: string;
+  /**
+   * Nullable to match the record. It was `string`, which made it impossible to
+   * clear a school from the profile form: the value had to be sent as something,
+   * and the empty string was stored as a real blank rather than as "not set".
+   */
+  schoolName: string | null;
   subjects: string[];
   defaultGradeLevel: ClassLevel | null;
   gradingPolicyId: string | null;

@@ -199,7 +199,14 @@ export async function registerAction(
     emailVerified: true,
   });
 
-  redirect(landingPathFor(result.user.role));
+  redirect(
+    result.user.role === 'instructor' || result.user.role === 'admin'
+      ? // A new teacher lands on onboarding rather than the workspace. An empty
+        // overview answers none of the questions the product asks, and asking
+        // them here, once, is what makes the first screen mean something.
+        '/welcome'
+      : landingPathFor(result.user.role),
+  );
 }
 
 /** Re-sends the confirmation email from /verify-email. */

@@ -60,7 +60,27 @@ export interface AuthResult {
   awaitingConfirmation: boolean;
 }
 
-const users = new Map<string, StoredUser>();
+/**
+ * WHY THIS MAP LIVES ON `globalThis`.
+ *
+ * A module-level `const` is per *bundle*, not per process. Next gives a page and
+ * the server action it calls separate copies of a shared module, so an account
+ * registered through `registerAction` was written into the action bundle's map
+ * and then invisible to the bundle rendering `/settings/profile`. The page
+ * synthesised a profile from an unknown account, so the name typed at signup was
+ * blank on the profile form. Sign-in kept working because it only ever reads the
+ * session cookie, which is why the symptom looked like a profile bug and not an
+ * identity bug.
+ *
+ * `src/lib/api/fixtures.ts` hit the identical trap with its workspace store and
+ * was fixed the same way. In `supabase` mode this map is unreachable, so nothing
+ * here is load-bearing in production.
+ */
+const globalScope = globalThis as typeof globalThis & {
+  __likoUsers?: Map<string, StoredUser>;
+};
+
+const users: Map<string, StoredUser> = (globalScope.__likoUsers ??= new Map());
 
 /**
  * Demo accounts for `fixtures` mode.
@@ -145,6 +165,18 @@ function ensureDemoUsers(): Promise<void> {
   return demoSeed;
 }
 
+/**
+ * True when `userId` is one of the seeded demo accounts.
+ *
+ * The fixture workspace is a single shared demo, so the adapter needs to know
+ * who it belongs to. A teacher who registers during a demo session must get an
+ * empty workspace rather than inheriting a roster they never created, otherwise
+ * first-run onboarding sees classes that are not theirs and skips itself.
+ */
+export function isDemoAccount(userId: string): boolean {
+  return DEMO_USERS.some((demo) => demo.id === userId);
+}
+
 export interface CreateUserInput {
   name: string;
   email: string;
@@ -226,6 +258,10 @@ export async function findUserByEmail(email: string): Promise<StoredUser | null>
 
 export async function findUserById(id: string): Promise<StoredUser | null> {
   if (!isSupabaseMode()) {
+    // Seeded like every other fixture read: without this, a lookup that happens
+    // before any sign-in finds an empty map and reports the demo accounts as
+    // unknown accounts.
+    await ensureDemoUsers();
     for (const user of users.values()) {
       if (user.id === id) return user;
     }
