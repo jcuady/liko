@@ -216,6 +216,38 @@ const serwist = new Serwist({
 serwist.addEventListeners();
 
 /**
+ * Evict caches this build does not own.
+ *
+ * Turning off `cacheOnNavigation` stops the `pages` cache being written. It does
+ * not remove it from a browser that already has one, and that cache holds whole
+ * copies of `/overview` and `/grades` from whenever the app was last used. On a
+ * shared device that is the previous teacher's gradebook sitting on disk, so
+ * deploying the fix is only half of it: the other half is deleting the evidence.
+ *
+ * This runs on `activate`, which a browser fires when it installs a worker that
+ * differs from the one it has. A returning user therefore gets the stale cache
+ * cleared by opening the app once after this ships.
+ *
+ * The precache is left alone, by prefix: Serwist owns caches named
+ * `serwist-precache*` and runs its own revision cleanup against them, and
+ * deleting one out from under it would fight the mechanism keeping the offline
+ * shell correct. Everything else that is not named here is not ours to keep.
+ */
+const OWNED_CACHES = new Set(['liko-pages', 'liko-static', 'liko-media', 'liko-images']);
+
+self.addEventListener('activate', (event) => {
+  event.waitUntil(
+    (async () => {
+      for (const name of await caches.keys()) {
+        if (name.startsWith('serwist-precache')) continue;
+        if (OWNED_CACHES.has(name)) continue;
+        await caches.delete(name);
+      }
+    })(),
+  );
+});
+
+/**
  * Push delivery.
  *
  * The three handlers below are registered on `self` rather than through Serwist

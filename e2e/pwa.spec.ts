@@ -150,6 +150,70 @@ test.describe('service worker', () => {
 
     expect(privateUrls, 'private responses must never reach a cache').toEqual([]);
   });
+
+  test('a cache left by an older build is evicted on activate', async ({ page }) => {
+    /*
+     * Installing the worker precaches the whole offline shell, and a full e2e run
+     * has every other spec installing one at the same time. The default 45s
+     * timeout is not enough for that on a loaded machine, which is how this
+     * passed alone and failed in the suite. The budget below is for the install,
+     * not for the assertion.
+     */
+    test.setTimeout(150_000);
+
+    /*
+     * Switching `cacheOnNavigation` off stops the bad cache being written. It
+     * does nothing about the copy already sitting in a browser that installed
+     * the app before the fix, which is the part that actually matters on a
+     * shared machine. That cleanup runs on `activate`, so this test drives a
+     * real install rather than calling the function, which would only prove the
+     * function works.
+     */
+    await page.goto('/login');
+    await page.waitForLoadState('networkidle');
+    await page.waitForTimeout(1200);
+
+    const afterActivate = await page.evaluate(async () => {
+      // Make sure a worker is already installed and active first, so the step
+      // below is unambiguously the one that fires `activate`.
+      await navigator.serviceWorker.ready;
+
+      // Stand in a cache left behind by the version that had the leak.
+      const stale = await caches.open('pages');
+      await stale.put('/overview', new Response('student names and marks'));
+
+      /*
+       * Register a DIFFERENT script URL. Re-registering `/sw.js` when a worker
+       * is already active returns the existing registration without installing,
+       * so `activate` never fires and the seeded cache just sits there. A
+       * distinct URL is a distinct registration, which forces a real install.
+       */
+      const registration = await navigator.serviceWorker.register('/sw.js?evict-probe=1');
+
+      const worker = registration.installing ?? registration.waiting ?? registration.active;
+      if (worker && worker.state !== 'activated') {
+        await new Promise<void>((resolve) => {
+          const onChange = () => {
+            if (worker.state === 'activated') {
+              worker.removeEventListener('statechange', onChange);
+              resolve();
+            }
+          };
+          worker.addEventListener('statechange', onChange);
+          setTimeout(resolve, 60_000);
+        });
+      }
+
+      // `activate` is not awaitable from here; poll briefly for the result.
+      for (let attempt = 0; attempt < 40; attempt += 1) {
+        if (!(await caches.has('pages'))) return 'evicted';
+        await new Promise((resolve) => setTimeout(resolve, 250));
+      }
+      return 'still there';
+    });
+
+    expect(afterActivate).toBe('evicted');
+  });
 });
 
 test.describe('offline', () => {
