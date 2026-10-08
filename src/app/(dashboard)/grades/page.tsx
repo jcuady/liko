@@ -15,8 +15,12 @@ export const metadata: Metadata = {
  * The gradebook, read through the seam.
  *
  * `listGrades` and `listAssessments` are both scoped to a class, so they are
- * read together for the selected class. Marks are stored raw and the scale is a
- * display concern, which is why nothing on this page converts a score.
+ * read together for the selected class. Marks are stored raw; the scale is a
+ * view over them, so changing it never rewrites a stored mark.
+ *
+ * The scale list is read here rather than in the client because a class names
+ * the scale it is graded on, and the first paint should show that choice rather
+ * than a percentage default that changes a frame later.
  */
 export default async function GradesPage() {
   const session = await requirePagePermission('grade:read');
@@ -39,10 +43,11 @@ export default async function GradesPage() {
   }
 
   const selected = classes[0];
-  const [roster, assessments, grades] = await Promise.all([
+  const [roster, assessments, grades, policies] = await Promise.all([
     store.listStudents(session.userId, selected.id),
     store.listAssessments(session.userId, selected.id),
     store.listGrades(session.userId, selected.id),
+    store.listPolicies(session.userId),
   ]);
 
   return (
@@ -52,8 +57,13 @@ export default async function GradesPage() {
         description="Marks that keep the rubric reasoning attached, so any number can be explained later."
       />
       <Gradebook
-        classes={classes.map((item) => ({ id: item.id, name: item.name }))}
+        classes={classes.map((item) => ({
+          id: item.id,
+          name: item.name,
+          gradingPolicyId: item.gradingPolicyId,
+        }))}
         classId={selected.id}
+        policies={policies}
         students={roster.map((student) => ({
           id: student.id,
           fullName: student.fullName,

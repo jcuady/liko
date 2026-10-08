@@ -13,11 +13,20 @@ import { revalidatePath } from 'next/cache';
 
 import { data } from '@/lib/api/client';
 import { requirePermission } from '@/lib/auth/guards';
-import type { GradeRecord } from '@/lib/api/types';
+import { validatePolicy, type GradeBand, type PolicyKind } from '@/lib/grading/policy';
+import type { GradeRecord, GradingPolicyRecord } from '@/lib/api/types';
 
 export interface GradeResult {
   ok: boolean;
   message: string;
+}
+
+export interface PolicyResult {
+  ok: boolean;
+  message: string;
+  policy?: GradingPolicyRecord;
+  /** Every problem `validatePolicy` found, so the editor can show them all. */
+  problems?: string[];
 }
 
 /**
@@ -74,4 +83,71 @@ export async function saveGrade(input: {
 
   revalidatePath('/grades');
   return { ok: true, message: 'Mark saved.' };
+}
+
+/**
+ * Read path for the scale editor. Built-in scales come back with the account's
+ * own, so the editor renders one list.
+ */
+export async function loadPolicies(): Promise<GradingPolicyRecord[]> {
+  const session = await requirePermission('grade:read');
+  const store = await data();
+  return store.listPolicies(session.userId);
+}
+
+/**
+ * Creates or updates a custom scale.
+ *
+ * `validatePolicy` runs here as well as inside the seam. The action reports all
+ * of its problems so the editor can list them next to the offending bands, and
+ * so a refusal reaches the caller as a value to display rather than an error to
+ * swallow.
+ */
+export async function saveGradingPolicy(input: {
+  id?: string;
+  name: string;
+  kind: PolicyKind;
+  bands: GradeBand[];
+}): Promise<PolicyResult> {
+  const session = await requirePermission('grade:write');
+
+  const problems = validatePolicy(input);
+  if (problems.length > 0) {
+    return { ok: false, message: problems[0], problems };
+  }
+
+  try {
+    const store = await data();
+    const policy = await store.savePolicy(session.userId, input);
+    revalidatePath('/grades');
+    revalidatePath('/settings/appearance');
+    return {
+      ok: true,
+      message: input.id ? 'Scale updated.' : `Scale "${policy.name}" created.`,
+      policy,
+    };
+  } catch {
+    return { ok: false, message: 'That scale could not be saved.' };
+  }
+}
+
+/** Points a class at a scale, or back to the percentage default with `null`. */
+export async function setClassGradingPolicy(input: {
+  classId: string;
+  policyId: string | null;
+}): Promise<PolicyResult> {
+  const session = await requirePermission('grade:write');
+
+  if (!input.classId) {
+    return { ok: false, message: 'Pick a class before changing its scale.' };
+  }
+
+  try {
+    const store = await data();
+    await store.setClassPolicy(session.userId, input.classId, input.policyId);
+    revalidatePath('/grades');
+    return { ok: true, message: 'Scale applied to this class.' };
+  } catch {
+    return { ok: false, message: 'That class could not be changed.' };
+  }
 }

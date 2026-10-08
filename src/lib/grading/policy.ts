@@ -24,7 +24,12 @@ export interface GradeBand {
   gradePoint: number | null;
 }
 
-export type PolicyKind = 'points' | 'letter' | 'milestone' | 'raw';
+/**
+ * `raw` is the percentage: it renders the mark itself and has no bands.
+ * `custom` is a user-authored banded scale, which behaves like `points` or
+ * `letter` depending on whether its bands carry grade points.
+ */
+export type PolicyKind = 'points' | 'letter' | 'milestone' | 'custom' | 'raw';
 
 export interface GradingPolicy {
   id: string;
@@ -208,13 +213,13 @@ export function weightedPointTotal(
  */
 export function validatePolicy(input: {
   id?: string;
-  label: string;
+  name: string;
   kind?: PolicyKind;
   bands: readonly GradeBand[];
 }): string[] {
   const problems: string[] = [];
 
-  if (input.label.trim().length === 0) {
+  if (input.name.trim().length === 0) {
     problems.push('Give the scale a name.');
   }
 

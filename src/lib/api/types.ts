@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import type { GradeBand, PolicyKind } from '@/lib/grading/policy';
+
 /**
  * Domain contracts.
  *
@@ -81,6 +83,8 @@ export interface ClassRecord {
   level: ClassLevel;
   meetsPerWeek: number;
   archivedAt: string | null;
+  /** The scale this class is graded on. Null means the built-in percentage. */
+  gradingPolicyId: string | null;
 }
 
 export interface StudentRecord {
@@ -203,4 +207,29 @@ export interface AttendanceWrite {
   classId: string;
   date: string;
   marks: AttendanceMark[];
+}
+
+/**
+ * A stored grading scale.
+ *
+ * `bands` is the wire form of `GradeBand[]` from `lib/grading/policy`. Stored as
+ * jsonb because the shape is a descending list, not something the database needs
+ * to query. A policy whose `id` is empty is a draft the user is editing; a saved
+ * one has the row id.
+ */
+export interface GradingPolicyRecord {
+  id: string;
+  ownerId: string;
+  name: string;
+  kind: PolicyKind;
+  bands: GradeBand[];
+  /** Built-in scales are read only. A custom scale belongs to its author. */
+  builtIn: boolean;
+  createdAt: string;
+}
+
+export interface GradingPolicyInput {
+  name: string;
+  kind: PolicyKind;
+  bands: GradeBand[];
 }

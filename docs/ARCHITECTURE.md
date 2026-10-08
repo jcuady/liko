@@ -243,11 +243,28 @@ The percentage stays the single stored truth and a policy is only a view over
 it, so a mark can read as 85, a B, and 3.75 without any of those being a second
 source of truth that can disagree with the others.
 
-**Current state: the engine and its tests exist, the gradebook still reads
-`grades/scales.ts`.** Moving the gradebook onto policies, persisting a per-class
-policy choice, and building the scale editor are the remaining work. GWA marks
-below 51 deliberately carry no grade point rather than a 0.00, because a failing
-mark is recorded as a remark in that system.
+**The gradebook runs on policies.** `grades/scales.ts`, which hardcoded four
+scales and computed each inline, is gone. The gradebook reads the account's
+scales from the seam, renders marks through `formatByPolicy`, and reports
+weighted totals as grade points when the scale is point-based and as a weighted
+percentage otherwise. `ScaleEditorDialog` authors a new scale, validated on every
+keystroke by `validatePolicy`, so an unusable one never reaches the server.
+
+**A class names its scale.** `classes.grading_policy_id` is a nullable
+reference, and null means the percentage default, so an existing row keeps
+working without a backfill. The selector offers every scale the account has, and
+a separate action makes the choice stick to the class rather than resetting on
+every reload. The selector's own value is per-class and derived from that
+reference rather than copied into state, so switching class switches scale
+without a frame showing the wrong one.
+
+**The percentage stays the only stored truth.** A mark can read as 85, a B, and
+3.75 without any of those being a second source of truth that can disagree with
+the others. GWA below 51 carries no grade point rather than a 0.00, because a
+failing mark is recorded as a remark in that system.
+
+Still outstanding: the scale editor creates but does not edit an existing scale,
+and a policy has no per-term override.
 
 ## Build order for the next module
 

@@ -1,11 +1,18 @@
 import { assertRealDataMode } from '@/lib/data-mode';
 import {
+  BUILT_IN_POLICIES,
+  validatePolicy,
+  type GradingPolicy,
+} from '@/lib/grading/policy';
+import { DataError } from './errors';
+import {
   demoAssessments,
   demoAttendance,
   demoBehaviour,
   demoGrades,
   demoHistory,
   demoPlans,
+  demoPolicies,
   secondClassStudents,
 } from '@/lib/fixtures/workspace-seed';
 import {
@@ -21,6 +28,7 @@ import type {
   BehaviourLogRecord,
   ClassRecord,
   GradeRecord,
+  GradingPolicyRecord,
   HeatCell,
   HistoryRecord,
   LessonPlanRecord,
@@ -62,6 +70,7 @@ interface FixtureStore {
   plans: LessonPlanRecord[];
   behaviour: BehaviourLogRecord[];
   history: HistoryRecord[];
+  policies: GradingPolicyRecord[];
 }
 
 function createStore(): FixtureStore {
@@ -75,10 +84,11 @@ function createStore(): FixtureStore {
         level: 'k12',
         meetsPerWeek: 5,
         archivedAt: null,
+        gradingPolicyId: null,
       },
       {
-        // A second class, so the class filter and the roster switcher have
-        // something to move between. With one class they were inert controls.
+        // Grades on UK degree classes, so the demo shows a real choice rather
+        // than every class sitting on the percentage default.
         id: SECOND_CLASS_ID,
         ownerId: OWNER,
         name: 'Biology, Period 4',
@@ -86,6 +96,7 @@ function createStore(): FixtureStore {
         level: 'k12',
         meetsPerWeek: 4,
         archivedAt: null,
+        gradingPolicyId: 'pol_demo_uk',
       },
     ],
     students: [
@@ -118,6 +129,7 @@ function createStore(): FixtureStore {
     plans: demoPlans,
     behaviour: demoBehaviour,
     history: demoHistory,
+    policies: demoPolicies,
   };
 }
 
@@ -139,6 +151,23 @@ const globalScope = globalThis as typeof globalThis & {
 };
 
 const store: FixtureStore = (globalScope.__likoFixtureStore ??= createStore());
+
+/**
+ * The five scales that ship with the product, presented as records so the seam
+ * hands every caller one list whether a scale is built in or authored. Mirrors
+ * `builtInPolicies` in `client.ts`; both adapters must return the same shape.
+ */
+function builtInPolicies(): GradingPolicyRecord[] {
+  return BUILT_IN_POLICIES.map((policy: GradingPolicy) => ({
+    id: policy.id,
+    ownerId: 'built-in',
+    name: policy.label,
+    kind: policy.kind,
+    bands: [...policy.bands],
+    builtIn: true,
+    createdAt: '1970-01-01T00:00:00.000Z',
+  }));
+}
 
 function seededKey(classId: string, date: string): string {
   return `${classId}:${date}`;
@@ -210,6 +239,7 @@ export const fixtures: WorkspaceData = {
     const record: ClassRecord = {
       id: `cls_${store.classes.length + 1}`,
       ownerId: OWNER,
+      gradingPolicyId: null,
       ...input,
       archivedAt: null,
     };
@@ -338,5 +368,46 @@ export const fixtures: WorkspaceData = {
       },
       ...store.history,
     ];
+  },
+
+  async listPolicies() {
+    guard('listPolicies');
+    return [...builtInPolicies(), ...store.policies];
+  },
+
+  async savePolicy(_userId, input) {
+    guard('savePolicy');
+    const problems = validatePolicy(input);
+    if (problems.length > 0) {
+      throw new DataError('INVALID', problems[0]);
+    }
+
+    if (input.id) {
+      const existing = store.policies.find((policy) => policy.id === input.id);
+      if (!existing) {
+        throw new DataError('NOT_FOUND', 'That scale no longer exists.');
+      }
+      Object.assign(existing, { name: input.name, kind: input.kind, bands: input.bands });
+      return existing;
+    }
+
+    const record: GradingPolicyRecord = {
+      id: `pol_${store.policies.length + 1}`,
+      ownerId: OWNER,
+      name: input.name,
+      kind: input.kind,
+      bands: input.bands,
+      builtIn: false,
+      createdAt: new Date().toISOString(),
+    };
+    store.policies = [...store.policies, record];
+    return record;
+  },
+
+  async setClassPolicy(_userId, classId, policyId) {
+    guard('setClassPolicy');
+    store.classes = store.classes.map((row) =>
+      row.id === classId ? { ...row, gradingPolicyId: policyId } : row,
+    );
   },
 };

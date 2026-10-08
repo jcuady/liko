@@ -38,4 +38,12 @@ export const queryKeys = {
     ['workspace', 'classes', classId, 'behaviour-logs'] as const,
 
   history: (studentId: string) => ['workspace', 'students', studentId, 'history'] as const,
+
+  /*
+   * Grading scales are account-wide rather than class-scoped, because a teacher
+   * with three departments on three systems defines each scale once and then
+   * points classes at it. Keying by class would give every class its own copy of
+   * the same five built-ins.
+   */
+  policies: () => ['workspace', 'policies'] as const,
 } as const;

@@ -1,8 +1,14 @@
 import 'server-only';
 
 import { assertRealDataMode, isSupabaseMode } from '@/lib/data-mode';
+import {
+  BUILT_IN_POLICIES,
+  validatePolicy,
+  type GradeBand,
+  type GradingPolicy,
+} from '@/lib/grading/policy';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
-import { mapSupabaseError } from './errors';
+import { DataError, mapSupabaseError } from './errors';
 import type {
   AssessmentRecord,
   AssessmentType,
@@ -13,6 +19,8 @@ import type {
   ClassLevel,
   ClassRecord,
   GradeRecord,
+  GradingPolicyInput,
+  GradingPolicyRecord,
   HeatCell,
   HistoryEventType,
   HistoryRecord,
@@ -21,6 +29,24 @@ import type {
   Stat,
   StudentRecord,
 } from './types';
+
+/**
+ * The five scales that ship with the product, as records rather than code
+ * constants, so the seam hands every caller one list whether a scale is built in
+ * or authored.
+ */
+function builtInPolicies(): GradingPolicyRecord[] {
+  const createdAt = '1970-01-01T00:00:00.000Z';
+  return BUILT_IN_POLICIES.map((policy: GradingPolicy) => ({
+    id: policy.id,
+    ownerId: 'built-in',
+    name: policy.label,
+    kind: policy.kind,
+    bands: [...policy.bands],
+    builtIn: true,
+    createdAt,
+  }));
+}
 
 /**
  * The single data boundary.
@@ -108,6 +134,23 @@ export interface WorkspaceData {
       eventType: HistoryEventType;
       payload?: Record<string, unknown>;
     },
+  ): Promise<void>;
+
+  /**
+   * Every scale available to this account: the five built-ins plus whatever the
+   * teacher has authored. Built-ins come from code, so they are always current
+   * and need no row.
+   */
+  listPolicies(userId: string): Promise<GradingPolicyRecord[]>;
+
+  /** Creates or replaces a custom scale. An empty `id` creates, otherwise updates. */
+  savePolicy(userId: string, input: GradingPolicyInput & { id?: string }): Promise<GradingPolicyRecord>;
+
+  /** Points a class at a scale. `null` returns the class to the percentage default. */
+  setClassPolicy(
+    userId: string,
+    classId: string,
+    policyId: string | null,
   ): Promise<void>;
 }
 
@@ -513,6 +556,66 @@ const supabaseAdapter: WorkspaceData = {
     });
     throwIf(error);
   },
+
+  async listPolicies(userId) {
+    const supabase = await requireClient();
+    const { data, error } = await supabase
+      .from('grading_policies')
+      .select('id, owner_id, name, kind, bands, built_in, created_at')
+      .eq('owner_id', userId)
+      .order('created_at', { ascending: true });
+    throwIf(error);
+
+    const custom = (data ?? []).map((row) => mapPolicy(row as Row));
+    return [...builtInPolicies(), ...custom];
+  },
+
+  async savePolicy(userId, input) {
+    const supabase = await requireClient();
+
+    // Validation lives in the policy engine, and it is the only place that knows
+    // what makes a scale usable, so an unusable one never reaches the database.
+    const problems = validatePolicy(input);
+    if (problems.length > 0) {
+      throw new DataError('INVALID', problems[0]);
+    }
+
+    if (input.id) {
+      const { data, error } = await supabase
+        .from('grading_policies')
+        .update({ name: input.name, kind: input.kind, bands: input.bands })
+        .eq('id', input.id)
+        .eq('owner_id', userId)
+        .select('id, owner_id, name, kind, bands, built_in, created_at')
+        .single();
+      throwIf(error);
+      return mapPolicy(data as Row);
+    }
+
+    const { data, error } = await supabase
+      .from('grading_policies')
+      .insert({
+        owner_id: userId,
+        name: input.name,
+        kind: input.kind,
+        bands: input.bands,
+        built_in: false,
+      })
+      .select('id, owner_id, name, kind, bands, built_in, created_at')
+      .single();
+    throwIf(error);
+    return mapPolicy(data as Row);
+  },
+
+  async setClassPolicy(userId, classId, policyId) {
+    const supabase = await requireClient();
+    const { error } = await supabase
+      .from('classes')
+      .update({ grading_policy_id: policyId })
+      .eq('id', classId)
+      .eq('owner_id', userId);
+    throwIf(error);
+  },
 };
 
 function mapClass(row: Row): ClassRecord {
@@ -524,6 +627,19 @@ function mapClass(row: Row): ClassRecord {
     level: str(row.level, 'k12') as ClassLevel,
     meetsPerWeek: num(row.meets_per_week, 1),
     archivedAt: (row.archived_at as string | null) ?? null,
+    gradingPolicyId: (row.grading_policy_id as string | null) ?? null,
+  };
+}
+
+function mapPolicy(row: Row): GradingPolicyRecord {
+  return {
+    id: str(row.id),
+    ownerId: str(row.owner_id),
+    name: str(row.name),
+    kind: str(row.kind, 'custom') as GradingPolicyInput['kind'],
+    bands: (row.bands as GradeBand[]) ?? [],
+    builtIn: row.built_in === true,
+    createdAt: str(row.created_at),
   };
 }
 

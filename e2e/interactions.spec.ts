@@ -195,6 +195,73 @@ test.describe('gradebook', () => {
     await expect(page.getByRole('table')).toBeVisible();
   });
 
+  /*
+   * The five built-ins plus anything the teacher has authored. A school grading
+   * on GWA or on UK degree classes has to be reachable from here, not only from
+   * a constant list in code.
+   */
+  test('the scale selector offers every grading system', async ({ page }) => {
+    const options = await page.getByLabel('Show as').locator('option').allTextContents();
+
+    expect(options).toContain('Percentage');
+    expect(options).toContain('Letter');
+    expect(options).toContain('Milestone');
+    expect(options).toContain('GPA');
+    expect(options).toContain('GWA');
+  });
+
+  test('choosing GWA relabels the marks and the totals', async ({ page }) => {
+    await page.getByLabel('Show as').selectOption('gwa');
+    // The header states the scale in use, so the change is not silent.
+    await expect(page.getByText(/values shown as gwa/i)).toBeVisible();
+
+    // GWA is a point scale, so the totals change shape rather than staying a
+    // percentage.
+    await expect(page.getByRole('heading', { name: 'Weighted totals' })).toBeVisible();
+    await expect(page.getByText(/weighted grade points on the gwa scale/i)).toBeVisible();
+  });
+
+  test('a scale can be made the default for the class', async ({ page }) => {
+    const apply = page.getByRole('button', { name: 'Use for this class' });
+    // Disabled while the selection already matches what the class is using.
+    await expect(apply).toBeDisabled();
+
+    await page.getByLabel('Show as').selectOption('letter');
+    await expect(apply).toBeEnabled();
+    await apply.click();
+
+    await expect(page.getByText('Scale applied to this class.')).toBeVisible();
+  });
+
+  test('a custom scale can be authored and then selected', async ({ page }) => {
+    await page.getByRole('button', { name: 'New scale' }).click();
+    await expect(page.getByRole('dialog')).toBeVisible();
+
+    const create = page.getByRole('button', { name: 'Create scale' });
+
+    // The starter bands are complete, so only the missing name blocks. Validation
+    // is derived on every keystroke, so it clears without a second submit.
+    await expect(create).toBeDisabled();
+    await expect(page.getByText('Give the scale a name.')).toBeVisible();
+
+    await page.getByLabel('Scale name').fill('Distinction Pass Refer');
+    await expect(create).toBeEnabled();
+
+    // Clearing a band label blocks it again, with the reason shown.
+    await page.locator('#scale-band-label-2').fill('');
+    await expect(create).toBeDisabled();
+    await expect(page.getByText(/Band 3 has no label/)).toBeVisible();
+
+    await page.locator('#scale-band-label-2').fill('Refer');
+    await expect(create).toBeEnabled();
+    await create.click();
+
+    await expect(page.getByText('created.')).toBeVisible();
+    await expect(page.getByLabel('Show as').locator('option')).toContainText([
+      'Distinction Pass Refer',
+    ]);
+  });
+
   test('the class filter is present and selectable', async ({ page }) => {
     const select = page.getByLabel('Class');
     await expect(select).toBeVisible();

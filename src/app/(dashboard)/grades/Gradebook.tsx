@@ -6,13 +6,25 @@ import { toast } from 'sonner';
 
 import { GradebookGrid } from '@/components/product/GradebookGrid';
 import { NewAssessmentDialog } from '@/components/product/NewAssessmentDialog';
+import { ScaleEditorDialog } from '@/components/product/ScaleEditorDialog';
 import { Badge, Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
 import { FormField } from '@/components/ui/form-field';
 import { queryKeys } from '@/lib/query/keys';
-import type { AssessmentRecord, GradeRecord, Student } from '@/lib/api/types';
+import type {
+  AssessmentRecord,
+  GradeRecord,
+  GradingPolicyRecord,
+  Student,
+} from '@/lib/api/types';
+import {
+  PERCENTAGE_POLICY,
+  formatByPolicy,
+  weightedPointTotal,
+  type GradingPolicy,
+} from '@/lib/grading/policy';
 
-import { saveGrade } from './actions';
-import { SCALE_HINTS, SCALE_LABELS, SCALES, formatByScale, weightedTotal, type Scale } from './scales';
+import { saveGrade, setClassGradingPolicy } from './actions';
 
 /**
  * The gradebook.
@@ -23,30 +35,84 @@ import { SCALE_HINTS, SCALE_LABELS, SCALES, formatByScale, weightedTotal, type S
  * grid looking saved until the next reload corrected it, and a teacher's record
  * of a conversation with a parent would rest on it.
  *
- * WHY THE SCALE IS DISPLAY ONLY. Marks are stored raw. Letters, milestones, and
- * GPA are derived at render time, so changing the school's scale never rewrites
- * a single stored mark.
+ * WHY MARKS ARE STORED RAW. Letters, milestones, GPA, and GWA are all views over
+ * one percentage, so a school changing its scale never rewrites a single stored
+ * mark. The percentage is the only truth; a scale is how it is written down.
+ *
+ * WHY THE SCALE IS PER CLASS. A department can run GWA while another runs
+ * percentage, and a teacher with classes on both systems needs each class to say
+ * which it is on. The selector shows every scale available to the account and
+ * offers to make the choice stick to the class.
  */
+
+function toPolicy(record: GradingPolicyRecord): GradingPolicy {
+  return {
+    id: record.id,
+    label: record.name,
+    kind: record.kind,
+    bands: record.bands,
+    hint: record.builtIn ? 'Built in.' : 'Your scale.',
+  };
+}
 
 export function Gradebook({
   classes,
   classId,
+  policies,
   students,
   assessments,
   grades,
 }: {
-  classes: { id: string; name: string }[];
+  classes: { id: string; name: string; gradingPolicyId: string | null }[];
   classId: string;
+  policies: GradingPolicyRecord[];
   students: { id: string; fullName: string; initials: string }[];
   assessments: AssessmentRecord[];
   grades: GradeRecord[];
 }) {
   const queryClient = useQueryClient();
   const [selectedClassId, setSelectedClassId] = React.useState(classId);
-  const [scale, setScale] = React.useState<Scale>('percentage');
   const effectiveClassId = classes.some((item) => item.id === selectedClassId)
     ? selectedClassId
     : classId;
+
+  const selectedClass = classes.find((item) => item.id === effectiveClassId);
+
+  /*
+   * The class names the scale it is graded on, and that is the source of truth.
+   *
+   * Switching class therefore switches scale with no synchronising effect: the
+   * per-class override map is consulted first, and where it has no entry the
+   * class's own setting is used. Deriving it rather than copying it into state on
+   * an effect avoids a frame where the previous class's scale is still showing,
+   * and avoids the cascading render that comes with syncing state to a prop.
+   */
+  const [scaleOverride, setScaleOverride] = React.useState<Record<string, string>>({});
+
+  const classPolicyId = selectedClass?.gradingPolicyId ?? 'percentage';
+  const policyId = scaleOverride[effectiveClassId] ?? classPolicyId;
+
+  const policy = React.useMemo(() => {
+    const record = policies.find((item) => item.id === policyId);
+    return record ? toPolicy(record) : PERCENTAGE_POLICY;
+  }, [policies, policyId]);
+
+  const applyToClass = useMutation({
+    mutationFn: async (nextPolicyId: string) => {
+      const result = await setClassGradingPolicy({
+        classId: effectiveClassId,
+        policyId: nextPolicyId === 'percentage' ? null : nextPolicyId,
+      });
+      if (!result.ok) throw new Error(result.message);
+      return result;
+    },
+    onSuccess: (result) => {
+      toast.success(result.message);
+      void queryClient.invalidateQueries({ queryKey: queryKeys.classes() });
+    },
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : 'That class could not be changed.'),
+  });
 
   const gradeKey = queryKeys.grades(effectiveClassId);
 
@@ -150,6 +216,12 @@ export function Gradebook({
     });
   };
 
+  /*
+   * Totals read in the terms of the chosen scale. A point scale reports grade
+   * points, because that is what a GPA or a GWA actually is; anything else falls
+   * back to the weighted percentage, which is the only arithmetic every scale
+   * shares. Both refuse to invent a number when there is nothing marked.
+   */
   const totals = React.useMemo(
     () =>
       students.map((student) => {
@@ -169,9 +241,21 @@ export function Gradebook({
           .filter((entry): entry is { score: number; maxScore: number; weight: number } =>
             entry !== null,
           );
-        return { studentId: student.id, total: weightedTotal(entries) };
+
+        const points = weightedPointTotal(entries, policy);
+        if (points !== null) return { studentId: student.id, total: points, unit: 'point' as const };
+
+        const weight = entries.reduce((sum, entry) => sum + entry.weight, 0);
+        if (weight <= 0) return { studentId: student.id, total: null, unit: 'percent' as const };
+
+        const percentage =
+          entries.reduce(
+            (sum, entry) => sum + (entry.score / entry.maxScore) * 100 * entry.weight,
+            0,
+          ) / weight;
+        return { studentId: student.id, total: percentage, unit: 'percent' as const };
       }),
-    [assessments, rows, students],
+    [assessments, policy, rows, students],
   );
 
   const maxScoreFor = React.useCallback(
@@ -181,8 +265,8 @@ export function Gradebook({
 
   const formatValue = React.useCallback(
     (score: number, assessmentId: string) =>
-      formatByScale(score, maxScoreFor(assessmentId), scale),
-    [maxScoreFor, scale],
+      formatByPolicy(score, maxScoreFor(assessmentId), policy),
+    [maxScoreFor, policy],
   );
 
   return (
@@ -206,22 +290,53 @@ export function Gradebook({
         </FormField>
 
         <div className="flex flex-wrap items-end gap-3">
-          <FormField id="grades-scale" label="Show as" hint={SCALE_HINTS[scale]}>
+          <FormField id="grades-scale" label="Show as" hint={policy.hint}>
             {(props) => (
               <select
                 {...props}
-                value={scale}
-                onChange={(event) => setScale(event.target.value as Scale)}
+                value={policyId}
+                onChange={(event) =>
+                  setScaleOverride((current) => ({
+                    ...current,
+                    [effectiveClassId]: event.target.value,
+                  }))
+                }
                 className="flex h-11 rounded-[12px] border border-border bg-surface px-3.5 text-[0.9375rem] text-ink transition-colors duration-150 focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent-ring/25"
               >
-                {SCALES.map((option) => (
-                  <option key={option} value={option}>
-                    {SCALE_LABELS[option]}
+                {policies.map((option) => (
+                  <option key={option.id} value={option.id}>
+                    {option.name}
                   </option>
                 ))}
               </select>
             )}
           </FormField>
+
+          {/*
+            A view is not a decision. Without this the choice resets on reload
+            and a teacher has to re-pick the school's scale every single session,
+            which is how a GWA transcript quietly comes out as a percentage one.
+          */}
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            disabled={
+              applyToClass.isPending ||
+              (selectedClass?.gradingPolicyId ?? 'percentage') === policyId
+            }
+            onClick={() => applyToClass.mutate(policyId)}
+          >
+            {applyToClass.isPending ? 'Applying' : 'Use for this class'}
+          </Button>
+
+          <ScaleEditorDialog
+            policies={policies}
+            onCreated={(created) => {
+              setScaleOverride((current) => ({ ...current, [effectiveClassId]: created.id }));
+              void queryClient.invalidateQueries({ queryKey: queryKeys.policies() });
+            }}
+          />
 
           <NewAssessmentDialog classId={effectiveClassId} triggerLabel="New assessment" />
         </div>
@@ -230,7 +345,7 @@ export function Gradebook({
       <p className="text-meta text-ink-muted" aria-live="polite">
         {assessments.length === 0
           ? 'No assessments in this class yet. Create one and it becomes a column here.'
-          : `Click a cell to enter a mark. Press Escape to cancel. Values shown as ${SCALE_LABELS[scale].toLowerCase()}.`}
+          : `Click a cell to enter a mark. Press Escape to cancel. Values shown as ${policy.label.toLowerCase()}.`}
       </p>
 
       {students.length === 0 ? (
@@ -256,18 +371,23 @@ export function Gradebook({
             <div className="mt-5 border-t border-border pt-4">
               <h3 className="text-[0.9375rem] font-medium text-ink">Weighted totals</h3>
               <p className="text-meta text-ink-muted">
-                Calculated from the weights on each assessment. A student with no marks yet has no
-                total rather than a zero.
+                {policy.kind === 'points' || policy.kind === 'letter'
+                  ? `Weighted grade points on the ${policy.label} scale. A student with no marks yet has no total rather than a zero.`
+                  : 'Calculated from the weights on each assessment. A student with no marks yet has no total rather than a zero.'}
               </p>
               <ul className="mt-3 flex flex-wrap gap-2">
                 {totals.map((entry) => {
                   const student = students.find((item) => item.id === entry.studentId);
                   if (!student || entry.total === null) return null;
+                  const isPoint = entry.unit === 'point';
                   return (
                     <li key={entry.studentId}>
-                      <Badge tone={entry.total >= 70 ? 'success' : 'danger'}>
-                        <span className="sr-only">{student.fullName}, weighted total </span>
-                        {student.initials} {Math.round(entry.total)}%
+                      <Badge tone={isPoint ? 'neutral' : entry.total >= 70 ? 'success' : 'danger'}>
+                        <span className="sr-only">
+                          {student.fullName}, weighted total{' '}
+                        </span>
+                        {student.initials}{' '}
+                        {isPoint ? entry.total.toFixed(2) : `${Math.round(entry.total)}%`}
                       </Badge>
                     </li>
                   );

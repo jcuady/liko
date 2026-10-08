@@ -39,7 +39,11 @@ describe('built-in policies', () => {
   it('gives every built-in policy a passing shape', () => {
     for (const policy of BUILT_IN_POLICIES) {
       expect(
-        validatePolicy({ label: policy.label, kind: policy.kind, bands: policy.bands }),
+        validatePolicy({
+          name: policy.label,
+          kind: policy.kind,
+          bands: policy.bands,
+        }),
       ).toEqual([]);
     }
   });
@@ -229,7 +233,7 @@ describe('validatePolicy', () => {
   it('accepts a well-formed custom scale', () => {
     expect(
       validatePolicy({
-        label: 'Four point',
+        name: 'Four point',
         bands: [band(75, 'Distinction'), band(50, 'Pass'), band(0, 'Refer')],
       }),
     ).toEqual([]);
@@ -237,7 +241,7 @@ describe('validatePolicy', () => {
 
   it('rejects bands that are not in descending order', () => {
     const problems = validatePolicy({
-      label: 'Backwards',
+        name: 'Backwards',
       bands: [band(40, 'Low'), band(80, 'High'), band(0, 'Floor')],
     });
     expect(problems.join(' ')).toMatch(/must start below/i);
@@ -245,19 +249,20 @@ describe('validatePolicy', () => {
 
   it('rejects a scale with no floor at zero', () => {
     const problems = validatePolicy({
-      label: 'Gap at the bottom',
+        name: 'Gap at the bottom',
       bands: [band(90, 'A'), band(70, 'B')],
     });
     expect(problems.join(' ')).toMatch(/must start at 0/i);
   });
 
   it('rejects an empty band list', () => {
-    expect(validatePolicy({ label: 'Empty', bands: [] }).join(' ')).toMatch(/at least one band/i);
+    expect(validatePolicy({
+        name: 'Empty', bands: [] }).join(' ')).toMatch(/at least one band/i);
   });
 
   it('rejects a nameless scale and an unlabelled band', () => {
     const problems = validatePolicy({
-      label: '   ',
+        name: '   ',
       bands: [band(0, '  ')],
     });
     expect(problems.join(' ')).toMatch(/Give the scale a name/i);
@@ -266,7 +271,7 @@ describe('validatePolicy', () => {
 
   it('rejects a threshold outside 0 to 100', () => {
     const problems = validatePolicy({
-      label: 'Out of range',
+        name: 'Out of range',
       bands: [band(120, 'Impossible'), band(0, 'Floor')],
     });
     expect(problems.join(' ')).toMatch(/outside 0 to 100/i);

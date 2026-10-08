@@ -4,6 +4,7 @@ import type {
   AttendanceStatus,
   BehaviourLogRecord,
   GradeRecord,
+  GradingPolicyRecord,
   HistoryRecord,
   LessonPlanRecord,
   RubricRow,
@@ -291,7 +292,42 @@ export const demoHistory: HistoryRecord[] = roster.flatMap((student) => {
   return rows;
 });
 
-/** Marked registers for the last five school days, so the register is not blank. */
+/**
+ * Two authored scales, so the demo workspace shows a custom scale sitting next
+ * to the five built-ins. Both are plausible departmental scales rather than
+ * placeholders.
+ */
+export const demoPolicies: GradingPolicyRecord[] = [
+  {
+    id: 'pol_demo_distinction',
+    ownerId: OWNER,
+    name: 'Distinction / Pass / Refer',
+    kind: 'points',
+    bands: [
+      { minPercentage: 75, label: 'Distinction', gradePoint: 4 },
+      { minPercentage: 50, label: 'Pass', gradePoint: 2 },
+      { minPercentage: 0, label: 'Refer', gradePoint: 0 },
+    ],
+    builtIn: false,
+    createdAt: '2026-01-05T09:00:00.000Z',
+  },
+  {
+    id: 'pol_demo_uk',
+    ownerId: OWNER,
+    name: 'UK degree class',
+    kind: 'letter',
+    bands: [
+      { minPercentage: 70, label: 'First', gradePoint: 4 },
+      { minPercentage: 68, label: '2:1', gradePoint: 3.5 },
+      { minPercentage: 65, label: '2:2', gradePoint: 3 },
+      { minPercentage: 60, label: 'Third', gradePoint: 2 },
+      { minPercentage: 0, label: 'Fail', gradePoint: 0 },
+    ],
+    builtIn: false,
+    createdAt: '2026-01-06T09:00:00.000Z',
+  },
+];
+
 /**
  * Marked registers for the last three weeks.
  *

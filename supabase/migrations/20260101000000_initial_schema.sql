@@ -93,6 +93,61 @@ create trigger classes_set_updated_at
   for each row execute function public.set_updated_at();
 
 -- ---------------------------------------------------------------------------
+-- grading policies
+--
+-- A scale is data, not code: a descending list of bands each carrying a label
+-- and optionally a grade point. That is what lets a school grade on GWA, on a
+-- 4.0 GPA, on milestone bands, or on a scale nobody shipped. `bands` is jsonb
+-- because it is read as a whole document and never queried into.
+--
+-- The five built-in scales live in code, not here, so they can be corrected in a
+-- release without a data migration. Only user-authored scales are rows, and they
+-- carry `built_in = false`.
+-- ---------------------------------------------------------------------------
+create table if not exists public.grading_policies (
+  id         uuid primary key default gen_random_uuid(),
+  owner_id   uuid not null references auth.users (id) on delete cascade,
+  name       text not null check (length(trim(name)) > 0),
+  kind       text not null default 'custom'
+             check (kind in ('points', 'letter', 'milestone', 'custom')),
+  bands      jsonb not null
+             check (jsonb_typeof(bands) = 'array' and jsonb_array_length(bands) > 0),
+  built_in   boolean not null default false,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists grading_policies_owner_idx
+  on public.grading_policies (owner_id);
+
+create trigger grading_policies_set_updated_at
+  before update on public.grading_policies
+  for each row execute function public.set_updated_at();
+
+alter table public.grading_policies enable row level security;
+
+drop policy if exists "grading policies are readable by their owner"
+  on public.grading_policies;
+create policy "grading policies are readable by their owner"
+  on public.grading_policies
+  for select
+  using (auth.uid() = owner_id);
+
+drop policy if exists "grading policies are writable by their owner"
+  on public.grading_policies;
+create policy "grading policies are writable by their owner"
+  on public.grading_policies
+  for all
+  using (auth.uid() = owner_id)
+  with check (auth.uid() = owner_id);
+
+-- A class grades on exactly one scale. Null means the built-in percentage
+-- default, so an existing row keeps working without a backfill.
+alter table public.classes
+  add column if not exists grading_policy_id uuid
+  references public.grading_policies (id) on delete set null;
+
+-- ---------------------------------------------------------------------------
 -- students: class_id is the join key the old fixture model was missing
 -- ---------------------------------------------------------------------------
 create table if not exists public.students (
