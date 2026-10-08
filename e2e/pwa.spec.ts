@@ -108,6 +108,48 @@ test.describe('service worker', () => {
     const status = page.locator('#offline-status');
     await expect(status).toContainText(/connection|offline|checking/i);
   });
+
+  test('nothing private is left in a cache', async ({ page }) => {
+    /*
+     * The runtime caching rules use an ALLOWLIST of public documents, so an
+     * authenticated route is private by default with no action required. That is
+     * the property, and it is worth holding down, because the failure is silent:
+     * a cached gradebook is served with no error and no staleness warning to
+     * whichever teacher signs in next on the same machine.
+     *
+     * `/grades/export` is the sharpest case. It returns every mark in a class as
+     * a file, over a plain link, which is a navigation and therefore exactly the
+     * kind of request an over-broad rule would cache.
+     */
+    await page.goto('/login');
+    await page.getByLabel('Email').fill('maya@liko.test');
+    await page.getByLabel('Password').fill('LikoDemo!2026');
+    await page.getByRole('button', { name: 'Sign in' }).click();
+    await page.waitForURL(/\/(overview|classes)/, { timeout: 30_000 });
+
+    await page.goto('/grades');
+    await page.waitForLoadState('networkidle');
+    // Give the worker a moment to claim clients before anything is fetched.
+    await page.waitForTimeout(1500);
+
+    const privateUrls = await page.evaluate(async () => {
+      // Pull both a private document and the export through the worker.
+      await fetch('/grades/export').catch(() => undefined);
+      await fetch('/overview').catch(() => undefined);
+
+      const leaked: string[] = [];
+      for (const name of await caches.keys()) {
+        const cache = await caches.open(name);
+        for (const request of await cache.keys()) {
+          const path = new URL(request.url).pathname;
+          if (path === '/overview' || path.startsWith('/grades/export')) leaked.push(request.url);
+        }
+      }
+      return leaked;
+    });
+
+    expect(privateUrls, 'private responses must never reach a cache').toEqual([]);
+  });
 });
 
 test.describe('offline', () => {

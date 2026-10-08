@@ -21,7 +21,32 @@ const withSerwist = withSerwistInit({
     process.env.NODE_ENV === 'development' &&
     process.env.LIKO_ENABLE_SW !== 'true',
   reloadOnOnline: true,
-  cacheOnNavigation: true,
+  /*
+   * MUST STAY FALSE. Read this before switching it on.
+   *
+   * `cacheOnNavigation` patches `history.pushState` and `replaceState` so that
+   * every client-side navigation tells the worker to fetch that URL and store
+   * the response in a runtime cache named `pages`. It runs in the Serwist entry
+   * worker, entirely OUTSIDE the `runtimeCaching` rules in `src/sw.ts`.
+   *
+   * That matters because `src/sw.ts` uses an allowlist of public documents
+   * precisely so that `/overview` and `/grades` are never cached, and it looked
+   * like that was sufficient. It is not. With this flag on, the allowlist is
+   * bypassed for the exact URLs it exists to protect: signing in lands on
+   * `/overview`, which lands on `/grades`, and both HTML documents, complete
+   * with student names and marks, sit in a cache keyed by URL.
+   *
+   * The failure is silent. There is no error and no staleness warning, so
+   * whichever teacher signs in next on the same machine is handed the previous
+   * one's dashboard out of the cache. That was verified rather than assumed:
+   * a `pages` cache holding `/login`, `/overview` and `/grades` was found on a
+   * signed-in production build. `e2e/pwa.spec.ts` now fails if any private
+   * response reaches any cache.
+   *
+   * The library default is already false. It is written out here so that turning
+   * it on has to be a deliberate act with this comment in the diff.
+   */
+  cacheOnNavigation: false,
 });
 
 const nextConfig: NextConfig = {
