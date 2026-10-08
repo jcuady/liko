@@ -225,6 +225,32 @@ which on this machine is a `next start` server for a different project, so both
 scripts had been measuring another application and reporting its numbers as
 LIKO's.
 
+### Do not hand-start the e2e server
+
+`pnpm e2e` builds and starts its own server, with `LIKO_SESSION_SECRET`,
+`NEXT_PUBLIC_SITE_URL`, `LIKO_RATE_LIMIT_DISABLED` and `LIKO_E2E` set in
+`playwright.config.ts`. It also sets `reuseExistingServer`, so if anything is
+already listening on 3311 the suite adopts that instead and runs against
+whatever configuration it found.
+
+Starting one by hand with a bare `pnpm run start --port 3311` therefore breaks
+the suite in a way that looks like a product regression: without the two rate
+limit variables the limiter stays active under `next start`, which runs with
+`NODE_ENV=production` and ignores a single bypass flag on purpose. The suite
+signs in as the same demo accounts dozens of times, gets throttled, and every
+authenticated test fails at about 31 seconds at once.
+
+If you need a server up for the two check scripts above, either run
+`pnpm check:behaviour` against a server started by `pnpm e2e`, or copy the four
+variables out of `playwright.config.ts`. Otherwise clear port 3311 first and let
+Playwright manage the server:
+
+```bash
+# PowerShell
+Get-NetTCPConnection -LocalPort 3311 -State Listen |
+  ForEach-Object { Stop-Process -Id $_.OwningProcess -Force }
+```
+
 ### Brand tooling
 
 The supplied logo arrived as a JPEG over a checkerboard, so it was reconstructed
