@@ -13,7 +13,9 @@
     "test:watch": "vitest",
     "e2e": "playwright test",
     "check:responsive": "node scripts/responsive-check.cjs",
-    "check:behaviour": "node scripts/behaviour-check.cjs"
+    "check:behaviour": "node scripts/behaviour-check.cjs",
+    "db:check": "node --env-file=.env.local scripts/check-remote-db.mjs",
+    "db:settle": "node --env-file=.env.local scripts/rls-settling-test.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "5.9.1",

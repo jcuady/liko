@@ -100,7 +100,7 @@ Authorisation is two independent layers. `proxy.ts` gates routes before render, 
 
 ## Remaining
 
-- [ ] Apply the migration to a real Supabase project and run the RLS settling test
+- [ ] Apply the migration to the real Supabase project, then run `pnpm db:check` to confirm and `pnpm db:settle` to prove the two security fixes
 - [ ] Seed a real database with `SUPABASE_SERVICE_ROLE_KEY`
 - [ ] `git push` to the configured remote
 - [ ] Authenticate with Vercel and deploy
@@ -187,17 +187,32 @@ Also closed: blind SSRF through the push endpoint, a rate-limit kill switch one 
 ## Blockers
 
 1. **`git push` fails.** `git ls-remote origin` returns `remote: Repository not found` for `https://github.com/jcuady/liko.git`. `credential.helper=manager` is set but no usable token is present, and there is no `GITHUB_TOKEN` or `GH_TOKEN`. Needs `gh auth login`, or the correct repository name if the repo was renamed.
-2. **Supabase OAuth not completed.** The MCP server is registered but exposes no database tools, so the migration has never been applied or verified.
+2. **Supabase OAuth not completed.** The MCP server is registered but exposes no database tools. Now verified directly rather than assumed: `pnpm db:check` reaches project `ulrjitekiylgepdyijsw` with the existing publishable key and reports **0 of 15 tables present**. The project exists and is live, but has no LIKO schema at all. This is stronger and more certain than the earlier "has never been applied": it is not partially applied, it is entirely absent.
 3. **`SUPABASE_SERVICE_ROLE_KEY` is blank.** `scripts/seed.mjs` has never run against a real database.
 4. **Vercel unauthenticated.** `vercel whoami` fails.
 5. **iOS push delivery unverifiable** without a Home Screen-installed PWA.
 
 ### The RLS settling test
 
-Findings 1 and 2 of the security review are correct as written and reviewed, but reading SQL is not the same as running it. Once a project is available, apply the migration, mint a student JWT with the anon key, and attempt:
+Findings 1 and 2 of the security review are correct as written and reviewed, but reading SQL is not the same as running it. Both are now one command rather than prose:
 
-- `PATCH /rest/v1/profiles?id=eq.<own uuid>` with `{"role":"admin"}` — expect permission denied.
-- `GET /rest/v1/classes` as a student in school A — expect only the class that student's `account_id` is linked to, never another school's.
+```
+pnpm db:check    # does the schema exist? needs only the publishable key
+pnpm db:settle   # do the policies behave? needs SUPABASE_SERVICE_ROLE_KEY
+```
+
+`db:check` probes each expected table and distinguishes missing from present
+using PostgREST's `PGRST205`. It validates its own discriminator against two
+table names that cannot exist before it will report anything, because the first
+version of it decided "exists" unless the code was a SQLSTATE that PostgREST
+never returns, and so reported a fully migrated database that was empty.
+
+`db:settle` creates two throwaway schools, signs in as a real student in one of
+them, and asserts the two exploits fail: that the student cannot set their own
+`role` to `admin`, and that they cannot see the other school's class. It also
+checks the link is server-owned and that the student can still read its own
+record. It deletes everything it creates, including on failure, and is not wired
+into `pnpm test` or CI.
 
 ## Technical Debt
 
@@ -209,7 +224,7 @@ Findings 1 and 2 of the security review are correct as written and reviewed, but
 
 ## Recommended Next Actions
 
-1. Complete the Supabase OAuth flow, apply the migration, and run the RLS settling test above. That is the only thing standing between this codebase and an honest "verified" on its two most important security properties.
+1. Apply the migration, then run `pnpm db:check` and `pnpm db:settle`. That is the only thing standing between this codebase and an honest "verified" on its two most important security properties. The schema is confirmed absent, so this starts from nothing.
 2. Fix the git remote and push. Every commit so far exists only on this machine.
 3. Have the legal text reviewed. It describes this implementation accurately, which is the most it can do, but accuracy about the system is not the same as legal sufficiency.
 
