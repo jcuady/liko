@@ -8,7 +8,7 @@ import { toast } from 'sonner';
 import { Badge, Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { FormField } from '@/components/ui/form-field';
-import { Textarea } from '@/components/ui/input';
+import { Select, Textarea } from '@/components/ui/input';
 import { queryKeys } from '@/lib/query/keys';
 import type { HistoryRecord } from '@/lib/api/types';
 
@@ -132,7 +132,7 @@ export function StudentHistory({
       <div className="grid gap-4 sm:grid-cols-2">
         <FormField id="history-class" label="Class">
           {(props) => (
-            <select
+            <Select
               {...props}
               value={effectiveClassId}
               onChange={(event) => {
@@ -144,20 +144,19 @@ export function StudentHistory({
                 const params = new URLSearchParams({ class: event.target.value });
                 router.push(`/history?${params.toString()}`);
               }}
-              className="flex h-11 w-full rounded-[12px] border border-border bg-surface px-3.5 text-[0.9375rem] text-ink transition-colors duration-150 focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent-ring/25"
             >
               {classes.map((item) => (
                 <option key={item.id} value={item.id}>
                   {item.name}
                 </option>
               ))}
-            </select>
+            </Select>
           )}
         </FormField>
 
         <FormField id="history-student" label="Student">
           {(props) => (
-            <select
+            <Select
               {...props}
               value={activeStudentId ?? ''}
               disabled={roster.length === 0}
@@ -172,14 +171,13 @@ export function StudentHistory({
                 });
                 router.push(`/history?${params.toString()}`);
               }}
-              className="flex h-11 w-full rounded-[12px] border border-border bg-surface px-3.5 text-[0.9375rem] text-ink transition-colors duration-150 focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent-ring/25 disabled:opacity-50"
             >
               {roster.map((student) => (
                 <option key={student.id} value={student.id}>
                   {student.fullName}
                 </option>
               ))}
-            </select>
+            </Select>
           )}
         </FormField>
       </div>
@@ -280,18 +278,17 @@ export function StudentHistory({
 
                 <FormField id="history-severity" label="Kind">
                   {(props) => (
-                    <select
+                    <Select
                       {...props}
                       name="severity"
                       defaultValue="note"
-                      className="flex h-11 w-full rounded-[12px] border border-border bg-surface px-3.5 text-[0.9375rem] text-ink transition-colors duration-150 focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent-ring/25"
                     >
                       {SEVERITY_OPTIONS.map((option) => (
                         <option key={option.value} value={option.value}>
                           {option.label}
                         </option>
                       ))}
-                    </select>
+                    </Select>
                   )}
                 </FormField>
 

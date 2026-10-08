@@ -14,7 +14,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Badge, Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { FormField } from '@/components/ui/form-field';
-import { Input } from '@/components/ui/input';
+import { Input, Select } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ORG_PLANS, ORG_PLAN_LABELS, type OrgPlan, type Role } from '@/lib/api/types';
 
@@ -234,7 +234,7 @@ export function AdminConsole({
                         <label className="sr-only" htmlFor={`role-${member.id}`}>
                           Role for {member.fullName || member.email}
                         </label>
-                        <select
+                        <Select
                           id={`role-${member.id}`}
                           value={member.role}
                           disabled={pending}
@@ -244,14 +244,14 @@ export function AdminConsole({
                               role: event.target.value as Role,
                             })
                           }
-                          className="h-9 rounded-[10px] border border-border bg-surface px-2.5 text-sm text-ink transition-colors duration-150 focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent-ring/25"
+                          className="w-auto min-w-[8.5rem] rounded-[10px] px-2.5 lg:h-9 lg:text-sm"
                         >
                           {ROLE_ORDER.map((role) => (
                             <option key={role} value={role}>
                               {roleLabels[role]}
                             </option>
                           ))}
-                        </select>
+                        </Select>
 
                         <Button
                           type="button"
@@ -342,18 +342,17 @@ export function AdminConsole({
 
             <FormField id="org-plan" label="Plan">
               {(props) => (
-                <select
+                <Select
                   {...props}
                   value={plan}
                   onChange={(event) => setPlan(event.target.value as OrgPlan)}
-                  className="flex h-11 w-full rounded-[12px] border border-border bg-surface px-3.5 text-[0.9375rem] text-ink transition-colors duration-150 focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent-ring/25"
                 >
                   {ORG_PLANS.map((option) => (
                     <option key={option} value={option}>
                       {ORG_PLAN_LABELS[option]}
                     </option>
                   ))}
-                </select>
+                </Select>
               )}
             </FormField>
 

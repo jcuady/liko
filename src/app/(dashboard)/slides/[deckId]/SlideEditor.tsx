@@ -19,7 +19,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Badge, Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { FormField } from '@/components/ui/form-field';
-import { Input, Textarea } from '@/components/ui/input';
+import { Input, Select, Textarea } from '@/components/ui/input';
 import {
   SLIDE_LAYOUTS,
   SLIDE_LAYOUT_LABELS,
@@ -165,7 +165,7 @@ function Thumbnail({
           disabled={!canMoveUp || busy}
           onClick={onMoveUp}
           aria-label={`Move slide ${index + 1} up`}
-          className="grid size-8 place-items-center rounded-[6px] text-ink-muted transition-colors duration-150 hover:bg-surface-sunken hover:text-ink disabled:pointer-events-none disabled:opacity-35"
+          className="grid size-11 place-items-center rounded-[8px] text-ink-muted transition-colors duration-150 hover:bg-surface-sunken hover:text-ink disabled:pointer-events-none disabled:opacity-35 lg:size-8 lg:rounded-[6px]"
         >
           <ArrowUpIcon size={14} weight="bold" aria-hidden="true" />
         </button>
@@ -174,7 +174,7 @@ function Thumbnail({
           disabled={!canMoveDown || busy}
           onClick={onMoveDown}
           aria-label={`Move slide ${index + 1} down`}
-          className="grid size-8 place-items-center rounded-[6px] text-ink-muted transition-colors duration-150 hover:bg-surface-sunken hover:text-ink disabled:pointer-events-none disabled:opacity-35"
+          className="grid size-11 place-items-center rounded-[8px] text-ink-muted transition-colors duration-150 hover:bg-surface-sunken hover:text-ink disabled:pointer-events-none disabled:opacity-35 lg:size-8 lg:rounded-[6px]"
         >
           <ArrowDownIcon size={14} weight="bold" aria-hidden="true" />
         </button>
@@ -183,7 +183,7 @@ function Thumbnail({
           disabled={busy}
           onClick={onDuplicate}
           aria-label={`Duplicate slide ${index + 1}`}
-          className="grid size-8 place-items-center rounded-[6px] text-ink-muted transition-colors duration-150 hover:bg-surface-sunken hover:text-ink disabled:pointer-events-none disabled:opacity-35"
+          className="grid size-11 place-items-center rounded-[8px] text-ink-muted transition-colors duration-150 hover:bg-surface-sunken hover:text-ink disabled:pointer-events-none disabled:opacity-35 lg:size-8 lg:rounded-[6px]"
         >
           <CopyIcon size={14} weight="bold" aria-hidden="true" />
         </button>
@@ -192,7 +192,7 @@ function Thumbnail({
           disabled={busy}
           onClick={onDelete}
           aria-label={`Delete slide ${index + 1}`}
-          className="grid size-8 place-items-center rounded-[6px] text-ink-muted transition-colors duration-150 hover:bg-danger-subtle hover:text-danger disabled:pointer-events-none disabled:opacity-35"
+          className="grid size-11 place-items-center rounded-[8px] text-ink-muted transition-colors duration-150 hover:bg-danger-subtle hover:text-danger disabled:pointer-events-none disabled:opacity-35 lg:size-8 lg:rounded-[6px]"
         >
           <TrashIcon size={14} weight="bold" aria-hidden="true" />
         </button>
@@ -248,18 +248,17 @@ function SlideForm({
         <CardContent className="flex flex-col gap-4">
           <FormField id="slide-layout" label="Layout">
             {(props) => (
-              <select
+              <Select
                 {...props}
                 value={layout}
                 onChange={(event) => setLayout(event.target.value as SlideLayout)}
-                className="flex h-11 w-full rounded-[12px] border border-border bg-surface px-3.5 text-[0.9375rem] text-ink transition-colors duration-150 focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent-ring/25"
               >
                 {SLIDE_LAYOUTS.map((option) => (
                   <option key={option} value={option}>
                     {SLIDE_LAYOUT_LABELS[option]}
                   </option>
                 ))}
-              </select>
+              </Select>
             )}
           </FormField>
 

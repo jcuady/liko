@@ -13,8 +13,16 @@ const TabsList = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <TabsPrimitive.List
     ref={ref}
+    /*
+     * Wraps rather than scrolls. Four tabs are about 356px of triggers plus the
+     * container padding, which does not fit a 375px screen, and an
+     * `inline-flex` that cannot wrap pushes the whole page sideways. Scrolling
+     * fixed the overflow but hid "Access" behind an edge with nothing to say it
+     * was there, so two rows of pills is the better answer: everything stays
+     * visible and the strip never needs an affordance.
+     */
     className={cn(
-      'inline-flex items-center gap-1 rounded-[12px] border border-border bg-surface-sunken p-1',
+      'inline-flex max-w-full flex-wrap items-center gap-1 rounded-[12px] border border-border bg-surface-sunken p-1',
       className,
     )}
     {...props}
@@ -29,7 +37,9 @@ const TabsTrigger = React.forwardRef<
   <TabsPrimitive.Trigger
     ref={ref}
     className={cn(
-      'pressable inline-flex items-center gap-2 rounded-[8px] px-3.5 py-2',
+      // `min-h-11` below `lg`, compact above. A 36px tab is a comfortable
+      // pointer target and an awkward thumb one.
+      'pressable inline-flex min-h-11 shrink-0 items-center gap-2 rounded-[8px] px-3.5 py-2 lg:min-h-0',
       'text-[0.9375rem] font-medium whitespace-nowrap text-ink-muted',
       'transition-colors duration-150 ease-[cubic-bezier(0.23,1,0.32,1)]',
       'hover:text-ink',

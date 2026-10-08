@@ -7,7 +7,7 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { FormField } from '@/components/ui/form-field';
-import { Input } from '@/components/ui/input';
+import { Input, Select } from '@/components/ui/input';
 import type { GradingPolicyRecord, Role } from '@/lib/api/types';
 
 import { saveProfile } from './actions';
@@ -138,17 +138,16 @@ export function ProfileForm({
 
           <FormField id="profile-level" label="Level you usually teach">
             {(props) => (
-              <select
+              <Select
                 {...props}
                 value={level}
                 onChange={(event) => setLevel(event.target.value)}
-                className="flex h-11 w-full rounded-[12px] border border-border bg-surface px-3.5 text-[0.9375rem] text-ink transition-colors duration-150 focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent-ring/25"
               >
                 <option value="">Not set</option>
                 <option value="preschool">Preschool</option>
                 <option value="k12">K to 12</option>
                 <option value="university">University</option>
-              </select>
+              </Select>
             )}
           </FormField>
         </CardContent>
@@ -165,18 +164,17 @@ export function ProfileForm({
             hint="Used when a class does not name its own. Any class can override it."
           >
             {(props) => (
-              <select
+              <Select
                 {...props}
                 value={policyId}
                 onChange={(event) => setPolicyId(event.target.value)}
-                className="flex h-11 w-full rounded-[12px] border border-border bg-surface px-3.5 text-[0.9375rem] text-ink transition-colors duration-150 focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent-ring/25"
               >
                 {policies.map((policy) => (
                   <option key={policy.id} value={policy.id}>
                     {policy.name}
                   </option>
                 ))}
-              </select>
+              </Select>
             )}
           </FormField>
           <p className="text-meta text-ink-muted">

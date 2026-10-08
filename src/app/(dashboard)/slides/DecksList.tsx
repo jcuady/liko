@@ -176,9 +176,16 @@ export function DecksList({ decks }: { decks: DeckSummary[] }) {
                 <CardContent className="flex flex-1 flex-col gap-3 pt-5">
                   <div>
                     <h2 className="text-h4">
+                      {/*
+                        `inline-block` with vertical padding gives the link a
+                        44px tall target on a phone. Left inline it was 26px,
+                        the height of one line of type, which is a pointer
+                        target rather than a thumb one. An "Open" button sits
+                        beside it, but the title is the obvious thing to tap.
+                      */}
                       <Link
                         href={`/slides/${deck.id}`}
-                        className="rounded-[4px] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                        className="inline-block rounded-[4px] py-2.5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
                       >
                         {deck.title}
                       </Link>

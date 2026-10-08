@@ -7,7 +7,7 @@ import { toast } from 'sonner';
 import { ArchiveIcon, PlusIcon, UsersIcon } from '@phosphor-icons/react';
 
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import { Input, Select } from '@/components/ui/input';
 import { FormField } from '@/components/ui/form-field';
 import { Badge, Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { EmptyState } from '@/components/ui/feedback';
@@ -93,7 +93,16 @@ export function ClassesManager({ classes }: { classes: ClassSummary[] }) {
         />
       ) : (
         <div className="grid gap-6 lg:grid-cols-[minmax(0,20rem)_minmax(0,1fr)]">
-          <ul className="flex flex-col gap-2">
+          {/*
+            `min-w-0` on both grid children is load bearing. A grid item defaults
+            to `min-width: auto`, which means it refuses to shrink below its
+            widest unbreakable content. The code badge is `whitespace-nowrap`,
+            so on a 375px screen the list refused to shrink, the single-column
+            grid track grew to fit it, and the whole page scrolled sideways by
+            56px. The desktop track already used `minmax(0, ...)` for the same
+            reason.
+          */}
+          <ul className="flex min-w-0 flex-col gap-2">
             {classes.map((item) => {
               const active = item.id === selected?.id;
               return (
@@ -108,8 +117,10 @@ export function ClassesManager({ classes }: { classes: ClassSummary[] }) {
                         : 'border-border bg-surface hover:border-border-strong hover:bg-surface-sunken'
                     }`}
                   >
-                    <span className="flex items-center justify-between gap-3">
-                      <span className="text-[0.9375rem] font-medium text-ink">{item.name}</span>
+                    <span className="flex min-w-0 items-center justify-between gap-3">
+                      <span className="min-w-0 truncate text-[0.9375rem] font-medium text-ink">
+                        {item.name}
+                      </span>
                       <Badge tone={active ? 'accent' : 'neutral'}>{item.code}</Badge>
                     </span>
                     <span className="mt-1 block text-meta text-ink-muted">
@@ -164,15 +175,20 @@ function RosterPanel({ classRecord }: { classRecord: ClassSummary }) {
   });
 
   return (
-    <Card>
-      <CardHeader className="flex-row items-start justify-between gap-4 space-y-0">
-        <div>
+    <Card className="min-w-0">
+      {/*
+        Stacks below `sm`. The title carries a class name and the action is
+        `whitespace-nowrap`, so side by side they needed 410px of a 375px
+        screen and the page scrolled sideways to reach Archive.
+      */}
+      <CardHeader className="flex-col items-start gap-4 sm:flex-row sm:items-start sm:justify-between sm:space-y-0">
+        <div className="min-w-0">
           <CardTitle>Roster for {classRecord.name}</CardTitle>
           <p className="text-meta text-ink-muted">
             Guardian details are used for messages about this student.
           </p>
         </div>
-        <div className="flex shrink-0 gap-2">
+        <div className="flex shrink-0 flex-wrap gap-2">
           <NewStudentDialog classId={classRecord.id} />
           <Button
             variant="ghost"
@@ -187,13 +203,22 @@ function RosterPanel({ classRecord }: { classRecord: ClassSummary }) {
       </CardHeader>
 
       <CardContent>
+        {/*
+          `relative` on the scroll wrapper is load bearing. An
+          `overflow-x-auto` container only clips absolutely positioned
+          descendants when it is their containing block. The "Actions" column
+          header hides its label with an `sr-only` span, which is absolutely
+          positioned, so without `relative` it escaped the clip and widened the
+          document by 16px: a page that scrolled sideways by a hair for no
+          visible reason.
+        */}
         {classRecord.students.length === 0 ? (
           <p className="text-body text-ink-muted">
             No students on this roster yet. Add the first one and the register, gradebook, and
             history all start filling in.
           </p>
         ) : (
-          <div className="overflow-x-auto">
+          <div className="relative overflow-x-auto">
             <table className="w-full border-collapse text-left">
               <caption className="sr-only">
                 Students in {classRecord.name}, with guardian contact details
@@ -235,7 +260,9 @@ function RosterPanel({ classRecord }: { classRecord: ClassSummary }) {
                       {student.guardianEmail ? (
                         <a
                           href={`mailto:${student.guardianEmail}`}
-                          className="underline underline-offset-2 hover:no-underline"
+                          // `min-h-11` rather than padding, because padding plus a line box landed on
+                          // 43px and the target has to be 44 or it is not one.
+                          className="inline-flex min-h-11 items-center rounded-[4px] underline underline-offset-2 hover:no-underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
                         >
                           {student.guardianEmail}
                         </a>
@@ -359,16 +386,15 @@ function NewClassDialog() {
 
           <FormField id="class-level" label="Level">
             {(props) => (
-              <select
+              <Select
                 {...props}
                 name="level"
                 defaultValue="k12"
-                className="flex h-11 w-full rounded-[12px] border border-border bg-surface px-3.5 text-[0.9375rem] text-ink transition-colors duration-150 focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent-ring/25"
               >
                 <option value="preschool">Preschool</option>
                 <option value="k12">K to 12</option>
                 <option value="university">University</option>
-              </select>
+              </Select>
             )}
           </FormField>
 

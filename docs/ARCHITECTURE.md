@@ -268,6 +268,35 @@ Serwist compiles `src/sw.ts` at build time into `public/sw.js`.
 The `OfflineBanner` in the workspace shell reports queue state and never covers a
 keyboard-focused control.
 
+## Responsive rules
+
+Four rules, each of which exists because breaking it produced a measurable defect
+rather than a matter of taste. `e2e/responsive.spec.ts` enforces all four across
+twelve routes at seven widths, so none of them can be undone by accident.
+
+**No page scrolls sideways.** The three ways this happened: a grid item with the
+default `min-width: auto` refusing to shrink below a `whitespace-nowrap` badge,
+which widened the track and the page with it; an `inline-flex` tab strip that
+could not wrap; and an `sr-only` span inside an `overflow-x-auto` table, which
+escaped the clip because an overflow container only clips absolutely positioned
+descendants when it is their containing block. That last one needed `relative` on
+the scroller and is the reason the comment is three lines long.
+
+**Everything a finger has to hit is at least 44px.** Below `lg`. The `sm` button
+is 36px on a pointer and 44px on a thumb; the slide rail's icon buttons and the
+guardian email link were under the line and now are not. A 36px control is a
+legitimate density choice on a desktop, which is why the rule stops at `lg`
+rather than applying everywhere.
+
+**Fields are at least 16px on a phone.** The type scale is 15px, which is the
+right reading size, and it is also below the floor iOS Safari insists on before
+it stops zooming the viewport when a field takes focus. So `Input`, `Textarea` and
+`Select` step up to 16px below `lg` and back to 15px above it.
+
+**A control is written once.** The select's twelve utility classes had been
+pasted into fifteen files. That is how one of them ended up 36px tall while the
+input beside it was 44px. `Select` now exists for the same reason `Input` does.
+
 ## Testing
 
 **Vitest** covers the pure logic where a bug is expensive: the RBAC matrix, route

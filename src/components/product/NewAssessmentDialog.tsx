@@ -6,7 +6,7 @@ import { PlusIcon } from '@phosphor-icons/react';
 import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import { Input, Select } from '@/components/ui/input';
 import { FormField } from '@/components/ui/form-field';
 import {
   Dialog,
@@ -101,18 +101,17 @@ export function NewAssessmentDialog({
           <div className="grid gap-4 sm:grid-cols-2">
             <FormField id="assessment-type" label="Type">
               {(props) => (
-                <select
+                <Select
                   {...props}
                   name="type"
                   defaultValue="quiz"
-                  className="flex h-11 w-full rounded-[12px] border border-border bg-surface px-3.5 text-[0.9375rem] text-ink transition-colors duration-150 focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent-ring/25"
                 >
                   {ASSESSMENT_TYPES.map((type) => (
                     <option key={type.value} value={type.value}>
                       {type.label}
                     </option>
                   ))}
-                </select>
+                </Select>
               )}
             </FormField>
 

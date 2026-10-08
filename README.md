@@ -35,6 +35,7 @@ parent/guardian views.
 |---|---|
 | Marketing site | Hero, social proof, problem, the Flow narrative, roles, module bento, testimonials, FAQ, pricing |
 | Design system | Viridian accent ramp, Geist type scale, motion tokens, brand tooling |
+| Responsive | Measured across 12 routes at 7 widths: no horizontal scroll, 44px touch targets on touch widths, 16px fields so iOS does not zoom. Enforced by `e2e/responsive.spec.ts` |
 | Authentication | Email + password via Supabase Auth, email verification, password reset, RBAC |
 | Onboarding | Three first-run questions: what is taught, how it is graded, the first class. Skippable, saves as it goes, resumes where it stopped |
 | Tenancy | `organizations` and `memberships`, resolved through the signed-in account so no caller can address another school's records |

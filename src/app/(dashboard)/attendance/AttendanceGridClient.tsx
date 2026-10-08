@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 import { AttendanceGrid, AttendanceLegend } from '@/components/product/AttendanceGrid';
 import { Button } from '@/components/ui/button';
 import { FormField } from '@/components/ui/form-field';
+import { Input } from '@/components/ui/input';
 import { queryKeys } from '@/lib/query/keys';
 import type { AttendanceStatus } from '@/lib/api/types';
 
@@ -193,13 +194,12 @@ export function AttendanceDateField({
   return (
     <FormField id={id} label="Register date">
       {(props) => (
-        <input
+        <Input
           {...props}
           type="date"
           value={date}
           max={date}
           onChange={(event) => onChange(event.target.value)}
-          className="flex h-11 w-full rounded-[12px] border border-border bg-surface px-3.5 text-[0.9375rem] text-ink transition-colors duration-150 focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent-ring/25"
         />
       )}
     </FormField>

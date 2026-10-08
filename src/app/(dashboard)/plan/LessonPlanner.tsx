@@ -8,7 +8,7 @@ import { NotePencilIcon, PlusIcon } from '@phosphor-icons/react';
 import { Badge, Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { FormField } from '@/components/ui/form-field';
-import { Input, Textarea } from '@/components/ui/input';
+import { Input, Select, Textarea } from '@/components/ui/input';
 import {
   Dialog,
   DialogContent,
@@ -110,18 +110,17 @@ export function LessonPlanner({
       <div className="flex flex-wrap items-end justify-between gap-4">
         <FormField id="plan-class" label="Class" className="min-w-[14rem]">
           {(props) => (
-            <select
+            <Select
               {...props}
               value={effectiveClassId}
               onChange={(event) => setSelectedClassId(event.target.value)}
-              className="flex h-11 w-full rounded-[12px] border border-border bg-surface px-3.5 text-[0.9375rem] text-ink transition-colors duration-150 focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent-ring/25"
             >
               {classes.map((item) => (
                 <option key={item.id} value={item.id}>
                   {item.name}
                 </option>
               ))}
-            </select>
+            </Select>
           )}
         </FormField>
 

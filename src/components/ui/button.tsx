@@ -26,7 +26,14 @@ const buttonVariants = cva(
           'bg-danger text-white hover:opacity-90 shadow-sm',
       },
       size: {
-        sm: 'h-9 px-3.5 text-sm rounded-[8px]',
+        /*
+         * `sm` is 36px on a pointer and 44px on a thumb, so it is 44px until
+         * `lg`. The compact size is still the right one for a dense toolbar on
+         * a desktop; it is simply wrong for something a finger has to hit, and
+         * 36px is under the 44px comfortable target on every device that has
+         * fingers.
+         */
+        sm: 'h-11 px-3.5 text-sm rounded-[10px] lg:h-9 lg:rounded-[8px]',
         md: 'h-11 px-5 text-[0.9375rem] rounded-[12px]',
         lg: 'h-12 px-7 text-base rounded-[12px]',
         icon: 'size-11 rounded-[12px]',

@@ -4,6 +4,7 @@ import * as React from 'react';
 import { useRouter } from 'next/navigation';
 
 import { FormField } from '@/components/ui/form-field';
+import { Select } from '@/components/ui/input';
 import type { AttendanceStatus } from '@/lib/api/types';
 
 import { AttendanceDateField, AttendanceRegister } from './AttendanceGridClient';
@@ -53,18 +54,17 @@ export function AttendanceShell({
       <div className="grid gap-4 sm:grid-cols-2">
         <FormField id="attendance-class" label="Class">
           {(props) => (
-            <select
+            <Select
               {...props}
               value={classId}
               onChange={(event) => navigate(event.target.value, date)}
-              className="flex h-11 w-full rounded-[12px] border border-border bg-surface px-3.5 text-[0.9375rem] text-ink transition-colors duration-150 focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent-ring/25"
             >
               {classes.map((item) => (
                 <option key={item.id} value={item.id}>
                   {item.name}
                 </option>
               ))}
-            </select>
+            </Select>
           )}
         </FormField>
 
