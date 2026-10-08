@@ -2,7 +2,7 @@
 
 Last Updated: 2026-10-06
 Current Branch: `main`
-Current Commit: `4b23c3e` (working tree has the audit changes, uncommitted)
+Current Commit: `a11f069` Close the security gaps, and write down what this product promises
 Overall Status: **IMPLEMENTED, NOT DEPLOYED.** Every gate that can be run without credentials is green. Three things block an actual launch, all of which need the user.
 
 ## Executive Summary
