@@ -309,6 +309,37 @@ test.describe('marketing claims match the product', () => {
       expect(['solo', 'teacher', 'school']).toContain(plan);
     }
   });
+
+  test('the admin console is not sold as a plan gate nothing enforces', async ({ page }) => {
+    /*
+     * `/admin` is gated on the `org:manage` permission, so it follows a person's
+     * role and not their organisation's plan. The comparison row used to read
+     * "Not included / Not included / Included", which is a plan gate no code
+     * enforced: a School administrator who set their own organisation down to
+     * Solo would still reach the console.
+     *
+     * It is deliberately not made true by gating the console on the plan
+     * instead. The console is where the plan gets changed, so that locks the
+     * only route back to the plan that unlocks it, and nothing is charged today
+     * to justify turning a free teacher out of a page they paid nothing for.
+     * When billing opens this row becomes a real gate, in the same release that
+     * starts taking money.
+     */
+    await page.goto('/pricing');
+
+    const row = page
+      .getByRole('row')
+      .filter({ has: page.getByRole('rowheader', { name: 'Admin console', exact: true }) });
+    await expect(row).toHaveCount(1);
+
+    const cells = await row.getByRole('cell').allInnerTexts();
+    expect(cells).toHaveLength(3);
+    for (const cell of cells) {
+      expect(cell, 'the console is role-gated, so no plan may claim to withhold it').toMatch(
+        /included/i,
+      );
+    }
+  });
 });
 
 test.describe('cookie banner', () => {

@@ -84,6 +84,13 @@ export const PLANS: Plan[] = [
       'Gradebook graded on percentage, letter, GPA or GWA',
       'Lesson plans and a slides deck per class',
       'Student history showing on-track, watch and at-risk',
+      /*
+        Listed on the cheapest plan on purpose. The admin console is available
+        to anyone a school makes an administrator, on every plan, so putting it
+        only under School would be the same unenforced claim as the comparison
+        row it sits next to.
+      */
+      'The admin console, for anyone a school makes an administrator',
     ],
     cta: 'Create a free account',
   },
@@ -175,10 +182,16 @@ export type ComparisonGroup = {
  * that nothing enforces.
  *
  * What replaces it differentiates on things that are true: how many accounts
- * you administer, whether you get the admin console, and how much of each
- * school's data you can see. The limit row says the same thing in all three
- * columns precisely because there is no limit yet, rather than pretending the
- * first column is capped.
+ * you administer, and how much of each school's data you can see. Every one of
+ * those differences is enforced by a role, in `rbac.ts`, on a code path that a
+ * request cannot walk around.
+ *
+ * Two rows now deliberately say the same thing in all three columns, which is
+ * what it looks like when a row has nothing left to sell: whether another
+ * school can see your classes, and whether you get the admin console. Neither
+ * is a plan feature, and printing "Not included" in the first two columns of a
+ * table that no code backs is the exact defect this file was rewritten to
+ * remove.
  */
 export const COMPARISON: ComparisonGroup[] = [
   {
@@ -189,8 +202,31 @@ export const COMPARISON: ComparisonGroup[] = [
         cells: ['Your own', 'Your own', 'Everyone in your school'],
       },
       {
+        /*
+          Was "Not included / Not included / Included", which is a plan claim no
+          code enforces. `/admin` is gated on the `org:manage` permission, so it
+          follows a person's role and not their organisation's plan: a School
+          administrator who switched their own organisation down to Solo would
+          still walk straight into it.
+
+          It is deliberately NOT being made true by gating the console on the
+          plan, and the reason is worth writing down. The console is where the
+          plan gets changed, so gating it means the only route back to the plan
+          that unlocks it is the page that was just locked. Nothing is charged
+          today either, which makes turning a free teacher out of a page they
+          paid nothing for a punishment rather than a business model.
+
+          So the honest row is the uniform one, and it is also the reassuring
+          one: nobody is buying their way into an administrator. When billing
+          opens this row becomes a real gate, in the same release that starts
+          taking money, not before.
+        */
         label: 'Admin console',
-        cells: ['Not included', 'Not included', 'Included'],
+        cells: [
+          'Included, for administrators',
+          'Included, for administrators',
+          'Included, for administrators',
+        ],
       },
       {
         label: 'Classes you can open',

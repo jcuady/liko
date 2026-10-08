@@ -77,7 +77,7 @@ Authorisation is two independent layers. `proxy.ts` gates routes before render, 
 | PWA and offline | Done | Done | Verified | Passing | Complete |
 | Responsive layout | Done | n/a | n/a | Passing | Complete |
 | Billing and payments | Not started | Not started | n/a | n/a | **NOT STARTED.** No Stripe, no checkout, no subscription state, no invoices |
-| Plan gating | Column exists, unused | Not started | n/a | n/a | **NOT STARTED.** `organizations.plan` is stored but no code reads it to limit anything |
+| Plan gating | Column exists, unused | Not started | n/a | n/a | **DEFERRED BY DECISION.** `organizations.plan` and `seat_limit` are stored and editable but no code reads them to limit anything. Deliberately not built yet, see below |
 | Class list import | Not started | Not started | n/a | n/a | **NOT STARTED.** No spreadsheet or LMS import |
 | Data export | Not started | Not started | n/a | n/a | **NOT STARTED.** No CSV or JSON export |
 
@@ -111,6 +111,34 @@ bugs were fixed alongside it: the plan ids the page sold
 constraint (`solo | school | district`) on only one value, so two of the three
 ids could never have been stored and `district` had no card; and the vocabulary
 is now one list in three places.
+
+### Why plan gating is deferred rather than built
+
+`organizations.plan` and `organizations.seat_limit` exist, are settable in the
+admin console, and are read by nothing. That is the last place where the stored
+schema and the shipped behaviour disagree, and it was left alone on purpose.
+
+Building it was designed and rejected, for two reasons that are about the
+product rather than the code:
+
+1. **It deadlocks the upgrade path.** The only place an organisation's plan can
+   be changed is the admin console, which is the page a plan gate would lock.
+   A School administrator who set their own organisation down to Solo would have
+   no route back to the plan that unlocks the console.
+2. **Nothing is being charged.** Gating a free teacher out of a page they paid
+   nothing for, before there is a subscription to gate behind, is a punishment
+   rather than a business model.
+
+So the honest alternative was chosen: the comparison table no longer claims a
+plan gate that does not exist. The admin console row now reads `Included, for
+administrators` in all three columns, because `/admin` is gated on the
+`org:manage` permission in `rbac.ts` and follows a person's role rather than
+their organisation's plan. The console is likewise listed as a Solo feature,
+because a school can make any teacher's account an administrator.
+
+When billing opens, that row becomes a real gate in the same release that
+starts taking money, and the check belongs next to the RBAC matrix rather than
+in a pricing file.
 
 ## Completed
 
