@@ -14,6 +14,7 @@
     "e2e": "playwright test",
     "check:responsive": "node scripts/responsive-check.cjs",
     "check:behaviour": "node scripts/behaviour-check.cjs",
+    "check:sql": "node scripts/check-migration.mjs",
     "db:check": "node --env-file=.env.local scripts/check-remote-db.mjs",
     "db:settle": "node --env-file=.env.local scripts/rls-settling-test.mjs"
   },
@@ -56,6 +57,7 @@
     "zod": "4.6.5"
   },
   "devDependencies": {
+    "@libpg-query/parser": "^17.6.10",
     "@playwright/test": "1.63.0",
     "@tailwindcss/postcss": "4.3.3",
     "@types/node": "^22.10.0",

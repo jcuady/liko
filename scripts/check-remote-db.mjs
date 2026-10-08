@@ -35,6 +35,7 @@
 const TABLES = [
   'profiles',
   'classes',
+  'grading_policies',
   'students',
   'attendance',
   'assessments',

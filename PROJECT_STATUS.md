@@ -147,13 +147,57 @@ All run on 2026-10-06 against this working tree.
 | Typecheck | `pnpm typecheck` | **0 errors** |
 | Lint | `pnpm lint` | **0 errors, 0 warnings** |
 | Unit | `pnpm vitest run` | **164 passed** in 13 files |
+| Migration | `pnpm check:sql` | **105 statements parse; 74 cross-references resolve; RLS on 16/16 tables; 14/14 policies re-runnable** |
 | Production build | `pnpm build` (via the E2E web server) | **exit 0** |
 | End to end | `pnpm e2e` | **137 passed** across 10 specs, 2.6m |
 
+### What `check:sql` proves, and what it does not
+
+The database was empty until this pass, so the 809-line migration had never been
+executed by anything. `pnpm check:sql` runs it through `@libpg-query/parser`,
+which is the real PostgreSQL grammar compiled to WASM, then cross-references the
+result against the file's own contents:
+
+- every relation named by a policy, grant, index or trigger resolves to a table
+  or function this migration creates. A `create policy ... on public.studentz`
+  parses perfectly and fails at deploy; this catches it.
+- row level security is enabled on all 16 tables. The audit that found the two
+  cross-tenant bugs found a third table in the same family of mistake.
+- every policy is dropped before it is created, so a second run works. That is
+  the run somebody performs while recovering.
+
+It does not execute the migration and it does not prove a policy behaves
+correctly, only that the SQL is real and its objects exist. Behaviour is
+`pnpm db:settle`, against a live database.
+
+The build script for `@launchql/protobufjs` is declined in `pnpm-workspace.yaml`
+rather than granted: the parser ships a prebuilt WASM bundle and parses the whole
+migration correctly without it.
+
 The E2E suite drives a real production build through `next start` on port 3311,
-so the build is part of that gate rather than a separate claim. Port 3311 must be
-free before running it; `reuseExistingServer` will adopt a stale manually-started
-server and then fail with `ERR_CONNECTION_REFUSED`.
+so the build is part of that gate rather than a separate claim.
+
+### How to run it, and how it fails
+
+`playwright.config.ts` sets `reuseExistingServer: !process.env.CI`, which means a
+server left listening on 3311 is adopted rather than replaced. That server is
+running against whatever fixture data is in its memory, and if it was started by
+an interrupted run, the next run inherits that state.
+
+Two consequences worth knowing before a run looks like a product failure:
+
+- **Port 3311 must be free.** A stale server adopted from a killed run has been
+  observed to take the suite down with an exit of `-1` partway through, with no
+  failing test and no summary line.
+- **Back-to-back Playwright invocations need the port cleared between them.** A
+  successful run does not always release it, and the second invocation adopts the
+  first's server. This was diagnosed by running the suite one spec at a time: the
+  first spec passed, the second died, and clearing 3311 between invocations made
+  it reliable.
+
+An exit of `-1` with every test that ran marked `ok` is therefore a runner
+problem, not a test result. Do not read it as either a pass or a fail; clear the
+port and run again.
 
 Full pass history for the audit work, including the two failures this pass found
 in its own test changes and the evidence for each, is in the commit body.
@@ -197,6 +241,7 @@ Also closed: blind SSRF through the push endpoint, a rate-limit kill switch one 
 Findings 1 and 2 of the security review are correct as written and reviewed, but reading SQL is not the same as running it. Both are now one command rather than prose:
 
 ```
+pnpm check:sql   # is the migration sound? needs nothing, runs offline
 pnpm db:check    # does the schema exist? needs only the publishable key
 pnpm db:settle   # do the policies behave? needs SUPABASE_SERVICE_ROLE_KEY
 ```

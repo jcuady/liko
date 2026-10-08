@@ -1,4 +1,10 @@
 allowBuilds:
+  # Declined deliberately. @libpg-query/parser ships a prebuilt WASM bundle of
+  # the PostgreSQL grammar and parses the migration correctly with the build
+  # script never having run (verified: 105 statements, exit 0). The protobufjs
+  # fork behind it is not needed for that path, so the install hook is refused
+  # rather than granted on the assumption that it is harmless.
+  '@launchql/protobufjs': false
   unrs-resolver: true
 minimumReleaseAgeExclude:
   - '@next/env@16.4.0'

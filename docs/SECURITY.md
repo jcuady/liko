@@ -164,7 +164,7 @@ owner change.
 | No CSP | Third-party script injection is harder to detect | Add a nonce-based policy once the real asset set is known. `layout.tsx` injects one inline script today, for the no-js class flip |
 | scrypt, not argon2id | scrypt with these parameters is acceptable; argon2id is the current preference | `lib/auth/password.ts` is the only file that changes |
 | Legal text not legally reviewed | The terms, privacy notice and cookie notice are written to be accurate about this implementation, but nobody qualified has reviewed them | Before any external launch. They describe the system as built, which is the most they can do |
-| Cross-tenant RLS proven only by reading | The policy fixes are correct as written and reviewed, but have not been exercised against a running Postgres. `pnpm db:check` confirms the live project has 0 of the 15 tables, so there is nothing to exercise yet | Apply the migration, then `pnpm db:settle`, which signs in as a real student in a throwaway tenant and asserts both exploits fail |
+| Cross-tenant RLS proven only by reading | The policy fixes are correct as written and reviewed, and `pnpm check:sql` proves the file parses and every relation it names exists. What it cannot do is execute it. `pnpm db:check` confirms the live project has 0 of the 16 tables, so there is nothing to exercise yet | Apply the migration, then `pnpm db:settle`, which signs in as a real student in a throwaway tenant and asserts both exploits fail |
 
 ## Reporting a vulnerability
 
