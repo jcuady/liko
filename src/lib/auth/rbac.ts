@@ -129,6 +129,12 @@ export const ROUTE_PERMISSIONS: { prefix: string; permission: Permission }[] = [
   { prefix: '/attendance', permission: 'attendance:write' },
   { prefix: '/classes', permission: 'class:read' },
   { prefix: '/history', permission: 'history:read' },
+  // Administration is gated on `org:manage` rather than `user:manage`, so the
+  // route and the organisation settings behind it agree. The two are separate
+  // grants on purpose: managing people in a school and managing the school's
+  // plan, billing contact and seat count are different jobs, and a district
+  // roll-out will want to hand out one without the other.
+  { prefix: '/admin', permission: 'org:manage' },
   { prefix: '/settings', permission: 'class:read' },
 ];
 
@@ -153,6 +159,7 @@ export const PROTECTED_PREFIXES = [
   '/grades',
   '/history',
   '/settings',
+  '/admin',
 ];
 
 export function isProtectedPath(pathname: string): boolean {
@@ -173,6 +180,36 @@ export function canAccessPath(role: Role | undefined, pathname: string): boolean
   if (permission === null) return true;
   return can(role, permission);
 }
+
+/**
+ * The navigation a role may see.
+ *
+ * Returns the whole list or nothing, so an item can never appear in the sidebar
+ * while the page behind it refuses to render. `/admin` is the case that matters:
+ * a teacher who could see the link would click it and land on the forbidden
+ * screen, which reads as a broken product rather than as a permission boundary.
+ */
+export function navFor(role: Role | undefined): { primary: string[]; secondary: string[] } {
+  const visible = (prefixes: string[]) =>
+    prefixes.filter((prefix) => {
+      const permission = permissionForPath(prefix);
+      return permission === null || can(role, permission);
+    });
+
+  return { primary: visible(PRIMARY_ROUTES), secondary: visible(SECONDARY_ROUTES) };
+}
+
+/** Route prefixes, kept beside the matrix so the two cannot drift apart. */
+const PRIMARY_ROUTES = [
+  '/overview',
+  '/classes',
+  '/attendance',
+  '/plan',
+  '/grades',
+  '/assess',
+];
+
+const SECONDARY_ROUTES = ['/history', '/settings/notifications', '/settings/profile', '/settings/appearance', '/admin'];
 
 /**
  * Where a signed-in user lands by default.

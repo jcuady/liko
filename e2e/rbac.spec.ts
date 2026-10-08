@@ -45,6 +45,10 @@ const ROUTES: { path: string; blocked: RoleName[] }[] = [
   { path: '/attendance', blocked: ['student', 'guardian'] },
   { path: '/plan', blocked: ['student', 'guardian'] },
   { path: '/assess', blocked: ['student', 'guardian'] },
+  // Administration is gated on `org:manage`, which only the admin role holds.
+  // Adding it here is what proves the nav filter and the route gate agree: a
+  // teacher who cannot see the link must also be refused the URL.
+  { path: '/admin', blocked: ['instructor', 'student', 'guardian'] },
 ];
 
 async function signIn(page: Page, email: string): Promise<void> {

@@ -7,6 +7,8 @@ import type {
   GradingPolicyRecord,
   HistoryRecord,
   LessonPlanRecord,
+  MemberRecord,
+  OrgRecord,
   ProfileRecord,
   RubricRow,
 } from '@/lib/api/types';
@@ -330,6 +332,23 @@ export const demoPolicies: GradingPolicyRecord[] = [
 ];
 
 /**
+ * The demo organisation.
+ *
+ * The five demo accounts are one school's staff, which is what makes the admin
+ * page show something real: a principal, two teachers, a student and a parent
+ * in the same tenant, each holding a different grant.
+ */
+export const demoOrg: OrgRecord = {
+  id: 'org_demo_northfield',
+  name: 'Northfield Science Academy',
+  slug: 'northfield-science-academy',
+  plan: 'school',
+  seatLimit: 25,
+  billingEmail: 'office@northfield.test',
+  createdAt: '2026-01-02T09:00:00.000Z',
+};
+
+/**
  * The demo teacher.
  *
  * Carries the answers a real account accumulates: the school they work at, the
@@ -346,6 +365,7 @@ export const demoProfile: ProfileRecord = {
   subjects: ['Chemistry', 'Environmental Science'],
   defaultGradeLevel: 'k12',
   gradingPolicyId: 'percentage',
+  orgId: demoOrg.id,
 };
 
 /**
@@ -371,6 +391,7 @@ export const demoProfiles: ProfileRecord[] = [
     subjects: ['Physics', 'Electronics'],
     defaultGradeLevel: 'k12',
     gradingPolicyId: 'percentage',
+    orgId: demoOrg.id,
   },
   {
     id: 'usr_demo_ingrid',
@@ -381,6 +402,7 @@ export const demoProfiles: ProfileRecord[] = [
     subjects: ['Biology', 'Marine Science'],
     defaultGradeLevel: 'k12',
     gradingPolicyId: 'letter',
+    orgId: demoOrg.id,
   },
   {
     id: 'usr_demo_noor',
@@ -391,6 +413,7 @@ export const demoProfiles: ProfileRecord[] = [
     subjects: [],
     defaultGradeLevel: null,
     gradingPolicyId: null,
+    orgId: demoOrg.id,
   },
   {
     id: 'usr_demo_priya',
@@ -401,6 +424,67 @@ export const demoProfiles: ProfileRecord[] = [
     subjects: [],
     defaultGradeLevel: null,
     gradingPolicyId: null,
+    orgId: demoOrg.id,
+  },
+];
+
+/**
+ * Membership rows for the demo accounts.
+ *
+ * `joinedAt` is staggered so the people list has a stable order rather than
+ * sorting by an identical timestamp, and so a test can assert the oldest member
+ * is the one who cannot be removed.
+ */
+export const demoMemberships: MemberRecord[] = [
+  {
+    id: 'mem_01_dev',
+    userId: 'usr_demo_dev',
+    orgId: demoOrg.id,
+    fullName: 'Dev Ramanathan',
+    email: 'dev@liko.test',
+    role: 'admin',
+    status: 'active',
+    joinedAt: '2026-01-02T09:05:00.000Z',
+  },
+  {
+    id: 'mem_02_maya',
+    userId: 'usr_demo_maya',
+    orgId: demoOrg.id,
+    fullName: 'Maya Okonkwo',
+    email: 'maya@liko.test',
+    role: 'instructor',
+    status: 'active',
+    joinedAt: '2026-01-03T09:05:00.000Z',
+  },
+  {
+    id: 'mem_03_ingrid',
+    userId: 'usr_demo_ingrid',
+    orgId: demoOrg.id,
+    fullName: 'Ingrid Halvorsen',
+    email: 'ingrid@liko.test',
+    role: 'instructor',
+    status: 'active',
+    joinedAt: '2026-01-06T09:05:00.000Z',
+  },
+  {
+    id: 'mem_04_noor',
+    userId: 'usr_demo_noor',
+    orgId: demoOrg.id,
+    fullName: 'Noor Haddad',
+    email: 'student@liko.test',
+    role: 'student',
+    status: 'active',
+    joinedAt: '2026-01-06T10:30:00.000Z',
+  },
+  {
+    id: 'mem_05_priya',
+    userId: 'usr_demo_priya',
+    orgId: demoOrg.id,
+    fullName: 'Priya Raman',
+    email: 'guardian@liko.test',
+    role: 'guardian',
+    status: 'active',
+    joinedAt: '2026-01-06T11:00:00.000Z',
   },
 ];
 

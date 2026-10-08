@@ -36,8 +36,10 @@ parent/guardian views.
 | Marketing site | Hero, social proof, problem, the Flow narrative, roles, module bento, testimonials, FAQ, pricing |
 | Design system | Viridian accent ramp, Geist type scale, motion tokens, brand tooling |
 | Authentication | Email + password via Supabase Auth, email verification, password reset, RBAC |
-| Onboarding | Three first-run questions: what is taught, how it is graded, the first class. Skippable, saves as it goes, idempotent |
-| Workspace | Eight permission-gated routes (overview, classes, attendance, planner, assessments, gradebook, history, settings) with a `/forbidden` refusal, covered per role by `e2e/rbac.spec.ts` |
+| Onboarding | Three first-run questions: what is taught, how it is graded, the first class. Skippable, saves as it goes, resumes where it stopped |
+| Tenancy | `organizations` and `memberships`, resolved through the signed-in account so no caller can address another school's records |
+| Administration | `/admin`, gated on `org:manage`: people and roles, classes, organisation settings, and the live permission matrix |
+| Workspace | Nine permission-gated routes (overview, classes, attendance, planner, assessments, gradebook, history, administration, settings) with a `/forbidden` refusal, covered per role by `e2e/rbac.spec.ts` |
 | Data | One typed seam, `src/lib/api/client.ts`, with a Supabase adapter and a fixture adapter |
 | Offline | IndexedDB write queue plus Serwist runtime caching and an `/offline` fallback |
 | Push | Web push for at-risk alerts and grade/attendance summaries |

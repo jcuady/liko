@@ -346,6 +346,137 @@ create index if not exists push_subscriptions_user_idx
   on public.push_subscriptions (user_id);
 
 -- ---------------------------------------------------------------------------
+-- Tenancy
+--
+-- WHY MEMBERSHIP REUSES THE FOUR ROLES RATHER THAN ADDING AN `owner`.
+--
+-- The RBAC matrix in `src/lib/auth/rbac.ts` is the single source of truth for
+-- what a role may do, and `org:manage` is already held by exactly one role. An
+-- `owner` role would have to be added to that matrix, to the session payload,
+-- to every `switch` on role and to every test that enumerates roles, to buy
+-- the ability to receive an invoice. Org ownership is a billing fact, so it is
+-- `organizations.billing_email`, and the person who can manage the org is
+-- whoever holds `org:manage`. One concept, one place.
+--
+-- `seat_limit` is the number of active members a plan is sold for. It is
+-- enforced in the application rather than by a trigger, because the refusal
+-- has to arrive as a message a principal secretary can read, not as a
+-- constraint violation.
+-- ---------------------------------------------------------------------------
+create table if not exists public.organizations (
+  id            uuid primary key default gen_random_uuid(),
+  name          text not null check (char_length(name) between 2 and 160),
+  slug          text not null unique
+                check (slug ~ '^[a-z0-9][a-z0-9-]{1,62}$'),
+  plan          text not null default 'solo'
+                check (plan in ('solo', 'school', 'district')),
+  seat_limit    integer not null default 5 check (seat_limit > 0),
+  billing_email text,
+  created_at    timestamptz not null default now(),
+  updated_at    timestamptz not null default now()
+);
+
+comment on table public.organizations is
+  'The tenant. One per school or district; every other table hangs off it.';
+
+create trigger organizations_set_updated_at
+  before update on public.organizations
+  for each row execute function public.set_updated_at();
+
+create table if not exists public.memberships (
+  id         uuid primary key default gen_random_uuid(),
+  org_id     uuid not null references public.organizations (id) on delete cascade,
+  user_id    uuid not null references auth.users (id) on delete cascade,
+  role       text not null default 'instructor'
+             check (role in ('instructor', 'admin', 'student', 'guardian')),
+  status     text not null default 'active'
+             check (status in ('active', 'suspended')),
+  created_at timestamptz not null default now(),
+  -- One row per person per organisation. A person in two schools gets two
+  -- rows and two memberships, which is the whole point of the table.
+  unique (org_id, user_id)
+);
+
+comment on table public.memberships is
+  'Which people belong to which organisation, and as what.';
+
+create index if not exists memberships_org_idx on public.memberships (org_id);
+create index if not exists memberships_user_idx on public.memberships (user_id);
+
+alter table public.profiles
+  add column if not exists org_id uuid
+    references public.organizations (id) on delete set null;
+
+-- ---------------------------------------------------------------------------
+-- Tenancy RLS
+--
+-- A membership is readable by the person it names and by anyone in the same
+-- organisation who can manage users. That second clause is what makes the
+-- admin people list possible without a service-role key.
+-- ---------------------------------------------------------------------------
+alter table public.organizations enable row level security;
+alter table public.memberships    enable row level security;
+
+drop policy if exists "org visible to members" on public.organizations;
+create policy "org visible to members" on public.organizations
+  for select using (
+    exists (
+      select 1 from public.memberships m
+      where m.org_id = organizations.id
+        and m.user_id = auth.uid()
+        and m.status = 'active'
+    )
+  );
+
+drop policy if exists "org manageable by admins" on public.organizations;
+create policy "org manageable by admins" on public.organizations
+  for update using (
+    exists (
+      select 1 from public.memberships m
+      where m.org_id = organizations.id
+        and m.user_id = auth.uid()
+        and m.role = 'admin'
+        and m.status = 'active'
+    )
+  );
+
+drop policy if exists "own membership" on public.memberships;
+create policy "own membership" on public.memberships
+  for select using (user_id = auth.uid());
+
+drop policy if exists "org memberships readable" on public.memberships;
+create policy "org memberships readable" on public.memberships
+  for select using (
+    exists (
+      select 1 from public.memberships mine
+      where mine.org_id = memberships.org_id
+        and mine.user_id = auth.uid()
+        and mine.role = 'admin'
+        and mine.status = 'active'
+    )
+  );
+
+drop policy if exists "org memberships manageable" on public.memberships;
+create policy "org memberships manageable" on public.memberships
+  for all using (
+    exists (
+      select 1 from public.memberships mine
+      where mine.org_id = memberships.org_id
+        and mine.user_id = auth.uid()
+        and mine.role = 'admin'
+        and mine.status = 'active'
+    )
+  ) with check (
+    exists (
+      select 1 from public.memberships mine
+      where mine.org_id = memberships.org_id
+        and mine.user_id = auth.uid()
+        and mine.role = 'admin'
+        and mine.status = 'active'
+    )
+  );
+
+-- ---------------------------------------------------------------------------
 -- RLS
 --
 -- Ownership rule for every tenant table. Writes and reads both require

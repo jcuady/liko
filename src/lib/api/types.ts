@@ -252,6 +252,56 @@ export interface ProfileRecord {
   defaultGradeLevel: ClassLevel | null;
   /** The scale this teacher grades on by default. */
   gradingPolicyId: string | null;
+  /** The organisation this account belongs to, once it has one. */
+  orgId: string | null;
+}
+
+/** The plans an organisation can be sold on. */
+export const ORG_PLANS = ['solo', 'school', 'district'] as const;
+export type OrgPlan = (typeof ORG_PLANS)[number];
+
+export const ORG_PLAN_LABELS: Record<OrgPlan, string> = {
+  solo: 'Solo',
+  school: 'School',
+  district: 'District',
+};
+
+export type MembershipStatus = 'active' | 'suspended';
+
+export interface OrgRecord {
+  id: string;
+  name: string;
+  slug: string;
+  plan: OrgPlan;
+  seatLimit: number;
+  billingEmail: string | null;
+  createdAt: string;
+}
+
+export interface OrgInput {
+  name: string;
+  plan: OrgPlan;
+  seatLimit: number;
+  billingEmail: string | null;
+}
+
+/**
+ * One person inside the organisation.
+ *
+ * The role is the same four the permission matrix uses, so an admin changing it
+ * here changes what that person can actually do. `status` is separate because
+ * removing a teacher's access is not the same as demoting them: a suspended
+ * colleague keeps their history and can be restored in one click.
+ */
+export interface MemberRecord {
+  id: string;
+  userId: string;
+  orgId: string;
+  fullName: string;
+  email: string;
+  role: Role;
+  status: MembershipStatus;
+  joinedAt: string;
 }
 
 export interface ProfileInput {

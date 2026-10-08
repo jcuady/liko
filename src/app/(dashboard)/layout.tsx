@@ -37,7 +37,7 @@ export default async function DashboardLayout({
           <div className="flex h-[68px] items-center border-b border-border px-5">
             <LikoLogo showWordmark />
           </div>
-          <Sidebar />
+          <Sidebar role={session.role} />
         </div>
 
         <div className="flex min-w-0 flex-1 flex-col">
@@ -69,7 +69,7 @@ export default async function DashboardLayout({
         </div>
       </div>
 
-      <MobileTabBar />
+      <MobileTabBar role={session.role} />
     </div>
   );
 }

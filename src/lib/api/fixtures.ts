@@ -1,5 +1,5 @@
 import { assertRealDataMode } from '@/lib/data-mode';
-import { findUserById, isDemoAccount } from '@/lib/auth/store';
+import { findUserById, isDemoAccount, setAccountRole } from '@/lib/auth/store';
 import {
   BUILT_IN_POLICIES,
   validatePolicy,
@@ -15,6 +15,8 @@ import {
   demoPlans,
   demoPolicies,
   demoProfiles,
+  demoOrg,
+  demoMemberships,
   secondClassStudents,
 } from '@/lib/fixtures/workspace-seed';
 import {
@@ -34,6 +36,8 @@ import type {
   HeatCell,
   HistoryRecord,
   LessonPlanRecord,
+  MemberRecord,
+  OrgRecord,
   ProfileRecord,
   Stat,
   StudentRecord,
@@ -76,6 +80,12 @@ interface FixtureStore {
   policies: GradingPolicyRecord[];
   /** Keyed by user id. The demo account is seeded; anyone else starts blank. */
   profiles: Map<string, ProfileRecord>;
+  /**
+   * Keyed by id. The demo school is seeded; every account registered during a
+   * session gets its own, which is what a real signup produces.
+   */
+  orgs: Map<string, OrgRecord>;
+  memberships: MemberRecord[];
 }
 
 function createStore(): FixtureStore {
@@ -136,6 +146,8 @@ function createStore(): FixtureStore {
     history: demoHistory,
     policies: demoPolicies,
     profiles: new Map(demoProfiles.map((profile) => [profile.id, profile])),
+    orgs: new Map([[demoOrg.id, { ...demoOrg }]]),
+    memberships: demoMemberships.map((member) => ({ ...member })),
   };
 }
 
@@ -177,6 +189,83 @@ function builtInPolicies(): GradingPolicyRecord[] {
 
 function seededKey(classId: string, date: string): string {
   return `${classId}:${date}`;
+}
+
+function activeMembership(store: FixtureStore, userId: string): MemberRecord | null {
+  return store.memberships.find((row) => row.userId === userId && row.status === 'active') ?? null;
+}
+
+/** Active admins of one organisation, which is the count that keeps a tenant recoverable. */
+function countAdmins(store: FixtureStore, orgId: string): number {
+  return store.memberships.filter(
+    (row) => row.orgId === orgId && row.role === 'admin' && row.status === 'active',
+  ).length;
+}
+
+/**
+ * The organisation a newly registered account belongs to.
+ *
+ * One person, one organisation, and they administer it. Created on first use and
+ * cached on the store so the id is stable for the life of the process.
+ */
+function personalOrg(userId: string, store: FixtureStore): { org: OrgRecord; membership: MemberRecord } {
+  const existing = store.memberships.find((row) => row.userId === userId);
+  if (existing) {
+    const found = store.orgs.get(existing.orgId);
+    if (found) return { org: found, membership: existing };
+  }
+
+  const orgId = `org_personal_${userId}`;
+  const createdAt = new Date().toISOString();
+  const org: OrgRecord = {
+    id: orgId,
+    name: 'My workspace',
+    slug: `solo-${userId.slice(-8)}`,
+    plan: 'solo',
+    seatLimit: 1,
+    billingEmail: null,
+    createdAt,
+  };
+
+  const membership: MemberRecord = {
+    id: `mem_personal_${userId}`,
+    userId,
+    orgId,
+    fullName: '',
+    email: '',
+    role: 'admin',
+    status: 'active',
+    joinedAt: createdAt,
+  };
+
+  store.orgs.set(orgId, org);
+  store.memberships.push(membership);
+
+  return { org, membership };
+}
+
+/**
+ * Refuses a membership write that is not made by an active admin of the same
+ * organisation.
+ *
+ * The actions gate on `user:manage` already; this is the inner check, because a
+ * server action is a public endpoint and the role in the session is only half the
+ * answer to whose organisation a member id belongs to.
+ */
+function requireOrgManager(store: FixtureStore, userId: string, memberId: string): MemberRecord {
+  const caller = activeMembership(store, userId);
+  if (caller?.role !== 'admin') {
+    throw new DataError('FORBIDDEN', 'Only an admin can manage people in this organisation.');
+  }
+
+  const target = store.memberships.find((row) => row.id === memberId);
+  if (!target || target.orgId !== caller.orgId) {
+    // Deliberately the same shape as a genuine miss: a crafted id from another
+    // school should be indistinguishable from one that never existed.
+    throw new DataError('NOT_FOUND', 'That person is not in your organisation.');
+  }
+
+  return target;
 }
 
 export const fixtures: WorkspaceData = {
@@ -492,6 +581,7 @@ export const fixtures: WorkspaceData = {
       subjects: [],
       defaultGradeLevel: null,
       gradingPolicyId: null,
+      orgId: null,
     };
 
     store.profiles.set(userId, synthesised);
@@ -507,5 +597,108 @@ export const fixtures: WorkspaceData = {
     const record: ProfileRecord = { ...(existing as ProfileRecord), ...input };
     store.profiles.set(userId, record);
     return record;
+  },
+
+  /*
+   * Tenancy.
+   *
+   * The demo accounts are one school's staff. An account registered during a
+   * session is its own organisation with itself as the only admin, which is what
+   * a real signup produces, and it keeps the admin page from showing a new
+   * teacher a roster of strangers they did not invite.
+   */
+  async getOrg(userId) {
+    guard('getOrg');
+    const membership = activeMembership(store, userId);
+    if (membership) {
+      const org = store.orgs.get(membership.orgId);
+      if (org) return { ...org };
+    }
+    if (isDemoAccount(userId)) return { ...(store.orgs.get(demoOrg.id) as OrgRecord) };
+    return { ...personalOrg(userId, store).org };
+  },
+
+  async updateOrg(userId, input) {
+    guard('updateOrg');
+
+    const membership = activeMembership(store, userId);
+    if (membership?.role !== 'admin') {
+      throw new DataError('FORBIDDEN', 'Only an admin can change the organisation.');
+    }
+
+    const org = store.orgs.get(membership.orgId);
+    if (!org) throw new DataError('NOT_FOUND', 'This account has no organisation yet.');
+
+    org.name = input.name;
+    org.plan = input.plan;
+    org.seatLimit = input.seatLimit;
+    org.billingEmail = input.billingEmail;
+
+    return { ...org };
+  },
+
+  async listMembers(userId) {
+    guard('listMembers');
+
+    const membership = activeMembership(store, userId);
+    if (!membership) return [];
+    const org = store.orgs.get(membership.orgId);
+    if (!org) return [];
+
+    const rows = store.memberships.filter((row) => row.orgId === org.id);
+    // Names and addresses are read from the profiles those accounts already
+    // have, so a change to someone's name shows up here instead of leaving a
+    // second copy in this table to drift out of step with it.
+    const profiles = await Promise.all(rows.map((row) => fixtures.getProfile(row.userId)));
+
+    return rows.map((row, index) => ({
+      ...row,
+      fullName: profiles[index]?.fullName || row.fullName,
+      email: profiles[index]?.email || row.email,
+    }));
+  },
+
+  async setMemberRole(userId, memberId, role) {
+    guard('setMemberRole');
+    const member = requireOrgManager(store, userId, memberId);
+
+    // Demoting the last admin would leave the organisation with nobody who can
+    // manage it and nobody who could restore that. Refused with a reason rather
+    // than performed.
+    if (member.role === 'admin' && role !== 'admin' && countAdmins(store, member.orgId) === 1) {
+      throw new DataError('CONFLICT', 'This is the only admin. Promote someone else first.');
+    }
+
+    member.role = role;
+
+    // The account's own role follows, because that is what the permission matrix
+    // and the session are checked against. Writing only the membership would
+    // leave the console promising a change it had not actually made.
+    await setAccountRole(member.userId, role);
+    const profile = store.profiles.get(member.userId);
+    if (profile) profile.role = role;
+  },
+
+  async setMemberStatus(userId, memberId, status) {
+    guard('setMemberStatus');
+    const member = requireOrgManager(store, userId, memberId);
+
+    if (member.userId === userId && status === 'suspended') {
+      throw new DataError('CONFLICT', 'You cannot suspend your own access.');
+    }
+    if (member.role === 'admin' && status === 'suspended' && countAdmins(store, member.orgId) === 1) {
+      throw new DataError('CONFLICT', 'This is the only admin. Promote someone else first.');
+    }
+
+    member.status = status;
+
+    /*
+     * Suspension has to reach the session too. The session carries a copy of
+     * the account role, so without this a suspended colleague would keep working
+     * until their token expired, which is the opposite of what a suspension is
+     * for.
+     */
+    const profile = store.profiles.get(member.userId);
+    if (profile) profile.orgId = status === 'active' ? member.orgId : null;
   },
 };

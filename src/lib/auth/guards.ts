@@ -2,6 +2,8 @@ import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 
 import { SESSION_COOKIE, verifySession, type SessionPayload } from './session';
+import { findUserById } from './store';
+import { isSupabaseMode } from '@/lib/data-mode';
 import { can, type Permission } from './rbac';
 
 /**
@@ -15,7 +17,26 @@ import { can, type Permission } from './rbac';
 
 export async function getSession(): Promise<SessionPayload | null> {
   const store = await cookies();
-  return verifySession(store.get(SESSION_COOKIE)?.value);
+  const session = await verifySession(store.get(SESSION_COOKIE)?.value);
+  if (!session) return null;
+
+  /*
+   * The role in the cookie is a copy taken when it was signed. An administrator
+   * who promotes a colleague or suspends them has changed what that person may
+   * do, and a change that only takes effect at their next sign-in is not a
+   * change.
+   *
+   * Scoped to fixture mode on purpose. `findUserById` in `supabase` mode calls
+   * the Auth admin API, which would turn this into an extra network round trip
+   * on every page load. In production the same effect comes from Supabase
+   * refreshing the token, which is the correct place for it.
+   */
+  if (isSupabaseMode()) return session;
+
+  const account = await findUserById(session.userId);
+  if (!account || account.role === session.role) return session;
+
+  return { ...session, role: account.role };
 }
 
 export async function requireSession(): Promise<SessionPayload> {

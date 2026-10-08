@@ -12,6 +12,7 @@ import {
   GridFourIcon,
   ListChecksIcon,
   PaintBrushIcon,
+  ShieldCheckIcon,
   StackIcon,
   UserCircleIcon,
   XIcon,
@@ -19,6 +20,7 @@ import {
 
 import { cn } from '@/lib/utils';
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet';
+import { navFor, type Role } from '@/lib/auth/rbac';
 
 /**
  * Navigation model.
@@ -58,6 +60,16 @@ export const PRIMARY_NAV: NavItem[] = [
   { href: '/assess', label: 'Assess', icon: StackIcon },
 ];
 
+/**
+ * Administration is admin-only, so it is declared separately rather than in
+ * `SECONDARY_NAV`. The mobile overflow sheet and the desktop rail both filter
+ * through `visibleNav`, which asks the permission matrix rather than comparing
+ * roles by hand.
+ */
+export const ADMIN_NAV: NavItem[] = [
+  { href: '/admin', label: 'Administration', icon: ShieldCheckIcon },
+];
+
 export const SECONDARY_NAV: NavItem[] = [
   { href: '/history', label: 'History', icon: ClockCounterClockwiseIcon },
   { href: '/settings/notifications', label: 'Notifications', icon: BellIcon },
@@ -67,6 +79,26 @@ export const SECONDARY_NAV: NavItem[] = [
 
 /** How many destinations fit across a 375px viewport without shrinking labels. */
 const MOBILE_TAB_LIMIT = 5;
+
+/**
+ * The destinations this role may open, in the order they are declared.
+ *
+ * `/admin` is absent for anyone without `org:manage`. Showing it anyway would
+ * hand a teacher a link that leads to the forbidden screen, which reads as a
+ * broken product rather than as the permission boundary it actually is.
+ */
+export function visibleNav(role: Role | undefined): {
+  primary: NavItem[];
+  secondary: NavItem[];
+} {
+  const allowed = navFor(role);
+  const keep = (prefixes: string[]) => (item: NavItem) => prefixes.includes(item.href);
+
+  return {
+    primary: PRIMARY_NAV.filter(keep(allowed.primary)),
+    secondary: [...SECONDARY_NAV, ...ADMIN_NAV].filter(keep(allowed.secondary)),
+  };
+}
 
 export function isActivePath(href: string, pathname: string): boolean {
   return pathname === href || pathname.startsWith(`${href}/`);
@@ -85,8 +117,9 @@ function linkClasses(active: boolean, collapsed: boolean): string {
 }
 
 /** Desktop sidebar. Icons only on the rail, labels from 1280px. */
-export function Sidebar() {
+export function Sidebar({ role }: { role: Role | undefined }) {
   const pathname = usePathname();
+  const { primary, secondary } = visibleNav(role);
 
   return (
     <nav
@@ -96,7 +129,7 @@ export function Sidebar() {
       className="hidden w-[4.25rem] shrink-0 flex-col border-r border-border bg-surface px-2.5 py-4 lg:flex xl:w-[16rem] xl:px-3"
     >
       <ul className="flex flex-col gap-0.5">
-        {PRIMARY_NAV.map((item) => {
+        {primary.map((item) => {
           const active = isActivePath(item.href, pathname);
           return (
             <li key={item.href}>
@@ -123,7 +156,7 @@ export function Sidebar() {
       <div className="my-4 border-t border-border" />
 
       <ul className="flex flex-col gap-0.5">
-        {SECONDARY_NAV.map((item) => {
+        {secondary.map((item) => {
           const active = isActivePath(item.href, pathname);
           return (
             <li key={item.href}>
@@ -151,11 +184,12 @@ export function Sidebar() {
 }
 
 /** Mobile tab bar. Five destinations plus More, inside the safe-area inset. */
-export function MobileTabBar() {
+export function MobileTabBar({ role }: { role: Role | undefined }) {
   const pathname = usePathname();
   const [moreOpen, setMoreOpen] = React.useState(false);
 
-  const overflow = [...PRIMARY_NAV.slice(MOBILE_TAB_LIMIT), ...SECONDARY_NAV];
+  const { primary, secondary } = visibleNav(role);
+  const overflow = [...primary.slice(MOBILE_TAB_LIMIT), ...secondary];
 
   return (
     <>
@@ -165,7 +199,7 @@ export function MobileTabBar() {
         style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
       >
         <ul className="grid grid-cols-6">
-          {PRIMARY_NAV.slice(0, MOBILE_TAB_LIMIT).map((item) => {
+          {primary.slice(0, MOBILE_TAB_LIMIT).map((item) => {
             const active = isActivePath(item.href, pathname);
             return (
               <li key={item.href}>

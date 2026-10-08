@@ -177,6 +177,42 @@ export function isDemoAccount(userId: string): boolean {
   return DEMO_USERS.some((demo) => demo.id === userId);
 }
 
+/**
+ * Changes an account's role.
+ *
+ * Called when an administrator promotes or demotes someone. `getSession()` in
+ * `guards.ts` re-reads the account on every request, so this is what makes the
+ * change take effect on that person's next page load rather than at their next
+ * sign-in.
+ *
+ * The last admin cannot be demoted here: an organisation with nobody who can
+ * administer it cannot be recovered from the interface, and the fixture adapter
+ * refuses the same move with a reason a person can act on.
+ */
+export async function setAccountRole(userId: string, role: Role): Promise<boolean> {
+  if (isSupabaseMode()) {
+    const admin = await createSupabaseAdmin();
+    if (!admin) return false;
+
+    const { error } = await admin
+      .from('profiles')
+      .update({ role })
+      .eq('id', userId)
+      .is('org_id', 'not.is.null');
+    if (error) return false;
+    return true;
+  }
+
+  await ensureDemoUsers();
+  for (const user of users.values()) {
+    if (user.id === userId) {
+      user.role = role;
+      return true;
+    }
+  }
+  return false;
+}
+
 export interface CreateUserInput {
   name: string;
   email: string;

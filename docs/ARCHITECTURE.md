@@ -36,9 +36,11 @@ root layout and owns `<html>`, fonts, and providers.
 | `/login` `/register` `/forgot-password` | `(auth)` | public | Static |
 | `/verify-email` | `(auth)` | public | Static |
 | `/offline` | public | public | Static |
+| `/welcome` | `(dashboard)` | any authenticated | Dynamic |
 | `/overview` | `(dashboard)` | `analytics:read` | Dynamic |
 | `/attendance` | `(dashboard)` | `attendance:write` | Dynamic |
 | `/classes` `/plan` `/assess` `/grades` `/history` | `(dashboard)` | per route | Dynamic |
+| `/admin` | `(dashboard)` | `org:manage` | Dynamic |
 | `/settings/*` | `(dashboard)` | any authenticated | Dynamic |
 | `/forbidden` | `(dashboard)` | any authenticated | Dynamic |
 | `/api/attendance` | api | `attendance:write` | Node |
@@ -80,7 +82,7 @@ without a marketing mockup breaking.
 ## Schema
 
 `supabase/migrations/20260101000000_initial_schema.sql` is the source of truth.
-Ten tables, two triggers, RLS enabled on every table. Conventions:
+Twelve tables, two triggers, RLS enabled on every table. Conventions:
 
 - `uuid` primary keys, `gen_random_uuid()`
 - `owner_id` on every tenant table, even where a foreign key already implies
@@ -89,7 +91,11 @@ Ten tables, two triggers, RLS enabled on every table. Conventions:
 - uniqueness constraints that make writes idempotent: `attendance` is unique on
   `(class_id, student_id, date)` and `grades` on `(assessment_id, student_id)`.
   This is what makes an offline queue replay safe, so any new write type must
-  carry its own constraint or must not be queued.
+  carry its own constraint or must not be queued. `classes` is unique on
+  `(owner_id, upper(code))` among unarchived rows, because the short code is
+  typed constantly as a filter and a duplicate makes every lookup ambiguous.
+- `organizations` and `memberships` carry the tenancy. Membership is unique on
+  `(org_id, user_id)`, so a person appears at most once per school.
 
 ## Access control
 
@@ -119,6 +125,66 @@ The post-login destination travels in the form body, not the query string, and
 the server action re-validates it. Anything that is not a single-slash-prefixed
 relative path falls back to `/overview`, which also rejects the protocol-relative
 `//evil.example` form.
+
+### Why the session role is re-read on every request
+
+The role inside the session cookie is a copy taken when it was signed. An
+administrator who promotes a colleague changes what that person may do, and a
+change that only lands at their next sign-in is not a change. `getSession()`
+re-reads the account's role and uses it in preference to the cookie's, so
+`/admin` means what the console says it means.
+
+## Tenancy
+
+`organizations` is the tenant. `memberships` says who belongs to it, as what,
+and whether their access is active. A person in two schools has two membership
+rows, which is the whole reason the table exists rather than a column on
+`profiles`.
+
+**The membership role is the same four roles the permission matrix already
+defines.** An `owner` role was deliberately not added. It would have to appear
+in the matrix, in the session payload, in every `switch` on role and in every
+test that enumerates roles, all to buy the ability to receive an invoice. Org
+ownership is a billing fact, so it is `organizations.billing_email`, and the
+person who can administer the org is whoever holds `org:manage`. One concept,
+one place.
+
+**Tenancy is resolved from the session, never from a parameter.** The seam's
+`getOrg`, `listMembers`, `setMemberRole` and `setMemberStatus` all take the
+caller's user id and derive the organisation from their active membership. A
+crafted member id from another school is refused in exactly the shape as an id
+that never existed, so it cannot be used to confirm that a record is real.
+
+**Every tenancy write passes two gates.** The server action checks the
+permission from the session matrix; the seam checks that the caller is an active
+admin of the organisation that owns the row. Both are needed, because a server
+action is a public endpoint that `proxy.ts` never sees, and a role says what
+someone may do without saying whose records they may do it to.
+
+**A tenant can never be left without an administrator.** Demoting or suspending
+the last active admin is refused with a reason, in the seam and reflected in the
+UI, because the alternative is a school that nobody can recover through the
+interface.
+
+## Administration
+
+`/admin` is gated on `org:manage`, not `user:manage`. The two are separate grants
+on purpose: managing people in a school and managing the school's plan, billing
+contact and seat count are different jobs, and a district roll-out will want to
+hand out one without the other.
+
+It answers four questions in one place, because they are compared against each
+other rather than read in isolation: who is here, what may each of them do, what
+the organisation is set up as, and what the access model actually is.
+
+The access matrix on that page is **read from `rbac.ts` and rendered**, never
+written out again as markup. A hand-maintained copy of a permission table is a
+table that is wrong within a release, and it is exactly the kind of document an
+administrator would trust.
+
+The navigation entry is filtered by the same matrix that gates the route
+(`navFor()` in `rbac.ts`), so a teacher is neither shown a link to `/admin` nor
+able to open it.
 
 ## State ownership
 

@@ -25,6 +25,11 @@ import type {
   HistoryEventType,
   HistoryRecord,
   LessonPlanRecord,
+  MemberRecord,
+  MembershipStatus,
+  OrgInput,
+  OrgPlan,
+  OrgRecord,
   ProfileInput,
   ProfileRecord,
   Role,
@@ -159,9 +164,38 @@ export interface WorkspaceData {
   /** The signed-in teacher's own settings. */
   getProfile(userId: string): Promise<ProfileRecord | null>;
   updateProfile(userId: string, input: ProfileInput): Promise<ProfileRecord>;
+
+  /*
+   * Tenancy.
+   *
+   * `user:manage` and `org:manage` gate these in the actions that call them; the
+   * seam resolves *which* organisation and *whose* members from the session, so
+   * a caller cannot reach across tenants by passing an id.
+   */
+  getOrg(userId: string): Promise<OrgRecord | null>;
+  updateOrg(userId: string, input: OrgInput): Promise<OrgRecord>;
+
+  /** Everyone in the caller's organisation, including suspended members. */
+  listMembers(userId: string): Promise<MemberRecord[]>;
+
+  /** Changes what a member may do. Does not change their account's own role. */
+  setMemberRole(userId: string, memberId: string, role: Role): Promise<void>;
+
+  /** Suspends or restores access without removing the person from the org. */
+  setMemberStatus(userId: string, memberId: string, status: MembershipStatus): Promise<void>;
 }
 
 type Row = Record<string, unknown>;
+
+/**
+ * Column lists live here so a select and its mapper cannot drift apart. The
+ * profile select was repeated inline in three places and had already fallen one
+ * column behind the record it feeds.
+ */
+const PROFILE_COLUMNS =
+  'id, email, full_name, role, school_name, subjects, default_grade_level, grading_policy_id, org_id';
+
+const ORG_COLUMNS = 'id, name, slug, plan, seat_limit, billing_email, created_at';
 
 function iso(value: unknown): string {
   return typeof value === 'string' ? value : new Date().toISOString();
@@ -628,9 +662,7 @@ const supabaseAdapter: WorkspaceData = {
     const supabase = await requireClient();
     const { data, error } = await supabase
       .from('profiles')
-      .select(
-        'id, email, full_name, role, school_name, subjects, default_grade_level, grading_policy_id',
-      )
+      .select(PROFILE_COLUMNS)
       .eq('id', userId)
       .maybeSingle();
     if (error) throw mapSupabaseError(error);
@@ -650,13 +682,103 @@ const supabaseAdapter: WorkspaceData = {
         grading_policy_id: input.gradingPolicyId,
       })
       .eq('id', userId)
-      .select(
-        'id, email, full_name, role, school_name, subjects, default_grade_level, grading_policy_id',
-      )
+      .select(PROFILE_COLUMNS)
       .single();
     if (error) throw mapSupabaseError(error);
 
     return mapProfile(data as Row);
+  },
+
+  async getOrg(userId) {
+    // Resolved through the caller's own membership rather than from a profile
+    // column that could disagree with it, so the tenant is whatever the
+    // membership table says it is.
+    return supabaseOrgFor(userId);
+  },
+
+  async updateOrg(userId, input) {
+    const org = await supabaseOrgFor(userId);
+    if (!org) throw new DataError('NOT_FOUND', 'This account has no organisation yet.');
+
+    const supabase = await requireClient();
+    const { data, error } = await supabase
+      .from('organizations')
+      .update({
+        name: input.name,
+        plan: input.plan,
+        seat_limit: input.seatLimit,
+        billing_email: input.billingEmail,
+      })
+      .eq('id', org.id)
+      .select(ORG_COLUMNS)
+      .single();
+    if (error) throw mapSupabaseError(error);
+
+    return mapOrg(data as Row);
+  },
+
+  async listMembers(userId) {
+    const org = await supabaseOrgFor(userId);
+    if (!org) return [];
+
+    const supabase = await requireClient();
+    const { data, error } = await supabase
+      .from('memberships')
+      .select(
+        'id, user_id, org_id, role, status, created_at, profiles!memberships_user_id_fkey(email, full_name)',
+      )
+      .eq('org_id', org.id)
+      .order('created_at', { ascending: true });
+    if (error) throw mapSupabaseError(error);
+
+    return (data ?? []).map((row) => mapMember(row as Row));
+  },
+
+  async setMemberRole(userId, memberId, role) {
+    const org = await supabaseOrgFor(userId);
+    if (!org) throw new DataError('NOT_FOUND', 'This account has no organisation yet.');
+
+    const supabase = await requireClient();
+    const { error } = await supabase
+      .from('memberships')
+      .update({ role })
+      .eq('id', memberId)
+      .eq('org_id', org.id);
+    if (error) throw mapSupabaseError(error);
+
+    /*
+     * The account's own role follows the membership, because that is what the
+     * permission matrix and the session are checked against. Writing only the
+     * membership would leave the console promising a change it had not made.
+     * Supabase keeps the two in step at the next token refresh.
+     */
+    const { data: membership } = await supabase
+      .from('memberships')
+      .select('user_id')
+      .eq('id', memberId)
+      .eq('org_id', org.id)
+      .maybeSingle();
+    const target = membership?.user_id;
+    if (!target) return;
+
+    const { error: profileError } = await supabase
+      .from('profiles')
+      .update({ role })
+      .eq('id', target);
+    if (profileError) throw mapSupabaseError(profileError);
+  },
+
+  async setMemberStatus(userId, memberId, status) {
+    const org = await supabaseOrgFor(userId);
+    if (!org) throw new DataError('NOT_FOUND', 'This account has no organisation yet.');
+
+    const supabase = await requireClient();
+    const { error } = await supabase
+      .from('memberships')
+      .update({ status })
+      .eq('id', memberId)
+      .eq('org_id', org.id);
+    if (error) throw mapSupabaseError(error);
   },
 };
 
@@ -673,6 +795,39 @@ function mapClass(row: Row): ClassRecord {
   };
 }
 
+function mapOrg(row: Row): OrgRecord {
+  return {
+    id: str(row.id),
+    name: str(row.name),
+    slug: str(row.slug),
+    plan: str(row.plan, 'solo') as OrgPlan,
+    seatLimit: num(row.seat_limit, 5),
+    billingEmail: (row.billing_email as string | null) ?? null,
+    createdAt: iso(row.created_at),
+  };
+}
+
+function mapMember(row: Row): MemberRecord {
+  /*
+   * The profile comes back as an embedded object for a membership row and as an
+   * array for a profile row, depending on whether the foreign key was inferred
+   * as one-to-one. Both shapes appear in practice, so both are read.
+   */
+  const embedded = row.profiles;
+  const profile: Row = Array.isArray(embedded) ? (embedded[0] ?? {}) : ((embedded as Row) ?? {});
+
+  return {
+    id: str(row.id),
+    userId: str(row.user_id),
+    orgId: str(row.org_id),
+    fullName: str(profile.full_name),
+    email: str(profile.email),
+    role: str(row.role, 'instructor') as Role,
+    status: str(row.status, 'active') as MembershipStatus,
+    joinedAt: iso(row.created_at),
+  };
+}
+
 function mapProfile(row: Row): ProfileRecord {
   return {
     id: str(row.id),
@@ -683,6 +838,7 @@ function mapProfile(row: Row): ProfileRecord {
     subjects: Array.isArray(row.subjects) ? (row.subjects as string[]) : [],
     defaultGradeLevel: (row.default_grade_level as ClassLevel | null) ?? null,
     gradingPolicyId: (row.grading_policy_id as string | null) ?? null,
+    orgId: (row.org_id as string | null) ?? null,
   };
 }
 
@@ -765,6 +921,29 @@ async function requireClient() {
     );
   }
   return supabase;
+}
+
+/**
+ * The organisation the caller belongs to.
+ *
+ * Every tenancy write goes through this rather than taking an org id from the
+ * caller, so a crafted request cannot address another school's members. A
+ * suspended membership resolves to null, which is what makes suspending someone
+ * actually take effect on their next request.
+ */
+async function supabaseOrgFor(userId: string): Promise<OrgRecord | null> {
+  const supabase = await requireClient();
+  const { data, error } = await supabase
+    .from('memberships')
+    .select('org_id, organizations(' + ORG_COLUMNS + ')')
+    .eq('user_id', userId)
+    .eq('status', 'active')
+    .limit(1)
+    .maybeSingle();
+  if (error) throw mapSupabaseError(error);
+
+  const org = (data as { organizations: Row } | null)?.organizations;
+  return org ? mapOrg(org) : null;
 }
 
 // ---------------------------------------------------------------------------
