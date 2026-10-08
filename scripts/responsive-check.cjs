@@ -11,8 +11,9 @@
 const { chromium } = require('@playwright/test');
 const fs = require('fs');
 const path = require('path');
+const { defaultUrl, describeTarget } = require('./lib/target.cjs');
 
-const URL = process.argv[2] || 'http://localhost:3000';
+const URL = process.argv[2] || defaultUrl();
 const OUT = path.join(__dirname, '..', '.responsive');
 
 const WIDTHS = [
@@ -37,6 +38,20 @@ const SECTIONS = ['modules', 'roles'];
 const SHOT_WIDTHS = ['375', '1440'];
 
 (async () => {
+  /*
+   * Refuse to grade anything until the server is known to be this checkout.
+   * This script used to default to port 3000, which on this machine is an
+   * unrelated application, so it has been writing screenshots of somebody else's
+   * landing page and reporting their breakpoints as LIKO's. See
+   * scripts/lib/target.cjs.
+   */
+  const target = await describeTarget(URL);
+  if (!target.ok) {
+    console.log(`FAIL  wrong server  ${target.reason}`);
+    process.exit(1);
+  }
+  console.log(`PASS  serving this checkout  build ${target.buildId} at ${URL}`);
+
   fs.mkdirSync(OUT, { recursive: true });
   const browser = await chromium.launch();
   let failures = 0;

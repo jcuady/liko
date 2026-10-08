@@ -14,8 +14,9 @@
  */
 
 const { chromium } = require('@playwright/test');
+const { defaultUrl, describeTarget } = require('./lib/target.cjs');
 
-const URL = process.argv[2] ?? 'http://localhost:3000';
+const URL = process.argv[2] ?? defaultUrl();
 
 let failures = 0;
 function check(name, ok, detail = '') {
@@ -24,6 +25,19 @@ function check(name, ok, detail = '') {
 }
 
 async function main() {
+  /*
+   * Refuse to grade anything until the server is known to be this checkout.
+   * These checks used to default to port 3000, which on this machine is an
+   * unrelated application, and they reported its numbers as though they were
+   * LIKO's. See scripts/lib/target.cjs.
+   */
+  const target = await describeTarget(URL);
+  if (!target.ok) {
+    console.log(`FAIL  wrong server  ${target.reason}`);
+    process.exit(1);
+  }
+  console.log(`PASS  serving this checkout  build ${target.buildId} at ${URL}`);
+
   const browser = await chromium.launch();
 
   // --- 1. Anchor navigation clears the sticky nav ---------------------------

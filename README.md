@@ -209,6 +209,22 @@ notification actually arriving.
 | `pnpm check:responsive` | Horizontal overflow audit at five widths, plus screenshots |
 | `pnpm check:behaviour` | Anchor navigation, reduced motion, and no-JS fallback |
 
+The last two need a server already running, and they identify it by the build
+id in `.next/BUILD_ID` rather than by port, so they fail loudly instead of
+grading whatever else happens to be listening:
+
+```bash
+pnpm build && pnpm run start --port 3311   # in one shell
+pnpm check:behaviour                        # in another
+```
+
+Both accept an explicit URL as an argument. Set `PORT` to change the default.
+
+This is not hypothetical. They used to default to `http://localhost:3000`,
+which on this machine is a `next start` server for a different project, so both
+scripts had been measuring another application and reporting its numbers as
+LIKO's.
+
 ### Brand tooling
 
 The supplied logo arrived as a JPEG over a checkerboard, so it was reconstructed

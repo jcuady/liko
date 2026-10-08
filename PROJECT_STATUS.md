@@ -45,6 +45,9 @@ Students cannot self-register. That was already structurally true; it is now exp
 - 13 unit files, 10 E2E specs
 - `pnpm check:responsive` and `pnpm check:behaviour` as static gates
 - E2E runs against a production build on port 3311
+- Both check scripts verify they are pointed at this checkout by build id before
+  reporting anything; they had been silently measuring another application on
+  port 3000
 
 ## Architecture Summary
 
