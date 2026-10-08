@@ -20,6 +20,8 @@ import { requirePermission } from '@/lib/auth/guards';
 import { classLevelSchema, type ClassLevel } from '@/lib/api/types';
 import { recordConsent } from '@/lib/auth/consent';
 import { findUserByEmail, signUp } from '@/lib/auth/store';
+import { initialsFor } from '@/lib/roster/initials';
+import { buildImportPlan } from '@/lib/roster/import';
 
 /**
  * The only roles a teacher may mint an account for.
@@ -163,11 +165,7 @@ export async function createStudent(input: {
     return { ok: false, message: 'That guardian email address does not look right.' };
   }
 
-  const initials = fullName
-    .split(/\s+/)
-    .slice(0, 2)
-    .map((part) => part[0]?.toUpperCase() ?? '')
-    .join('');
+  const initials = initialsFor(fullName);
 
   /*
    * The login is validated and the account created BEFORE the roster row, so a
@@ -299,6 +297,146 @@ export async function createStudent(input: {
   }
 
   return { ok: true, message: `${fullName} added.` };
+}
+
+export interface ImportResult {
+  ok: boolean;
+  message: string;
+  /** Students added. Zero means nothing was written. */
+  created: number;
+  /** Rows that were refused, each with the line number a teacher can find. */
+  problems: { row: number; message: string }[];
+  /** Rows that turned out to be duplicates of one another in the file. */
+  duplicates: { row: number; message: string }[];
+}
+
+/** A paste larger than this is a file somebody attached by accident. */
+const MAX_IMPORT_BYTES = 256 * 1024;
+
+/**
+ * Adds a whole class list from CSV.
+ *
+ * The browser parses the same text first so the teacher sees a preview, but this
+ * action never accepts that preview. It takes the raw text and runs
+ * `buildImportPlan` over it again, because a server action is a public endpoint
+ * and anything the client says is only a claim until it has been checked here.
+ *
+ * The class id is resolved the same way: it has to match a class this teacher
+ * can actually read. Posting somebody else's class id creates nothing.
+ *
+ * Accounts are not issued. Minting thirty student logins from a spreadsheet is a
+ * different decision from adding thirty names to a roster, and the one that
+ * deserves a deliberate click per student.
+ */
+export async function importRoster(input: { classId: string; csv: string }): Promise<ImportResult> {
+  const session = await requirePermission('class:write');
+
+  const csv = typeof input.csv === 'string' ? input.csv : '';
+  if (csv.trim() === '') {
+    return { ok: false, message: 'Nothing to import.', created: 0, problems: [], duplicates: [] };
+  }
+  if (csv.length > MAX_IMPORT_BYTES) {
+    return {
+      ok: false,
+      message: 'That file is too large to import. Split the class list and try again.',
+      created: 0,
+      problems: [],
+      duplicates: [],
+    };
+  }
+
+  const store = await data();
+  const classes = await store.listClasses(session.userId);
+  const target = classes.find((item) => item.id === input.classId);
+
+  if (!target) {
+    return {
+      ok: false,
+      message: 'That class is not yours to add students to.',
+      created: 0,
+      problems: [],
+      duplicates: [],
+    };
+  }
+
+  const existing = await store.listStudents(session.userId, target.id);
+  const existingNames = new Set(
+    existing.filter((student) => !student.archivedAt).map((student) => student.fullName.toLowerCase()),
+  );
+
+  const plan = buildImportPlan(csv, existingNames);
+
+  if (plan.drafts.length === 0) {
+    return {
+      ok: false,
+      message: 'No students could be read from that file.',
+      created: 0,
+      problems: plan.problems.slice(0, 20),
+      duplicates: [],
+    };
+  }
+
+  /*
+   * Two students with the same name is not an error. Twins are real, and a class
+   * can hold more than one Ana. They are reported so the teacher can look, and
+   * both are still added.
+   */
+  const seen = new Set<string>();
+  const duplicates: { row: number; message: string }[] = [];
+  const unique = plan.drafts.filter((draft) => {
+    const key = draft.fullName.toLowerCase();
+    if (seen.has(key)) {
+      duplicates.push({ row: draft.row, message: `${draft.fullName} appears twice in this file.` });
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
+
+  const failed: { row: number; message: string }[] = [];
+  let created = 0;
+
+  for (const draft of unique) {
+    try {
+      await store.createStudent(session.userId, {
+        classId: target.id,
+        fullName: draft.fullName,
+        initials: initialsFor(draft.fullName),
+        guardianName: draft.guardianName,
+        guardianEmail: draft.guardianEmail,
+        guardianPhone: draft.guardianPhone,
+        accountId: null,
+      });
+      created += 1;
+    } catch {
+      failed.push({ row: draft.row, message: `${draft.fullName} could not be added.` });
+    }
+  }
+
+  revalidatePath('/classes');
+
+  const problems = [...plan.problems, ...failed].slice(0, 20);
+
+  if (created === 0) {
+    return {
+      ok: false,
+      message: 'No students could be added. The rows below say why.',
+      created: 0,
+      problems,
+      duplicates,
+    };
+  }
+
+  return {
+    ok: true,
+    message:
+      problems.length > 0
+        ? `${created} added, ${problems.length} left out. The rows below say why.`
+        : `${created} added.`,
+    created,
+    problems,
+    duplicates,
+  };
 }
 
 function parseIssuableRole(raw: string | undefined): IssuableRole | null {

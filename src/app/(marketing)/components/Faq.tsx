@@ -25,8 +25,9 @@ import {
  * A gradebook export was added later, so "no export" is no longer the answer and
  * saying so would be its own kind of wrong. The answer now names what the button
  * actually does, one class's marks at a time, and is explicit about the rest
- * still coming from us. There is no trial, no class list import, no AI feature
- * and no cancellation flow.
+ * still coming from us. A CSV class list import was added after that, and the
+ * class list answer says exactly what it reads. There is no trial, no LMS
+ * roster import, no AI feature and no cancellation flow.
  *
  * The questions are the ones a teacher actually asks, so they stay. The answers
  * say what is true, including where the honest answer is "not yet, ask us".
@@ -44,7 +45,7 @@ const ITEMS = [
   },
   {
     q: 'Can I bring my existing class list in?',
-    a: 'Not yet. There is no spreadsheet or LMS import today, and students are added one at a time from the class roster. If that is what is stopping you, say so and you will be told the moment it lands.',
+    a: 'Yes, from a CSV file. Open the class, choose Import CSV, and pick the file or paste the rows in. Headings are matched by what they say, so the column order does not matter, and a file with no heading row is read as one column of names. You see what was read before anything is added. A roster straight out of an LMS is not something we read yet, so save it as a CSV first.',
   },
   {
     q: 'Can I get my data out?',

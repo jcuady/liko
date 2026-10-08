@@ -11,13 +11,16 @@ import { z } from 'zod';
  * address would fail `.email()` if the order were reversed. Piping makes the
  * order explicit: trim, lowercase, then check.
  */
-const email = z
+export const emailSchema = z
   .string()
   .trim()
   .toLowerCase()
   .pipe(z.string().min(1, 'Enter your email.'))
   .pipe(z.email('Enter a valid email address.'))
   .pipe(z.string().max(254, 'That email address is too long.'));
+
+/** Local alias so the schemas below read as one word each. */
+const email = emailSchema;
 
 const password = z
   .string()

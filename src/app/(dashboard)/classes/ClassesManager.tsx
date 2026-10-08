@@ -4,7 +4,7 @@ import * as React from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
-import { ArchiveIcon, PlusIcon, UsersIcon } from '@phosphor-icons/react';
+import { ArchiveIcon, PlusIcon, UploadSimpleIcon, UsersIcon } from '@phosphor-icons/react';
 
 import { Button } from '@/components/ui/button';
 import { Input, Select } from '@/components/ui/input';
@@ -23,8 +23,9 @@ import {
 } from '@/components/ui/dialog';
 import { queryKeys } from '@/lib/query/keys';
 import type { ClassLevel, StudentRecord } from '@/lib/api/types';
+import { buildImportPlan, type ImportPlan } from '@/lib/roster/import';
 
-import { archiveClass, archiveStudent, createClass, createStudent } from './actions';
+import { archiveClass, archiveStudent, createClass, createStudent, importRoster } from './actions';
 
 /**
  * Roster management.
@@ -191,6 +192,7 @@ function RosterPanel({ classRecord }: { classRecord: ClassSummary }) {
         </div>
         <div className="flex shrink-0 flex-wrap gap-2">
           <NewStudentDialog classId={classRecord.id} />
+          <ImportRosterDialog classId={classRecord.id} />
           <Button
             variant="ghost"
             size="sm"
@@ -422,6 +424,200 @@ function NewClassDialog() {
             </Button>
           </DialogFooter>
         </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function ImportRosterDialog({ classId }: { classId: string }) {
+  const [open, setOpen] = React.useState(false);
+  const [csv, setCsv] = React.useState('');
+  const [fileName, setFileName] = React.useState('');
+  const [result, setResult] = React.useState<{
+    message: string;
+    created: number;
+    problems: { row: number; message: string }[];
+    duplicates: { row: number; message: string }[];
+  } | null>(null);
+  const refresh = useRefreshAfterWrite();
+
+  /*
+   * Parsed here only so the teacher sees what is about to happen. The action
+   * parses the same text again on the server and ignores this entirely, because
+   * a preview is a claim until the server has checked it.
+   */
+  const plan: ImportPlan | null = React.useMemo(
+    () => (csv.trim() === '' ? null : buildImportPlan(csv)),
+    [csv],
+  );
+
+  const importList = useMutation({
+    mutationFn: importRoster,
+    onSuccess: async (data) => {
+      await refresh();
+      setResult({
+        message: data.message,
+        created: data.created,
+        problems: data.problems,
+        duplicates: data.duplicates,
+      });
+      if (data.ok && data.problems.length === 0) {
+        toast.success(data.message);
+      }
+    },
+    onError: () => toast.error('That file could not be imported. Try again.'),
+  });
+
+  function reset() {
+    setCsv('');
+    setFileName('');
+    setResult(null);
+    setOpen(false);
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(next) => (next ? setOpen(true) : reset())}>
+      <DialogTrigger asChild>
+        <Button variant="ghost" size="sm">
+          <UploadSimpleIcon size={15} weight="bold" aria-hidden="true" />
+          Import CSV
+        </Button>
+      </DialogTrigger>
+
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Import a class list</DialogTitle>
+          <DialogDescription>
+            A CSV with a name column, and optionally guardian name, email and
+            phone. Column order does not matter and the headings are matched by
+            what they say.
+          </DialogDescription>
+        </DialogHeader>
+
+        {result ? (
+          <div className="flex flex-col gap-4">
+            <p className="text-[0.9375rem] text-ink">{result.message}</p>
+
+            {(result.problems.length > 0 || result.duplicates.length > 0) && (
+              <div className="max-h-56 overflow-y-auto rounded-[12px] border border-border">
+                <table className="w-full text-left text-[0.9375rem]">
+                  <caption className="sr-only">Rows left out of this import</caption>
+                  <thead>
+                    <tr className="border-b border-border">
+                      <th scope="col" className="px-3 py-2 text-label">
+                        Row
+                      </th>
+                      <th scope="col" className="px-3 py-2 text-label">
+                        Why
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {[...result.duplicates, ...result.problems].map((problem) => (
+                      <tr key={`${problem.row}-${problem.message}`} className="border-b border-border last:border-0">
+                        <td className="tabular px-3 py-2 align-top text-ink-muted">{problem.row}</td>
+                        <td className="px-3 py-2 align-top text-ink">{problem.message}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            <DialogFooter>
+              <Button onClick={reset}>Done</Button>
+            </DialogFooter>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-4">
+            <FormField
+              id="roster-file"
+              label={fileName === '' ? 'Choose a CSV file' : fileName}
+              hint="Or paste into the box below."
+            >
+              {(props) => (
+                <input
+                  {...props}
+                  type="file"
+                  accept=".csv,text/csv"
+                  className="block w-full text-[0.9375rem] text-ink file:mr-3 file:rounded-[10px] file:border-0 file:bg-accent file:px-3 file:py-2 file:text-[0.9375rem] file:font-medium file:text-white"
+                  onChange={async (event) => {
+                    const file = event.target.files?.[0];
+                    if (!file) return;
+                    setFileName(file.name);
+                    setCsv(await file.text());
+                  }}
+                />
+              )}
+            </FormField>
+
+            <FormField id="roster-paste" label="Or paste rows" hint="First column is the name.">
+              {(props) => (
+                <textarea
+                  {...props}
+                  rows={5}
+                  value={csv}
+                  onChange={(event) => {
+                    setCsv(event.target.value);
+                    setFileName('');
+                  }}
+                  placeholder={'Ana Ng, Mrs Ng, ana@example.com'}
+                  className="w-full rounded-[12px] border border-border bg-surface px-3.5 py-3 text-[0.9375rem] text-ink focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent-ring/25"
+                />
+              )}
+            </FormField>
+
+            {plan && (
+              <div className="flex flex-col gap-2 rounded-[12px] border border-border bg-surface-sunken p-4">
+                <p className="text-[0.9375rem] font-medium text-ink">
+                  {plan.drafts.length === 0
+                    ? 'No students could be read from this.'
+                    : `${plan.drafts.length} student${plan.drafts.length === 1 ? '' : 's'} ready to add.`}
+                </p>
+
+                {plan.drafts.length > 0 && (
+                  <p className="text-meta text-ink-muted">
+                    {plan.drafts.slice(0, 4).map((draft) => draft.fullName).join(', ')}
+                    {plan.drafts.length > 4 ? `, and ${plan.drafts.length - 4} more` : ''}
+                  </p>
+                )}
+
+                {!plan.hasHeader && plan.drafts.length > 0 && (
+                  <p className="text-meta text-ink-muted">
+                    No heading row found, so the first column is being read as the
+                    name and guardian columns are ignored.
+                  </p>
+                )}
+
+                {plan.problems.length > 0 && (
+                  <p className="text-meta text-ink-muted">
+                    {plan.problems.length} row{plan.problems.length === 1 ? '' : 's'} will be left
+                    out. The first is row {plan.problems[0].row}: {plan.problems[0].message}
+                  </p>
+                )}
+
+                <p className="text-meta text-ink-muted">
+                  No student logins are created by an import. Add those one at a
+                  time when someone actually needs one.
+                </p>
+              </div>
+            )}
+
+            <DialogFooter>
+              <Button variant="ghost" onClick={reset}>
+                Cancel
+              </Button>
+              <Button
+                disabled={!plan || plan.drafts.length === 0 || importList.isPending}
+                onClick={() => importList.mutate({ classId, csv })}
+              >
+                {importList.isPending
+                  ? 'Adding'
+                  : `Add ${plan?.drafts.length ?? 0} student${plan?.drafts.length === 1 ? '' : 's'}`}
+              </Button>
+            </DialogFooter>
+          </div>
+        )}
       </DialogContent>
     </Dialog>
   );
