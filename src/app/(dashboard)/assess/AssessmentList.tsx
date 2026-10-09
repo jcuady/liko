@@ -6,16 +6,19 @@ import { useQuery } from '@tanstack/react-query';
 import { Badge, Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { NewAssessmentDialog } from '@/components/product/NewAssessmentDialog';
 import { queryKeys } from '@/lib/query/keys';
-import type { AssessmentRecord } from '@/lib/api/types';
+import type { AssessmentRecord, QuestionRecord } from '@/lib/api/types';
 
 import { ASSESSMENT_TYPES } from './options';
+import { QuestionBuilder } from './QuestionBuilder';
+import { ScanSheet } from './ScanSheet';
 
 /**
- * The assessment list.
+ * The assessments for one class, and the two things that were missing: the
+ * questions behind an assessment, and a way to read a marked sheet against them.
  *
- * Reads arrive from the server as props and seed the cache, so the list paints
- * on first render. The cache entry is keyed by class, which is what lets the
- * gradebook route and this one share a single source for the same class.
+ * An assessment is now selected rather than merely listed. It had to be, because
+ * a question set and a scan both belong to exactly one assessment, and with a
+ * list and no selection there was nothing for either to attach to.
  */
 
 const TYPE_LABELS = new Map(ASSESSMENT_TYPES.map((type) => [type.value, type.label]));
@@ -24,41 +27,57 @@ export function AssessmentList({
   classes,
   classId,
   assessments,
+  questionsByAssessment,
+  students,
 }: {
   classes: { id: string; name: string }[];
   classId: string;
   assessments: AssessmentRecord[];
+  /** Pre-loaded on the server so the builder paints without a round trip. */
+  questionsByAssessment: Record<string, QuestionRecord[]>;
+  students: { id: string; name: string }[];
 }) {
   const [selectedId, setSelectedId] = React.useState(classId);
-  const effectiveId = classes.some((item) => item.id === selectedId) ? selectedId : classId;
+  const [assessmentId, setAssessmentId] = React.useState<string>('');
+
+  const effectiveClassId = classes.some((item) => item.id === selectedId) ? selectedId : classId;
+  const classRoster = students;
 
   const { data: rows = assessments, isFetching } = useQuery({
-    queryKey: queryKeys.assessments(effectiveId),
+    queryKey: queryKeys.assessments(effectiveClassId),
     queryFn: async () => {
       const { loadAssessments } = await import('./actions');
-      return loadAssessments(effectiveId);
+      return loadAssessments(effectiveClassId);
     },
     initialData: assessments,
     staleTime: 30_000,
   });
 
   const weightTotal = rows.reduce((total, row) => total + row.weight, 0);
+  const active = rows.find((row) => row.id === assessmentId) ?? null;
+  const activeQuestions = active ? (questionsByAssessment[active.id] ?? []) : [];
+
+  // Choosing a different class leaves a selection that belongs to the old one.
+  // Adjusted during render rather than from an effect, which would first paint
+  // the old class's assessment against the new class's roster.
+  const [lastClassId, setLastClassId] = React.useState(effectiveClassId);
+  if (lastClassId !== effectiveClassId) {
+    setLastClassId(effectiveClassId);
+    setAssessmentId('');
+  }
 
   return (
     <div className="flex flex-col gap-5">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <label
-            htmlFor="assess-class"
-            className="text-[0.875rem] font-medium text-ink"
-          >
+          <label htmlFor="assess-class" className="text-[0.875rem] font-medium text-ink">
             Class
           </label>
           <select
             id="assess-class"
-            value={effectiveId}
+            value={effectiveClassId}
             onChange={(event) => setSelectedId(event.target.value)}
-            className="mt-1.5 flex h-11 rounded-[12px] border border-border bg-surface px-3.5 text-[0.9375rem] text-ink transition-colors duration-150 focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent-ring/25"
+            className="mt-1.5 flex h-11 rounded-[12px] border border-border-strong bg-surface px-3.5 text-[0.9375rem] text-ink transition-colors duration-150 focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent-ring/25"
           >
             {classes.map((item) => (
               <option key={item.id} value={item.id}>
@@ -67,7 +86,7 @@ export function AssessmentList({
             ))}
           </select>
         </div>
-        <NewAssessmentDialog classId={effectiveId} triggerLabel="New assessment" variant="primary" />
+        <NewAssessmentDialog classId={effectiveClassId} triggerLabel="New assessment" variant="primary" />
       </div>
 
       {rows.length === 0 ? (
@@ -96,34 +115,65 @@ export function AssessmentList({
 
           <CardContent>
             <ul className="flex flex-col gap-2">
-              {rows.map((row) => (
-                <li
-                  key={row.id}
-                  className="flex flex-wrap items-center justify-between gap-3 rounded-[12px] border border-border bg-surface-sunken px-4 py-3"
-                >
-                  <div className="min-w-0">
-                    <p className="text-[0.9375rem] font-medium text-ink">{row.title}</p>
-                    <p className="text-meta text-ink-muted">
-                      {TYPE_LABELS.get(row.type) ?? row.type} Â· out of {row.maxScore} Â· weight{' '}
-                      {row.weight}%
-                      {row.dueOn ? ` Â· due ${row.dueOn}` : ''}
-                    </p>
-                    {row.standardCodes.length > 0 ? (
-                      <ul className="mt-1.5 flex flex-wrap gap-1.5">
+              {rows.map((row) => {
+                const isActive = row.id === assessmentId;
+                const count = questionsByAssessment[row.id]?.length ?? 0;
+                return (
+                  <li key={row.id}>
+                    <button
+                      type="button"
+                      onClick={() => setAssessmentId(isActive ? '' : row.id)}
+                      aria-expanded={isActive}
+                      aria-controls="assessment-detail"
+                      className={
+                        isActive
+                          ? 'flex w-full flex-wrap items-center justify-between gap-3 rounded-[12px] border border-accent bg-accent-subtle px-4 py-3 text-left transition-colors duration-150 ease-[cubic-bezier(0.32,0.72,0,1)]'
+                          : 'flex w-full flex-wrap items-center justify-between gap-3 rounded-[12px] border border-border bg-surface-sunken px-4 py-3 text-left transition-colors duration-150 ease-[cubic-bezier(0.32,0.72,0,1)] hover:border-border-strong'
+                      }
+                    >
+                      <span className="min-w-0">
+                        <span className="block text-[0.9375rem] font-medium text-ink">
+                          {row.title}
+                        </span>
+                        <span className="block text-meta text-ink-muted">
+                          {TYPE_LABELS.get(row.type) ?? row.type} · out of {row.maxScore} · weight{' '}
+                          {row.weight}%
+                          {row.dueOn ? ` · due ${row.dueOn}` : ''}
+                        </span>
+                      </span>
+                      <span className="flex items-center gap-2">
+                        <Badge tone={count > 0 ? 'success' : 'warning'}>
+                          {count > 0 ? `${count} question${count === 1 ? '' : 's'}` : 'No questions'}
+                        </Badge>
                         {row.standardCodes.map((code) => (
-                          <li key={code}>
-                            <Badge tone="neutral">{code}</Badge>
-                          </li>
+                          <Badge key={code} tone="neutral">
+                            {code}
+                          </Badge>
                         ))}
-                      </ul>
-                    ) : null}
-                  </div>
-                </li>
-              ))}
+                      </span>
+                    </button>
+                  </li>
+                );
+              })}
             </ul>
           </CardContent>
         </Card>
       )}
+
+      {active ? (
+        <div id="assessment-detail" className="flex flex-col gap-5">
+          <QuestionBuilder
+            assessmentId={active.id}
+            assessmentTitle={active.title}
+            maxScore={active.maxScore}
+          />
+          <ScanSheet
+            assessment={active}
+            questions={activeQuestions}
+            students={classRoster}
+          />
+        </div>
+      ) : null}
     </div>
   );
 }

@@ -268,6 +268,142 @@ async function seedTenancy(accounts) {
   }
 }
 
+/**
+ * A second assessment that is actually scannable, and the questions on it.
+ *
+ * WHY A SECOND ASSESSMENT. The one seeded above exists to give the gradebook and
+ * the at-risk sweep a spread of marks on a round scale. It has a maximum, a
+ * weight and no content, because before questions existed there was nowhere to
+ * put content. This one carries the eight questions a sheet is read against, and
+ * its maximum is the sum of their points rather than a round hundred: a maximum
+ * that disagrees with the questions is exactly how a scan ends up reporting a
+ * mark out of a number nobody is being taught.
+ *
+ * WHY IT RUNS FOR EXISTING CLASSES TOO. The class-creation branch skips a class
+ * it finds already there, and this was written inside that branch, so a second
+ * run of the seed added nothing and the quiz silently never appeared. It is
+ * idempotent on its own terms instead: it looks first, and does nothing if the
+ * quiz is already there.
+ */
+async function seedScannableQuiz(supabase, ownerId, klass) {
+  const TITLE = 'Bonding Quiz';
+
+  const { data: existing } = await supabase
+    .from('assessments')
+    .select('id')
+    .eq('owner_id', ownerId)
+    .eq('class_id', klass.id)
+    .eq('title', TITLE)
+    .maybeSingle();
+
+  if (existing) return;
+
+  const { data: scannable, error: scannableError } = await supabase
+    .from('assessments')
+    .insert({
+      owner_id: ownerId,
+      class_id: klass.id,
+      title: TITLE,
+      type: 'quiz',
+      weight: 0,
+      max_score: 11,
+      due_on: dateOnly(7),
+      standard_codes: ['HS-PS1-1'],
+    })
+    .select()
+    .single();
+
+  if (scannableError) throw scannableError;
+
+  const option = (key, text) => ({ key, text });
+  const { error: questionError } = await supabase.from('questions').insert(
+    [
+      [
+        'single',
+        'Which bond is formed when sodium transfers an electron to chlorine?',
+        [
+          option('A', 'Covalent'),
+          option('B', 'Ionic'),
+          option('C', 'Metallic'),
+          option('D', 'Coordinate'),
+        ],
+        ['B'],
+        1,
+      ],
+      [
+        'single',
+        'How many lone pairs does an oxygen atom carry in a water molecule?',
+        [option('A', 'One'), option('B', 'Two'), option('C', 'Three'), option('D', 'Four')],
+        ['B'],
+        1,
+      ],
+      [
+        'multiple',
+        'Which of these are covalent? Select every answer that applies.',
+        [option('A', 'O2'), option('B', 'NaCl'), option('C', 'H2O'), option('D', 'MgO')],
+        ['A', 'C'],
+        2,
+      ],
+      [
+        'single',
+        'A double bond consists of how many shared pairs?',
+        [option('A', 'One'), option('B', 'Two'), option('C', 'Three'), option('D', 'Four')],
+        ['B'],
+        1,
+      ],
+      [
+        'multiple',
+        'Which particles carry a full octet in an ionic lattice? Select all that apply.',
+        [option('A', 'Na+'), option('B', 'Cl-'), option('C', 'Na'), option('D', 'Cl')],
+        ['A', 'B'],
+        2,
+      ],
+      [
+        'single',
+        'What is the valency of an element in Group 2?',
+        [option('A', 'One'), option('B', 'Two'), option('C', 'Three'), option('D', 'Seven')],
+        ['B'],
+        1,
+      ],
+      [
+        'single',
+        'Which statement about giant covalent structures is true?',
+        [
+          option('A', 'They conduct electricity when solid'),
+          option('B', 'They have a very high melting point'),
+          option('C', 'They dissolve readily in water'),
+          option('D', 'They are always gases'),
+        ],
+        ['B'],
+        1,
+      ],
+      [
+        'multiple',
+        'Which properties does metallic bonding explain? Select all that apply.',
+        [
+          option('A', 'Good electrical conductivity'),
+          option('B', 'Malleability'),
+          option('C', 'Solubility in water'),
+          option('D', 'High melting point'),
+        ],
+        ['A', 'B', 'D'],
+        2,
+      ],
+    ].map(([kind, prompt, options, answerKey, points], position) => ({
+      owner_id: ownerId,
+      assessment_id: scannable.id,
+      position,
+      kind,
+      prompt,
+      options,
+      answer_key: answerKey,
+      points,
+    })),
+  );
+
+  if (questionError) throw questionError;
+}
+
 async function seed() {
   /** Account id per email, so the tenancy pass below can attach everyone. */
   const accounts = new Map();
@@ -297,7 +433,8 @@ async function seed() {
       .maybeSingle();
 
     if (existingClass) {
-      console.log(`  class ${spec.classCode} already exists, skipping`);
+      console.log(`  class ${spec.classCode} already exists, checking the scannable quiz`);
+      await seedScannableQuiz(supabase, ownerId, existingClass);
       continue;
     }
 
@@ -381,6 +518,8 @@ async function seed() {
       })),
       { onConflict: 'assessment_id,student_id' },
     );
+
+    await seedScannableQuiz(supabase, ownerId, klass);
 
     await supabase.from('lesson_plans').insert({
       owner_id: ownerId,

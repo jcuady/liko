@@ -39,6 +39,7 @@ const TABLES = [
   'students',
   'attendance',
   'assessments',
+  'questions',
   'grades',
   'lesson_plans',
   'behaviour_logs',

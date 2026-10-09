@@ -23,6 +23,7 @@ import type {
   DeckInput,
   DeckRecord,
   GradeRecord,
+  GradeSource,
   GradingPolicyInput,
   GradingPolicyRecord,
   HeatCell,
@@ -36,7 +37,9 @@ import type {
   OrgRecord,
   ProfileInput,
   ProfileRecord,
+  QuestionRecord,
   Role,
+  ScannedAnswer,
   Severity,
   SlideInput,
   SlideLayout,
@@ -107,6 +110,18 @@ export interface WorkspaceData {
     date: string,
   ): Promise<Record<string, AttendanceStatus>>;
   listAssessments(userId: string, classId: string): Promise<AssessmentRecord[]>;
+  /**
+   * One assessment, or null.
+   *
+   * Exists so a write can prove the row it is about to hang something off is
+   * the caller's. RLS stops a teacher reading another teacher's questions, but
+   * it does not stop them attaching questions of their own to a foreign
+   * assessment: the new rows would carry their own `owner_id` and the foreign
+   * teacher would simply never see them. That is silent data loss, not an
+   * escape, so ownership is checked before the write rather than after.
+   */
+  getAssessment(userId: string, assessmentId: string): Promise<AssessmentRecord | null>;
+  listQuestions(userId: string, assessmentId: string): Promise<QuestionRecord[]>;
   listGrades(userId: string, classId: string): Promise<GradeRecord[]>;
   listLessonPlans(userId: string, classId: string): Promise<LessonPlanRecord[]>;
   listBehaviourLogs(userId: string, classId: string): Promise<BehaviourLogRecord[]>;
@@ -136,8 +151,23 @@ export interface WorkspaceData {
       score: number | null;
       maxScore: number;
       feedback?: string | null;
+      source?: GradeSource;
+      scanDetail?: ScannedAnswer[] | null;
     },
   ): Promise<GradeRecord>;
+  /**
+   * Replace an assessment's questions in one call.
+   *
+   * Whole-set rather than create/update/delete one at a time because the builder
+   * edits a list: it can reorder, insert and remove in a single save, and
+   * expressing that as N calls makes every intermediate state observable and
+   * every failure a half-built question set. `questionId` is only used to keep
+   * the identity of an untouched row stable, so its `id` survives a save.
+   */
+  saveQuestions(
+    userId: string,
+    questions: (Omit<QuestionRecord, 'id' | 'ownerId'> & { id?: string })[],
+  ): Promise<QuestionRecord[]>;
   saveLessonPlan(
     userId: string,
     // `id` present means update, absent means insert. Making it optional keeps
@@ -448,6 +478,30 @@ const supabaseAdapter: WorkspaceData = {
     return (data ?? []).map(mapAssessment);
   },
 
+  async getAssessment(userId, assessmentId) {
+    const supabase = await requireClient();
+    const { data, error } = await supabase
+      .from('assessments')
+      .select('*')
+      .eq('owner_id', userId)
+      .eq('id', assessmentId)
+      .maybeSingle();
+    throwIf(error);
+    return data ? mapAssessment(data as Row) : null;
+  },
+
+  async listQuestions(userId, assessmentId) {
+    const supabase = await requireClient();
+    const { data, error } = await supabase
+      .from('questions')
+      .select('*')
+      .eq('owner_id', userId)
+      .eq('assessment_id', assessmentId)
+      .order('position', { ascending: true });
+    throwIf(error);
+    return (data ?? []).map(mapQuestion);
+  },
+
   async listGrades(userId, classId) {
     const supabase = await requireClient();
     const { data, error } = await supabase
@@ -654,6 +708,11 @@ const supabaseAdapter: WorkspaceData = {
           score: input.score,
           max_score: input.maxScore,
           feedback: input.feedback ?? null,
+          source: input.source ?? 'manual',
+          // A manual edit of a previously scanned mark must not leave the old
+          // sheet reading attached to the new number, so an untyped source
+          // clears it rather than leaving it to look current.
+          scan_detail: input.source === 'scan' ? (input.scanDetail ?? null) : null,
           graded_at: new Date().toISOString(),
         },
         { onConflict: 'assessment_id,student_id' },
@@ -662,6 +721,53 @@ const supabaseAdapter: WorkspaceData = {
       .single();
     throwIf(error);
     return mapGrade(data as Row);
+  },
+
+  async saveQuestions(userId, questions) {
+    const supabase = await requireClient();
+    if (questions.length === 0) return [];
+
+    const assessmentId = questions[0]!.assessmentId;
+    const rows = questions.map((question, index) => ({
+      // Upserting on the primary key needs an id. One that was never saved gets
+      // a fresh uuid so the insert path is the same code path as the update.
+      id: question.id ?? crypto.randomUUID(),
+      owner_id: userId,
+      assessment_id: assessmentId,
+      position: question.position ?? index,
+      kind: question.kind,
+      prompt: question.prompt,
+      options: question.options,
+      answer_key: question.answerKey,
+      points: question.points,
+    }));
+
+    const { data, error } = await supabase
+      .from('questions')
+      .upsert(rows, { onConflict: 'id' })
+      .select();
+    throwIf(error);
+
+    // Anything the caller dropped has to actually go, or a deleted question
+    // keeps scoring students who never saw it.
+    const kept = new Set(rows.map((row) => row.id));
+    const { data: current } = await supabase
+      .from('questions')
+      .select('id')
+      .eq('owner_id', userId)
+      .eq('assessment_id', assessmentId);
+    const stale = (current ?? []).map((row) => str(row.id)).filter((id) => !kept.has(id));
+    if (stale.length > 0) {
+      const { error: deleteError } = await supabase
+        .from('questions')
+        .delete()
+        .eq('owner_id', userId)
+        .eq('assessment_id', assessmentId)
+        .in('id', stale);
+      throwIf(deleteError);
+    }
+
+    return (data ?? []).map(mapQuestion).sort((a, b) => a.position - b.position);
   },
 
   async saveLessonPlan(userId, input) {
@@ -1276,6 +1382,27 @@ function mapGrade(row: Row): GradeRecord {
     rubric: Array.isArray(row.rubric) ? (row.rubric as GradeRecord['rubric']) : [],
     feedback: (row.feedback as string | null) ?? null,
     gradedAt: iso(row.graded_at),
+    source: (str(row.source, 'manual') as GradeSource) === 'scan' ? 'scan' : 'manual',
+    scanDetail: Array.isArray(row.scan_detail) ? (row.scan_detail as ScannedAnswer[]) : null,
+  };
+}
+
+function mapQuestion(row: Row): QuestionRecord {
+  const options = Array.isArray(row.options)
+    ? (row.options as { key?: unknown; text?: unknown }[])
+        .filter((o) => o && typeof o.key === 'string' && typeof o.text === 'string')
+        .map((o) => ({ key: o.key as string, text: o.text as string }))
+    : [];
+  return {
+    id: str(row.id),
+    assessmentId: str(row.assessment_id),
+    ownerId: str(row.owner_id),
+    position: num(row.position, 0),
+    kind: str(row.kind, 'single') === 'multiple' ? 'multiple' : 'single',
+    prompt: str(row.prompt),
+    options,
+    answerKey: strArray(row.answer_key),
+    points: num(row.points, 1),
   };
 }
 

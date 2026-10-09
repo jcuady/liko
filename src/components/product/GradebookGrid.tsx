@@ -120,8 +120,27 @@ export function GradebookGrid({
     cells[next]?.focus();
   };
 
+  /*
+ * WHY `[contain:paint]` AND NOT JUST `overflow-x-auto`.
+ *
+ * A class can hold any number of assessments, and the grid has to grow with it,
+ * so the overflow belongs inside this box: the table should scroll sideways while
+ * the page stays put. `overflow-x-auto` on its own did not achieve that. Chromium
+ * still counted the wider table in the document's scrollable area, so a phone
+ * scrolled the whole page sideways by 22px as soon as the class had four
+ * assessments rather than three, and every column was pushed off screen together
+ * with it. Measured: `documentElement.scrollWidth` was 397 against a 375 viewport;
+ * paint containment holds it at 375 while this box keeps scrolling the table, which
+ * was 388 wide inside a 301 wide container.
+ *
+ * It surfaced only at four columns because three happened to fit. Nothing about a
+ * fourth assessment is special, and a teacher who created one by hand would have
+ * seen the page drift.
+ */
+const GRID_SCROLL_BOX = 'overflow-x-auto [contain:paint]';
+
   return (
-    <div className={cn('overflow-x-auto', className)}>
+    <div className={cn(GRID_SCROLL_BOX, className)}>
       <table
         ref={gridRef}
         onKeyDown={onKeyDown}

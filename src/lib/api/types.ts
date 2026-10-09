@@ -132,6 +132,77 @@ export interface AssessmentRecord {
   archivedAt: string | null;
 }
 
+/**
+ * The two question kinds a printed sheet can carry.
+ *
+ * `free_text` is deliberately absent. It is the kind people ask for first and it
+ * is the kind a bubble sheet cannot read, so offering it here would produce a
+ * question that looks markable on the builder and then scores zero on every
+ * scan, with nothing in the UI to explain why.
+ */
+export const questionKindSchema = z.enum(['single', 'multiple']);
+export type QuestionKind = z.infer<typeof questionKindSchema>;
+
+export const questionOptionSchema = z.object({
+  /** The letter printed on the sheet. This is what a scan returns. */
+  key: z.string().min(1).max(4),
+  text: z.string().min(1).max(400),
+});
+export type QuestionOption = z.infer<typeof questionOptionSchema>;
+
+export interface QuestionRecord {
+  id: string;
+  assessmentId: string;
+  ownerId: string;
+  /** Zero-based, and the order the sheet is printed in. */
+  position: number;
+  kind: QuestionKind;
+  prompt: string;
+  options: QuestionOption[];
+  answerKey: string[];
+  points: number;
+}
+
+export const questionInputSchema = z
+  .object({
+    assessmentId: z.string().min(1),
+    kind: questionKindSchema,
+    prompt: z.string().min(1).max(500),
+    options: z.array(questionOptionSchema).min(2).max(8),
+    answerKey: z.array(z.string().min(1)).min(1),
+    points: z.number().positive().max(100),
+  })
+  .superRefine((value, ctx) => {
+    const keys = value.options.map((option) => option.key);
+    if (new Set(keys).size !== keys.length) {
+      ctx.addIssue({ code: 'custom', message: 'Every option needs its own letter.', path: ['options'] });
+    }
+    const unknown = value.answerKey.filter((key) => !keys.includes(key));
+    if (unknown.length > 0) {
+      ctx.addIssue({
+        code: 'custom',
+        message: `The answer key names an option that does not exist: ${unknown.join(', ')}.`,
+        path: ['answerKey'],
+      });
+    }
+    if (value.kind === 'single' && value.answerKey.length > 1) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'A single choice question has exactly one answer.',
+        path: ['answerKey'],
+      });
+    }
+  });
+export type QuestionInput = z.infer<typeof questionInputSchema>;
+
+/** What a scan read, kept so a disputed sheet can be re-examined. */
+export interface ScannedAnswer {
+  questionIndex: number;
+  optionKeys: string[];
+  /** The teacher changed this before saving. */
+  edited: boolean;
+}
+
 export interface GradeRecord {
   id: string;
   assessmentId: string;
@@ -142,7 +213,14 @@ export interface GradeRecord {
   rubric: RubricRow[];
   feedback: string | null;
   gradedAt: string;
+  /** `manual` when a teacher typed it, `scan` when it came off a sheet. */
+  source: GradeSource;
+  /** The marks exactly as read, plus what the teacher corrected. */
+  scanDetail: ScannedAnswer[] | null;
 }
+
+export const gradeSourceSchema = z.enum(['manual', 'scan']);
+export type GradeSource = z.infer<typeof gradeSourceSchema>;
 
 export const rubricRowSchema = z.object({
   criterion: z.string(),

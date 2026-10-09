@@ -40,6 +40,17 @@ export default async function AssessPage() {
 
   const selected = classes[0];
   const assessments = await store.listAssessments(session.userId, selected.id);
+  const students = await store.listStudents(session.userId, selected.id);
+
+  // Every assessment's questions, keyed by assessment, so the builder paints
+  // on first render instead of showing an empty page while it fetches. It is one
+  // query per assessment rather than one query per assessment the teacher has
+  // not opened, because a class's full question set is small and the alternative
+  // is a spinner on the screen that matters most.
+  const questionsByAssessment: Record<string, Awaited<ReturnType<typeof store.listQuestions>>> = {};
+  for (const assessment of assessments) {
+    questionsByAssessment[assessment.id] = await store.listQuestions(session.userId, assessment.id);
+  }
 
   return (
     <div className="mx-auto max-w-[64rem]">
@@ -51,6 +62,10 @@ export default async function AssessPage() {
         classes={classes.map((item) => ({ id: item.id, name: item.name }))}
         classId={selected.id}
         assessments={assessments}
+        questionsByAssessment={questionsByAssessment}
+        students={students
+          .filter((student) => student.archivedAt === null)
+          .map((student) => ({ id: student.id, name: student.fullName }))}
       />
     </div>
   );

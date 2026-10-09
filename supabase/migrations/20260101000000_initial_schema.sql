@@ -354,6 +354,53 @@ create trigger assessments_set_updated_at
   before update on public.assessments
   for each row execute function public.set_updated_at();
 
+-- ---------------------------------------------------------------------------
+-- questions
+--
+-- An assessment was a title, a weight and a maximum. It had no content, so a
+-- quiz could be created, weighted and reported on, but there was nothing to sit
+-- the quiz. This table is that content, and it is deliberately narrow: only the
+-- two kinds a sheet can actually be marked for. Free text, numeric and matching
+-- questions are not representable here, because nothing on this sheet can be
+-- read off a scan, and a question whose answer cannot be read must not look
+-- like one that can.
+--
+-- `options` is `[{ key, text }]`. `key` is the letter printed on the sheet and
+-- is what a scan returns, so it is the durable identity of an option and must
+-- not be reused for different text on the same question.
+-- ---------------------------------------------------------------------------
+create table if not exists public.questions (
+  id            uuid primary key default gen_random_uuid(),
+  assessment_id uuid not null references public.assessments (id) on delete cascade,
+  owner_id      uuid not null references auth.users (id) on delete cascade,
+  position      integer not null default 0 check (position >= 0),
+  kind          text not null default 'single'
+                 check (kind in ('single', 'multiple')),
+  prompt        text not null check (length(trim(prompt)) > 0),
+  options       jsonb not null default '[]'::jsonb,
+  answer_key    text[] not null default '{}',
+  points        numeric(6,2) not null default 1 check (points > 0),
+  created_at    timestamptz not null default now(),
+  updated_at    timestamptz not null default now(),
+  -- Two options is the floor for anything worth asking and eight is the ceiling
+  -- a sheet column can hold at a printable size.
+  constraint questions_options_count check (
+    jsonb_typeof(options) = 'array'
+    and jsonb_array_length(options) between 2 and 8
+  ),
+  -- A question with no answer key is unmarkable, which would make every scan of
+  -- it score zero and look like the student got everything wrong.
+  constraint questions_answer_key_present check (array_length(answer_key, 1) >= 1)
+);
+
+create index if not exists questions_assessment_idx
+  on public.questions (assessment_id, position);
+
+drop trigger if exists questions_set_updated_at on public.questions;
+create trigger questions_set_updated_at
+  before update on public.questions
+  for each row execute function public.set_updated_at();
+
 create table if not exists public.grades (
   id            uuid primary key default gen_random_uuid(),
   assessment_id uuid not null references public.assessments (id) on delete cascade,
@@ -372,6 +419,20 @@ create table if not exists public.grades (
 );
 
 create index if not exists grades_student_idx on public.grades (student_id);
+
+-- ---------------------------------------------------------------------------
+-- How a mark was produced.
+--
+-- A gradebook that cannot say whether a mark was typed or read off a sheet
+-- cannot be argued with when a parent asks. `manual` and `scan` are the two
+-- honest answers, and `scan_detail` keeps the marks exactly as they were read,
+-- so a disputed sheet can be reopened and compared against what the machine
+-- saw rather than against what it concluded.
+-- ---------------------------------------------------------------------------
+alter table public.grades add column if not exists
+  source text not null default 'manual' check (source in ('manual', 'scan'));
+alter table public.grades add column if not exists
+  scan_detail jsonb;
 
 drop trigger if exists grades_set_updated_at on public.grades;
 create trigger grades_set_updated_at
@@ -791,6 +852,7 @@ alter table public.classes           enable row level security;
 alter table public.students          enable row level security;
 alter table public.attendance        enable row level security;
 alter table public.assessments       enable row level security;
+alter table public.questions         enable row level security;
 alter table public.grades            enable row level security;
 alter table public.lesson_plans      enable row level security;
 alter table public.behaviour_logs    enable row level security;
@@ -807,7 +869,7 @@ declare
   t text;
 begin
   foreach t in array array[
-    'classes', 'students', 'attendance', 'assessments', 'grades',
+    'classes', 'students', 'attendance', 'assessments', 'questions', 'grades',
     'lesson_plans', 'behaviour_logs', 'student_history', 'decks', 'slides'
   ]
   loop

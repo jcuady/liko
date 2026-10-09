@@ -11,6 +11,7 @@ import type {
   MemberRecord,
   OrgRecord,
   ProfileRecord,
+  QuestionRecord,
   RubricRow,
   SlideRecord,
 } from '@/lib/api/types';
@@ -71,6 +72,11 @@ const ASSESSMENT_SEED = [
     maxScore: 20,
     dueDaysAgo: 21,
     standardCodes: ['S2C1', 'S2C2'],
+    // No questions on purpose. The demo assessment above carries marks on a
+    // round scale, and it is the one the builder tests write to. Keeping the
+    // scannable quiz separate is what stops one test's saved question from
+    // changing the question count another test reads a sheet against.
+    questions: 0,
   },
   {
     id: 'asm_demo_02',
@@ -89,6 +95,17 @@ const ASSESSMENT_SEED = [
     maxScore: 40,
     dueDaysAgo: 4,
     standardCodes: ['S2C4', 'S2C7'],
+    questions: 0,
+  },
+  {
+    id: 'asm_demo_04',
+    title: 'Bonding Quiz',
+    type: 'quiz' as const,
+    weight: 0,
+    maxScore: 11,
+    dueDaysAgo: -7,
+    standardCodes: ['S2C1'],
+    questions: 8,
   },
 ];
 
@@ -104,6 +121,150 @@ export const demoAssessments: AssessmentRecord[] = ASSESSMENT_SEED.map((seed) =>
   standardCodes: seed.standardCodes,
   archivedAt: null,
 }));
+
+/**
+ * A scannable question set for the demo quiz.
+ *
+ * The demo assessment had a maximum score and a weight and nothing else, so the
+ * scanner had nothing to read a sheet against and the builder opened on an
+ * empty page. These eight questions give it both, and they are deliberately a
+ * mix: half single choice and half multiple select, so the two marking rules
+ * are both visible in the demo rather than one being an untested branch.
+ *
+ * The answer key is the point of the table. It is never shown on the scan
+ * screen, because a screen that leaks the key cannot be used to mark a real
+ * class, and it is the only reason a scan can produce a score at all.
+ */
+export const demoQuestions: QuestionRecord[] = [
+  {
+    id: 'qst_demo_01',
+    assessmentId: 'asm_demo_04',
+    ownerId: OWNER,
+    position: 0,
+    kind: 'single',
+    prompt: 'Which bond is formed when sodium transfers an electron to chlorine?',
+    options: [
+      { key: 'A', text: 'Covalent' },
+      { key: 'B', text: 'Ionic' },
+      { key: 'C', text: 'Metallic' },
+      { key: 'D', text: 'Coordinate' },
+    ],
+    answerKey: ['B'],
+    points: 1,
+  },
+  {
+    id: 'qst_demo_02',
+    assessmentId: 'asm_demo_04',
+    ownerId: OWNER,
+    position: 1,
+    kind: 'single',
+    prompt: 'How many lone pairs does an oxygen atom carry in a water molecule?',
+    options: [
+      { key: 'A', text: 'One' },
+      { key: 'B', text: 'Two' },
+      { key: 'C', text: 'Three' },
+      { key: 'D', text: 'Four' },
+    ],
+    answerKey: ['B'],
+    points: 1,
+  },
+  {
+    id: 'qst_demo_03',
+    assessmentId: 'asm_demo_04',
+    ownerId: OWNER,
+    position: 2,
+    kind: 'multiple',
+    prompt: 'Which of these are covalent? Select every answer that applies.',
+    options: [
+      { key: 'A', text: 'O2' },
+      { key: 'B', text: 'NaCl' },
+      { key: 'C', text: 'H2O' },
+      { key: 'D', text: 'MgO' },
+    ],
+    answerKey: ['A', 'C'],
+    points: 2,
+  },
+  {
+    id: 'qst_demo_04',
+    assessmentId: 'asm_demo_04',
+    ownerId: OWNER,
+    position: 3,
+    kind: 'single',
+    prompt: 'A double bond consists of how many shared pairs?',
+    options: [
+      { key: 'A', text: 'One' },
+      { key: 'B', text: 'Two' },
+      { key: 'C', text: 'Three' },
+      { key: 'D', text: 'Four' },
+    ],
+    answerKey: ['B'],
+    points: 1,
+  },
+  {
+    id: 'qst_demo_05',
+    assessmentId: 'asm_demo_04',
+    ownerId: OWNER,
+    position: 4,
+    kind: 'multiple',
+    prompt: 'Which particles carry a full octet in an ionic lattice? Select all that apply.',
+    options: [
+      { key: 'A', text: 'Na+' },
+      { key: 'B', text: 'Cl-' },
+      { key: 'C', text: 'Na' },
+      { key: 'D', text: 'Cl' },
+    ],
+    answerKey: ['A', 'B'],
+    points: 2,
+  },
+  {
+    id: 'qst_demo_06',
+    assessmentId: 'asm_demo_04',
+    ownerId: OWNER,
+    position: 5,
+    kind: 'single',
+    prompt: 'What is the valency of an element in Group 2?',
+    options: [
+      { key: 'A', text: 'One' },
+      { key: 'B', text: 'Two' },
+      { key: 'C', text: 'Three' },
+      { key: 'D', text: 'Seven' },
+    ],
+    answerKey: ['B'],
+    points: 1,
+  },
+  {
+    id: 'qst_demo_07',
+    assessmentId: 'asm_demo_04',
+    ownerId: OWNER,
+    position: 6,
+    kind: 'single',
+    prompt: 'Which statement about giant covalent structures is true?',
+    options: [
+      { key: 'A', text: 'They conduct electricity when solid' },
+      { key: 'B', text: 'They have a very high melting point' },
+      { key: 'C', text: 'They dissolve readily in water' },
+      { key: 'D', text: 'They are always gases' },
+    ],
+    answerKey: ['B'],
+    points: 1,
+  },
+  {
+    id: 'qst_demo_08',
+    assessmentId: 'asm_demo_04',
+    ownerId: OWNER,
+    position: 7,
+    kind: 'multiple',
+    prompt: 'Which properties does metallic bonding explain? Select all that apply.',
+    options: [
+      { key: 'A', text: 'Good electrical conductivity' },
+      { key: 'B', text: 'Malleability' },
+      { key: 'C', text: 'Solubility in water' },
+      { key: 'D', text: 'High melting point' },
+    ],
+    answerKey: ['A', 'B', 'D'],
+    points: 2,
+  },
+];
 
 /**
  * Marks, with a small per-assessment swing so the gradebook has spread rather
@@ -136,6 +297,8 @@ export const demoGrades: GradeRecord[] = ASSESSMENT_SEED.flatMap((assessment, in
       rubric,
       feedback: null,
       gradedAt: isoDaysAgo(assessment.dueDaysAgo - 1),
+      source: 'manual',
+      scanDetail: null,
     } satisfies GradeRecord;
   }),
 );

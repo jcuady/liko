@@ -31,7 +31,7 @@ Students cannot self-register. That was already structurally true; it is now exp
 - `web-push` for notifications, VAPID
 
 ### Database
-- Supabase Postgres, 16 tables, one migration: `supabase/migrations/20260101000000_initial_schema.sql`
+- Supabase Postgres, 17 tables, one migration: `supabase/migrations/20260101000000_initial_schema.sql`
 - `organizations` + `memberships` carry tenancy. There is no `owner` role; the four roles are `instructor`, `admin`, `student`, `guardian`, and `org:manage` means "can administer the organisation"
 
 ### Infrastructure
@@ -72,6 +72,8 @@ Authorisation is two independent layers. `proxy.ts` gates routes before render, 
 | Classes and roster | Done | Done | Verified | Passing | Complete |
 | Teacher-issued student/guardian accounts | Done | Done | Verified | Passing (fixture and Supabase) | Complete |
 | Assessments | Done | Done | Verified | Passing | Complete |
+| Quiz maker | Done | Done | Verified | Passing (unit + e2e) | **Complete.** An assessment now carries its questions: single choice and multiple select only, with an answer key, points and 2 to 8 options per question. They live in a new `questions` table and are edited through `/assess`, where an assessment is selected rather than merely listed. No `free_text` kind exists on purpose, because a printed bubble sheet cannot carry one and offering it would produce questions that look markable and score zero on every scan |
+| Marked-sheet scanning | Done | Done | Verified against the live database | Passing (19 unit + 3 e2e) | **Complete, single and multiple select only.** A photo or file of a marked sheet is thresholded with Otsu, segmented into bubbles by 8-connected components, gated on shape and on median bubble size, clustered into rows and columns, and scored against the stored key. The teacher sees an editable grid and confirms before anything is written, and the student is a required field because a sheet carries a score and no name. Proven end to end against live Supabase: a synthetic sheet scored 8/11 and landed as a `grades` row with `source='scan'` and all eight reads in `scan_detail` |
 | Gradebook and grading policies | Done | Done | Verified | Passing | Complete |
 | Attendance | Done | Done | Verified | Passing | Complete. Marks go through the offline outbox to `POST /api/attendance`, which is idempotent and safe to replay |
 | Lesson planner | Done | Done | Verified | Passing | Complete |
@@ -157,6 +159,8 @@ in a pricing file.
 - [x] Consent gate on signup, enforced server-side, recorded in an append-only table
 - [x] Cookie consent banner whose decline genuinely withdraws optional storage
 - [x] Students and guardians cannot self-register; teachers issue those accounts from the roster
+- [x] Quiz maker: an assessment carries its questions, single choice and multiple select, with an answer key and points, edited at `/assess`
+- [x] Marked-sheet scanning: Otsu threshold, connected-component bubble detection, an editable review grid, a required student, and a server-recomputed score written to the gradebook with `source='scan'`
 - [x] Critical: closed `profiles` self-promotion to admin
 - [x] High: closed cross-tenant `classes` read
 - [x] High: service worker no longer caches authenticated documents
@@ -209,17 +213,17 @@ in a pricing file.
 
 ## Latest Test Results
 
-All run on 2026-10-09 against this working tree. The four live-database gates are the ones that were impossible before credentials existed.
+All run on 2026-10-09 against this working tree, after the quiz maker and the sheet reader. The four live-database gates are the ones that were impossible before credentials existed.
 
 | Gate | Command | Result |
 |---|---|---|
 | Typecheck | `pnpm typecheck` | **0 errors** |
 | Lint | `pnpm lint` | **0 errors, 0 warnings** |
-| Unit | `pnpm vitest run` | **220 passed** in 17 files |
-| Migration | `pnpm check:sql` | **124 statements parse; 91 cross-references resolve; RLS on 16/16 tables; 14/14 policies re-runnable** |
+| Unit | `pnpm vitest run` | **239 passed** in 18 files |
+| Migration | `pnpm check:sql` | **131 statements parse; 95 cross-references resolve; RLS on 17/17 tables; 14/14 policies re-runnable** |
 | Production build | `pnpm build` | **exit 0** |
-| End to end | `pnpm e2e` | **156 passed** across 12 specs, 3.0m |
-| Live schema | `pnpm db:apply` then `pnpm db:check` | **16 tables, RLS on 16, 23 policies; all security-relevant columns present** |
+| End to end | `pnpm e2e` | **162 passed** across 13 specs, 2.8m |
+| Live schema | `pnpm db:apply` then `pnpm db:check` | **17 tables, RLS on 17, 24 policies; all security-relevant columns present** |
 | Live RLS behaviour | `pnpm db:settle` | **6 passed, 0 failed**: self-promotion refused, cross-tenant read refused, server-owned link cannot be moved |
 | Live application | `pnpm verify:app` | **54 passed, 0 failed**: every workspace route renders with real seeded data, refusals hold, an attendance write is read back out of Postgres and replays without duplicating, a write into another teacher's class is refused, the at-risk sweep authenticates and stays idempotent, the push route refuses six SSRF payloads and enforces per-teacher ownership, an outbound dispatch reaches the push service and prunes a dead endpoint, and registration is reported as blocked by the email quota |
 
@@ -233,7 +237,7 @@ result against the file's own contents:
 - every relation named by a policy, grant, index or trigger resolves to a table
   or function this migration creates. A `create policy ... on public.studentz`
   parses perfectly and fails at deploy; this catches it.
-- row level security is enabled on all 16 tables. The audit that found the two
+- row level security is enabled on all 17 tables. The audit that found the two
   cross-tenant bugs found a third table in the same family of mistake.
 - every policy is dropped before it is created, so a second run works. That is
   the run somebody performs while recovering.
@@ -276,6 +280,28 @@ in its own test changes and the evidence for each, is in the commit body.
 
 See `docs/SECURITY.md` for the full audit findings table and the mechanism behind each fix.
 
+### The sheet reader, and how it is proven
+
+`src/lib/omr/omr.ts` is pure: grey pixels in, a grid out, no canvas and no DOM.
+That is the whole reason the arithmetic is trustworthy, because the part that can
+quietly be wrong is separable from the part that only wires pixels to it. The
+browser does the canvas work, calls the pure function, and the e2e suite drives
+it with a real image.
+
+| Claim | How it is established |
+|---|---|
+| The threshold separates ink from paper | Otsu, by between-class variance, with the uniform-image case returning 0 rather than dividing by nothing |
+| A mark is a bubble | 8-connected components, iterative rather than recursive, gated on area and aspect |
+| The bubbles are all the same size | The median component population sets the scale gate, so one stray blob cannot rescale the sheet |
+| Rows and lines up | Clustered on y, with columns taken from the fullest row |
+| The score is right | Expected values are hand-calculated from the stored key, in both the unit test and the e2e spec. Nothing asserts what the scanner said it read |
+| The number that lands is the number shown | The server recomputes it in `saveScannedGrade` from stored questions and read marks. The preview agrees because both call `scoreAnswers`, not because anyone kept them in step |
+| A wrong student cannot be written | The scan writes nothing until a student is chosen, and the sheet cannot name one |
+
+The honest limit: it has been proven on synthetic sheets drawn flat and upright,
+not on a photograph of a photocopied page at an angle with a shadow across it.
+That is the gap the confirm-before-save grid exists to cover.
+
 ## Security Review
 
 Full pass over every server action, route handler, RLS policy, and service-worker rule. Findings and fixes are tabulated in `docs/SECURITY.md`. The two that mattered:
@@ -305,7 +331,7 @@ Also closed: blind SSRF through the push endpoint, a rate-limit kill switch one 
 Three of the five blockers listed here were resolved on 2026-10-09 and are kept here only so the record shows what they were.
 
 1. **RESOLVED: `git push`.** The remote is `https://github.com/jcuady/liko.git` and every commit is pushed. The earlier `Repository not found` was a credential problem, not a wrong repository name.
-2. **RESOLVED: the database was empty.** `pnpm db:apply` applied the migration to project `ulrjitekiylgepdyijsw`, which now holds 16 tables with row level security on all 16 and 23 policies.
+2. **RESOLVED: the database was empty.** `pnpm db:apply` applied the migration to project `ulrjitekiylgepdyijsw`, which now holds 17 tables with row level security on all 17 and 24 policies.
 3. **RESOLVED: `SUPABASE_SERVICE_ROLE_KEY`.** `scripts/seed.mjs` has run; five demo accounts hold a school, three classes, 24 students, assessments, marks, attendance and history.
 4. **OPEN: Vercel unauthenticated.** `vercel whoami` fails. This is the one thing standing between this codebase and a live URL, and it needs the user.
 5. **OPEN: iOS push delivery unverifiable** without a Home Screen-installed PWA.
@@ -351,6 +377,20 @@ into `pnpm test` or CI.
 4. Rotate the service role key and the database password before this project carries anything real. Both have been handled in chat and written to a local `.env.local`, which is gitignored, but they were shared in a conversation.
 
 ## Recent Work
+
+### 2026-10-09, later
+
+Completed:
+- Dark mode became a real theme. Colour primitives were declared twice, once as Tailwind values in a plain `@theme` (which copies them onto `:root` and is never overridden) and once as semantic roles, so 711 call sites across 86 files rendered the light palette onto a dark page. Primitives moved to `@theme inline`. Dark primary CTA went from 3.26:1 to 5.72:1, the destructive button from 1.71:1 to 10.92:1, and the field edge from 1.30:1 to 3.40:1
+- The quiz maker. An assessment had a title, a weight and a maximum and nothing to sit, so it is now selected rather than merely listed and carries its questions: `questions` table, RLS, single choice and multiple select only, 2 to 8 options, an answer key and points
+- Marked-sheet scanning, constrained to the two kinds a printed sheet can carry. Otsu threshold, iterative 8-connected components, a shape gate and a median-population scale gate, row clustering and column detection from the fullest row, then scored against the stored key with all-or-nothing marking for multiple select
+- The teacher confirms every scan on an editable grid before anything is written, and the student is a required field, because a sheet carries a score and no name
+- The score is recomputed on the server from the stored questions and the read marks, so the number that lands in the gradebook does not come from the browser
+
+Fixed, found while proving it:
+- `seedScannableQuiz` sat inside the class-creation branch behind a `continue`, so a second seed run added nothing and the quiz silently never appeared. Found only by querying the live database and seeing `questions: 0`
+- The gradebook leaked its horizontal overflow to the document. `overflow-x-auto` on the grid was not enough, so a class with four assessments scrolled the whole page sideways by 22px on a 375px phone. Paint containment on the same box holds the document at 375 while the table still scrolls
+- Three quiz-maker tests failed on locator timeouts because `/Bonding Quiz/i` also matched the pre-existing "Unit 3 Quiz: Bonding", and `.first()` opened the empty one. The selector was anchored
 
 ### 2026-10-09
 

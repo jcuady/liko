@@ -19,6 +19,7 @@ import {
   demoMemberships,
   demoDecks,
   demoSlides,
+  demoQuestions,
   secondClassStudents,
 } from '@/lib/fixtures/workspace-seed';
 import {
@@ -42,6 +43,7 @@ import type {
   MemberRecord,
   OrgRecord,
   ProfileRecord,
+  QuestionRecord,
   SlideRecord,
   Stat,
   StudentRecord,
@@ -77,6 +79,7 @@ interface FixtureStore {
   students: StudentRecord[];
   attendance: Map<string, Record<string, AttendanceStatus>>;
   assessments: AssessmentRecord[];
+  questions: QuestionRecord[];
   grades: GradeRecord[];
   plans: LessonPlanRecord[];
   behaviour: BehaviourLogRecord[];
@@ -156,6 +159,7 @@ function createStore(): FixtureStore {
     ],
     attendance: demoAttendance(),
     assessments: demoAssessments,
+    questions: demoQuestions,
     grades: demoGrades,
     plans: demoPlans,
     behaviour: demoBehaviour,
@@ -427,7 +431,11 @@ export const fixtures: WorkspaceData = {
     );
 
     if (existing) {
-      Object.assign(existing, input, { gradedAt: new Date().toISOString() });
+      Object.assign(existing, input, {
+        source: input.source ?? 'manual',
+        scanDetail: input.source === 'scan' ? (input.scanDetail ?? null) : null,
+        gradedAt: new Date().toISOString(),
+      });
       return existing;
     }
 
@@ -440,10 +448,50 @@ export const fixtures: WorkspaceData = {
       maxScore: input.maxScore,
       rubric: [],
       feedback: input.feedback ?? null,
+      source: input.source ?? 'manual',
+      scanDetail: input.source === 'scan' ? (input.scanDetail ?? null) : null,
       gradedAt: new Date().toISOString(),
     };
     store.grades = [...store.grades, record];
     return record;
+  },
+
+  async getAssessment(_userId, assessmentId) {
+    guard('getAssessment');
+    return store.assessments.find((row) => row.id === assessmentId) ?? null;
+  },
+
+  async listQuestions(_userId, assessmentId) {
+    guard('listQuestions');
+    return store.questions
+      .filter((row) => row.assessmentId === assessmentId)
+      .sort((a, b) => a.position - b.position);
+  },
+
+  async saveQuestions(_userId, questions) {
+    guard('saveQuestions');
+    if (questions.length === 0) return [];
+    const assessmentId = questions[0]!.assessmentId;
+
+    // Whole-set replace, mirroring the Supabase adapter: rows the caller dropped
+    // are deleted rather than left behind, so the fixture cannot drift into
+    // agreeing with production on updates while disagreeing on deletions.
+    const kept = new Set(questions.map((q) => q.id).filter(Boolean));
+    store.questions = [
+      ...store.questions.filter(
+        (row) => row.assessmentId !== assessmentId || (row.id && kept.has(row.id)),
+      ),
+      ...questions.map((question, index) => ({
+        ...question,
+        id: question.id ?? `qst_${assessmentId}_${index + 1}`,
+        ownerId: OWNER,
+        assessmentId,
+        position: question.position ?? index,
+      })),
+    ];
+    return store.questions
+      .filter((row) => row.assessmentId === assessmentId)
+      .sort((a, b) => a.position - b.position);
   },
 
   async saveLessonPlan(_userId, input) {

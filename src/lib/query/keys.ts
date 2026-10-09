@@ -30,6 +30,15 @@ export const queryKeys = {
 
   assessments: (classId: string) => ['workspace', 'classes', classId, 'assessments'] as const,
 
+  /*
+   * Keyed by assessment, not by class. A class holds many assessments and a
+   * question set belongs to exactly one of them, so keying on the class would
+   * make every assessment in a class share one cache entry and opening the
+   * second quiz would show the first quiz's questions.
+   */
+  questions: (assessmentId: string) =>
+    ['workspace', 'assessments', assessmentId, 'questions'] as const,
+
   grades: (classId: string) => ['workspace', 'classes', classId, 'grades'] as const,
 
   lessonPlans: (classId: string) => ['workspace', 'classes', classId, 'lesson-plans'] as const,

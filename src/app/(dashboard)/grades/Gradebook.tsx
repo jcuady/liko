@@ -147,6 +147,11 @@ export function Gradebook({
             rubric: [],
             feedback: input.feedback.trim().length > 0 ? input.feedback.trim() : null,
             gradedAt: new Date().toISOString(),
+            // This cell was typed, so the optimistic copy must claim to be
+            // manual. Leaving it undefined would make the provenance badge
+            // disagree with the action that is actually running.
+            source: 'manual',
+            scanDetail: null,
           },
         ];
       });
