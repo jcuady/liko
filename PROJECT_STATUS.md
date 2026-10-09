@@ -388,6 +388,7 @@ Completed:
 - The score is recomputed on the server from the stored questions and the read marks, so the number that lands in the gradebook does not come from the browser
 
 Fixed, found while proving it:
+- The builder painted "Add the first question to make this assessment scannable" for an assessment that already had eight. The page loads every assessment's questions on the server and hands them to the scan panel, but the builder was refetching them and rendering an empty set until that call came back. It is seeded from the server render now. An empty state that is briefly true is a lie a teacher acts on: it invites them to start typing a quiz they have already written
 - `seedScannableQuiz` sat inside the class-creation branch behind a `continue`, so a second seed run added nothing and the quiz silently never appeared. Found only by querying the live database and seeing `questions: 0`
 - The gradebook leaked its horizontal overflow to the document. `overflow-x-auto` on the grid was not enough, so a class with four assessments scrolled the whole page sideways by 22px on a 375px phone. Paint containment on the same box holds the document at 375 while the table still scrolls
 - Three quiz-maker tests failed on locator timeouts because `/Bonding Quiz/i` also matched the pre-existing "Unit 3 Quiz: Bonding", and `.first()` opened the empty one. The selector was anchored

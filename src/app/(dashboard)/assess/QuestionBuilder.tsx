@@ -79,10 +79,13 @@ export function QuestionBuilder({
   assessmentId,
   assessmentTitle,
   maxScore,
+  initialQuestions,
 }: {
   assessmentId: string;
   assessmentTitle: string;
   maxScore: number;
+  /** Already read on the server, so the builder paints the real set at once. */
+  initialQuestions: QuestionRecord[];
 }) {
   const queryClient = useQueryClient();
   const [drafts, setDrafts] = React.useState<DraftQuestion[] | null>(null);
@@ -93,6 +96,14 @@ export function QuestionBuilder({
       const { loadQuestions: load } = await import('@/app/(dashboard)/assess/actions');
       return load(assessmentId);
     },
+    /*
+     * Seeded from the server rather than fetched blind. Without this the builder
+     * opened on "Add the first question to make this assessment scannable" for an
+     * assessment that already had eight, because the fetch had not come back yet.
+     * An empty state that is briefly true is a lie a teacher acts on: it invites
+     * them to start typing a quiz they have already written.
+     */
+    initialData: initialQuestions,
   });
 
   // `null` means "no local edits yet", so switching assessment shows the new set

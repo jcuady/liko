@@ -166,6 +166,7 @@ export function AssessmentList({
             assessmentId={active.id}
             assessmentTitle={active.title}
             maxScore={active.maxScore}
+            initialQuestions={activeQuestions}
           />
           <ScanSheet
             assessment={active}
