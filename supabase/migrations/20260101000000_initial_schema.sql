@@ -48,18 +48,18 @@ comment on table public.profiles is
 -- the teacher types and nothing joins to it, so normalising it would add a
 -- lookup nobody queries and an extra write on every save.
 --
--- `grading_policy_id` is the scale this teacher grades on by default. A class
--- still overrides it, so a department can differ from the teacher's habit.
--- Added after the initial table so the migration stays idempotent.
+-- `grading_policy_id`, the scale this teacher grades on by default, is added
+-- further down with the rest of the grading wiring rather than here, because it
+-- is a foreign key into a table this migration creates later. See the note
+-- where it is added.
 -- ---------------------------------------------------------------------------
 alter table public.profiles
   add column if not exists school_name text,
   add column if not exists subjects text[] not null default '{}',
   add column if not exists default_grade_level text
-    check (default_grade_level is null or default_grade_level in ('preschool', 'k12', 'university')),
-  add column if not exists grading_policy_id uuid
-    references public.grading_policies (id) on delete set null;
+    check (default_grade_level is null or default_grade_level in ('preschool', 'k12', 'university'));
 
+drop trigger if exists profiles_set_updated_at on public.profiles;
 create trigger profiles_set_updated_at
   before update on public.profiles
   for each row execute function public.set_updated_at();
@@ -115,6 +115,7 @@ create unique index if not exists classes_owner_code_key
   on public.classes (owner_id, upper(code))
   where archived_at is null;
 
+drop trigger if exists classes_set_updated_at on public.classes;
 create trigger classes_set_updated_at
   before update on public.classes
   for each row execute function public.set_updated_at();
@@ -147,6 +148,7 @@ create table if not exists public.grading_policies (
 create index if not exists grading_policies_owner_idx
   on public.grading_policies (owner_id);
 
+drop trigger if exists grading_policies_set_updated_at on public.grading_policies;
 create trigger grading_policies_set_updated_at
   before update on public.grading_policies
   for each row execute function public.set_updated_at();
@@ -174,6 +176,26 @@ alter table public.classes
   add column if not exists grading_policy_id uuid
   references public.grading_policies (id) on delete set null;
 
+-- The teacher's own default, which a class then overrides, so a department can
+-- differ from the teacher's habit.
+--
+-- IT IS HERE, NOT WITH THE REST OF THE profiles COLUMNS, AND THAT ORDERING IS
+-- NOT COSMETIC. Postgres does not resolve a foreign key target when it parses
+-- an `alter table`; it resolves it when it executes the statement. Adding this
+-- column up beside the other profiles columns therefore failed on a real
+-- database with `relation "public.grading_policies" does not exist` (42P01),
+-- because the table it points at is created 80 lines further down.
+--
+-- `pnpm check:sql` could not see it, and that is worth stating plainly rather
+-- than fixing silently: it resolves every relation a statement names against
+-- the set of tables this migration creates, which answers "does this exist"
+-- and not "does this exist YET". A name that appears later in the file is a
+-- pass. Order is not checkable by cross-reference alone, and this file is now
+-- proof that only running it proves it.
+alter table public.profiles
+  add column if not exists grading_policy_id uuid
+  references public.grading_policies (id) on delete set null;
+
 -- ---------------------------------------------------------------------------
 -- students: class_id is the join key the old fixture model was missing
 -- ---------------------------------------------------------------------------
@@ -194,6 +216,7 @@ create table if not exists public.students (
 create index if not exists students_class_idx on public.students (class_id)
   where archived_at is null;
 
+drop trigger if exists students_set_updated_at on public.students;
 create trigger students_set_updated_at
   before update on public.students
   for each row execute function public.set_updated_at();
@@ -300,6 +323,7 @@ create table if not exists public.attendance (
 create index if not exists attendance_class_date_idx
   on public.attendance (class_id, date desc);
 
+drop trigger if exists attendance_set_updated_at on public.attendance;
 create trigger attendance_set_updated_at
   before update on public.attendance
   for each row execute function public.set_updated_at();
@@ -325,6 +349,7 @@ create table if not exists public.assessments (
 
 create index if not exists assessments_class_idx on public.assessments (class_id);
 
+drop trigger if exists assessments_set_updated_at on public.assessments;
 create trigger assessments_set_updated_at
   before update on public.assessments
   for each row execute function public.set_updated_at();
@@ -348,6 +373,7 @@ create table if not exists public.grades (
 
 create index if not exists grades_student_idx on public.grades (student_id);
 
+drop trigger if exists grades_set_updated_at on public.grades;
 create trigger grades_set_updated_at
   before update on public.grades
   for each row execute function public.set_updated_at();
@@ -369,6 +395,7 @@ create table if not exists public.lesson_plans (
 
 create index if not exists lesson_plans_class_idx on public.lesson_plans (class_id);
 
+drop trigger if exists lesson_plans_set_updated_at on public.lesson_plans;
 create trigger lesson_plans_set_updated_at
   before update on public.lesson_plans
   for each row execute function public.set_updated_at();
@@ -460,6 +487,7 @@ create table if not exists public.organizations (
 comment on table public.organizations is
   'The tenant. One per school or district; every other table hangs off it.';
 
+drop trigger if exists organizations_set_updated_at on public.organizations;
 create trigger organizations_set_updated_at
   before update on public.organizations
   for each row execute function public.set_updated_at();
@@ -467,7 +495,23 @@ create trigger organizations_set_updated_at
 create table if not exists public.memberships (
   id         uuid primary key default gen_random_uuid(),
   org_id     uuid not null references public.organizations (id) on delete cascade,
-  user_id    uuid not null references auth.users (id) on delete cascade,
+  /*
+   * `public.profiles`, not `auth.users`.
+   *
+   * `profiles.id` is the auth user id already, so this stores exactly the same
+   * value. What it buys is the relationship PostgREST needs: the admin console
+   * reads a seat as `profiles!memberships_user_id_fkey(email, full_name)` to
+   * show who is in the school, and an embed is only resolvable when the foreign
+   * key points at a table in the exposed schema. Pointing at `auth.users` made
+   * that query fail with PGRST200 and the whole console 500. It failed silently
+   * before the console had anything to show, because the read only runs once
+   * there is an organisation, which is exactly the state the fixture workspace
+   * always had and the seeded database did not.
+   *
+   * Cascade is preserved either way: deleting the auth user deletes the profile,
+   * which deletes the seat.
+   */
+  user_id    uuid not null references public.profiles (id) on delete cascade,
   role       text not null default 'instructor'
              check (role in ('instructor', 'admin', 'student', 'guardian')),
   status     text not null default 'active'
@@ -480,6 +524,23 @@ create table if not exists public.memberships (
 
 comment on table public.memberships is
   'Which people belong to which organisation, and as what.';
+
+/*
+ * Re-point the seat at `public.profiles` on a database that already has one.
+ *
+ * `create table if not exists` above is a no-op once the table exists, so on
+ * this project's own database the constraint in the create statement never
+ * applies and the old `auth.users` reference would simply survive every
+ * re-apply, leaving the admin console broken while the migration reported
+ * success. Swapping the constraint explicitly is the part that actually
+ * converges, and it preserves the rows: `profiles.id` is the auth user id, so
+ * every existing `user_id` already satisfies the new key.
+ */
+alter table public.memberships
+  drop constraint if exists memberships_user_id_fkey;
+alter table public.memberships
+  add constraint memberships_user_id_fkey
+  foreign key (user_id) references public.profiles (id) on delete cascade;
 
 create index if not exists memberships_org_idx on public.memberships (org_id);
 create index if not exists memberships_user_idx on public.memberships (user_id);
@@ -495,31 +556,125 @@ alter table public.profiles
 -- organisation who can manage users. That second clause is what makes the
 -- admin people list possible without a service-role key.
 -- ---------------------------------------------------------------------------
+-- ---------------------------------------------------------------------------
+-- Tenancy RLS, and the recursion trap underneath it
+--
+-- WHY THESE THREE FUNCTIONS EXIST, because the obvious way to write every
+-- policy below fails at runtime, and fails catastrophically.
+--
+-- "Is the caller an active admin of this organisation?" is naturally written as
+-- `exists (select 1 from memberships where ...)`. Putting that subquery inside
+-- a policy ON `memberships` asks Postgres to evaluate the membership policies
+-- in order to decide whether to evaluate the membership policies. That is 42P17,
+-- infinite recursion detected in policy for relation "memberships".
+--
+-- It was not a hypothetical ordering mistake. The first version of this file had
+-- exactly that, and the entire tenancy model was dead on arrival. Against a real
+-- database, with the publishable key, every one of these returned 500:
+--
+--   profiles      42P17 infinite recursion detected in policy "memberships"
+--   classes       42P17
+--   organizations 42P17
+--   memberships   42P17
+--
+-- So every signed-in user would have received a 500 from the database for the
+-- dashboard, the roster and the admin console. The service-role key returns 200
+-- for all four, because it bypasses RLS, so any check run with the service key
+-- reports a perfectly healthy schema while the application is unusable.
+-- `pnpm db:check` uses the publishable key on purpose, and that is how it was
+-- found.
+--
+-- A SECURITY DEFINER function is owned by the table owner and so is not subject
+-- to the caller's RLS, which means the query inside it does not re-enter the
+-- policy that called it. That breaks the cycle and leaves the predicate itself
+-- unchanged. `stable` lets the planner call it once per row; `search_path` is
+-- pinned so a shadowed name cannot redirect the query somewhere else.
+--
+-- These are helpers for POLICIES ONLY. Nothing in the application calls them:
+-- each takes no secret, answers a question about the CALLER, and reveals
+-- nothing about any row.
+-- ---------------------------------------------------------------------------
+
+-- Active member of the organisation, whatever their role.
+create or replace function public.is_org_member(target_org uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1
+    from public.memberships m
+    where m.org_id = target_org
+      and m.user_id = auth.uid()
+      and m.status = 'active'
+  );
+$$;
+
+-- Active administrator of the organisation.
+create or replace function public.is_org_admin(target_org uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1
+    from public.memberships m
+    where m.org_id = target_org
+      and m.user_id = auth.uid()
+      and m.role = 'admin'
+      and m.status = 'active'
+  );
+$$;
+
+-- Active administrator who shares an organisation with the named person.
+--
+-- Serves both "an admin may read another member's profile" and "an admin may
+-- read the classes of another member": the same question with a different
+-- argument. The subject's own membership must be active. The classes policy
+-- required that already and the profiles policy did not, which was an
+-- inconsistency rather than a deliberate difference; a suspended member is not
+-- something an admin should keep reading through a stale membership row.
+create or replace function public.is_admin_sharing_org_with(subject_user uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1
+    from public.memberships mine
+    join public.memberships theirs
+      on theirs.org_id = mine.org_id
+    where mine.user_id = auth.uid()
+      and mine.role = 'admin'
+      and mine.status = 'active'
+      and theirs.user_id = subject_user
+      and theirs.status = 'active'
+  );
+$$;
+
+comment on function public.is_org_member(uuid) is
+  'Active membership of the caller in the given organisation. RLS helper.';
+comment on function public.is_org_admin(uuid) is
+  'Active administrator membership of the caller. RLS helper.';
+comment on function public.is_admin_sharing_org_with(uuid) is
+  'Caller administers an organisation the named user also belongs to. RLS helper.';
+
 alter table public.organizations enable row level security;
 alter table public.memberships    enable row level security;
 
 drop policy if exists "org visible to members" on public.organizations;
 create policy "org visible to members" on public.organizations
-  for select using (
-    exists (
-      select 1 from public.memberships m
-      where m.org_id = organizations.id
-        and m.user_id = auth.uid()
-        and m.status = 'active'
-    )
-  );
+  for select using (public.is_org_member(organizations.id));
 
 drop policy if exists "org manageable by admins" on public.organizations;
 create policy "org manageable by admins" on public.organizations
-  for update using (
-    exists (
-      select 1 from public.memberships m
-      where m.org_id = organizations.id
-        and m.user_id = auth.uid()
-        and m.role = 'admin'
-        and m.status = 'active'
-    )
-  );
+  for update using (public.is_org_admin(organizations.id));
 
 drop policy if exists "own membership" on public.memberships;
 create policy "own membership" on public.memberships
@@ -527,35 +682,12 @@ create policy "own membership" on public.memberships
 
 drop policy if exists "org memberships readable" on public.memberships;
 create policy "org memberships readable" on public.memberships
-  for select using (
-    exists (
-      select 1 from public.memberships mine
-      where mine.org_id = memberships.org_id
-        and mine.user_id = auth.uid()
-        and mine.role = 'admin'
-        and mine.status = 'active'
-    )
-  );
+  for select using (public.is_org_admin(memberships.org_id));
 
 drop policy if exists "org memberships manageable" on public.memberships;
 create policy "org memberships manageable" on public.memberships
-  for all using (
-    exists (
-      select 1 from public.memberships mine
-      where mine.org_id = memberships.org_id
-        and mine.user_id = auth.uid()
-        and mine.role = 'admin'
-        and mine.status = 'active'
-    )
-  ) with check (
-    exists (
-      select 1 from public.memberships mine
-      where mine.org_id = memberships.org_id
-        and mine.user_id = auth.uid()
-        and mine.role = 'admin'
-        and mine.status = 'active'
-    )
-  );
+  for all using (public.is_org_admin(memberships.org_id))
+  with check (public.is_org_admin(memberships.org_id));
 
 -- ---------------------------------------------------------------------------
 -- decks and slides
@@ -581,6 +713,7 @@ create table if not exists public.decks (
 create index if not exists decks_owner_idx on public.decks (owner_id)
   where archived_at is null;
 
+drop trigger if exists decks_set_updated_at on public.decks;
 create trigger decks_set_updated_at
   before update on public.decks
   for each row execute function public.set_updated_at();
@@ -602,6 +735,7 @@ create table if not exists public.slides (
 
 create index if not exists slides_deck_idx on public.slides (deck_id, position);
 
+drop trigger if exists slides_set_updated_at on public.slides;
 create trigger slides_set_updated_at
   before update on public.slides
   for each row execute function public.set_updated_at();
@@ -710,17 +844,7 @@ end $$;
 drop policy if exists "profiles own row" on public.profiles;
 create policy "profiles own row" on public.profiles
   for select using (
-    id = auth.uid()
-    or exists (
-      select 1
-      from public.memberships mine
-      join public.memberships theirs
-        on theirs.org_id = mine.org_id
-      where mine.user_id = auth.uid()
-        and mine.role = 'admin'
-        and mine.status = 'active'
-        and theirs.user_id = profiles.id
-    )
+    id = auth.uid() or public.is_admin_sharing_org_with(profiles.id)
   );
 
 drop policy if exists "profiles own update" on public.profiles;
@@ -761,19 +885,7 @@ grant update (full_name, avatar_url, timezone, school_name, subjects,
 -- ---------------------------------------------------------------------------
 drop policy if exists "admin reads classes" on public.classes;
 create policy "admin reads classes" on public.classes
-  for select using (
-    exists (
-      select 1
-      from public.memberships mine
-      join public.memberships owner_m
-        on owner_m.org_id = mine.org_id
-       and owner_m.user_id = classes.owner_id
-      where mine.user_id = auth.uid()
-        and mine.role = 'admin'
-        and mine.status = 'active'
-        and owner_m.status = 'active'
-    )
-  );
+  for select using (public.is_admin_sharing_org_with(classes.owner_id));
 
 -- A student or guardian sees the class their own record sits on, and no other.
 --
@@ -805,5 +917,29 @@ create policy "push own subscriptions" on public.push_subscriptions
 
 -- Realtime for the in-app at-risk toast. Without this the publication does not
 -- carry the table and the channel silently receives nothing.
-alter publication supabase_realtime add table public.students;
-alter publication supabase_realtime add table public.grades;
+--
+-- Guarded, because `alter publication ... add table` has no `if not exists` and
+-- fails on the second apply with `relation "students" is already member of
+-- publication "supabase_realtime"`. The membership is checked in
+-- `pg_publication_tables` first, which is the only place that knows whether an
+-- `alter publication` is needed at all.
+do $$
+begin
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime'
+      and schemaname = 'public'
+      and tablename = 'students'
+  ) then
+    alter publication supabase_realtime add table public.students;
+  end if;
+
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime'
+      and schemaname = 'public'
+      and tablename = 'grades'
+  ) then
+    alter publication supabase_realtime add table public.grades;
+  end if;
+end $$;

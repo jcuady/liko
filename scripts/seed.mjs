@@ -122,11 +122,161 @@ async function upsertUser(spec) {
   return data.user;
 }
 
+/**
+ * The school the demo accounts belong to, and their seats in it.
+ *
+ * WHY THIS EXISTS. The per-account loop above gives every teacher a class and a
+ * roster, which is what makes the teaching screens real. It left `organizations`
+ * and `memberships` empty, and the admin console reads its member list straight
+ * off the membership, so /admin rendered an empty state and the whole
+ * multi-tenant surface was untested against the real database. An org with five
+ * members in four different roles is what exercises it.
+ */
+const ORG = {
+  name: 'Liko Demo School',
+  slug: 'liko-demo-school',
+  plan: 'school',
+  seat_limit: 50,
+  billing_email: 'billing@liko.test',
+};
+
+/** One seat per demo account, covering every role the RBAC matrix defines. */
+const SEATS = [
+  { email: 'dev@liko.test', role: 'admin' },
+  { email: 'maya@liko.test', role: 'instructor' },
+  { email: 'ingrid@liko.test', role: 'instructor' },
+  { email: 'student@liko.test', role: 'student' },
+  { email: 'guardian@liko.test', role: 'guardian' },
+];
+
+/**
+ * Creates the organisation, seats everyone in it, and links the two read-only
+ * accounts to real rows.
+ *
+ * The link is written on insert-time state rather than patched, because
+ * `protect_student_account_link` refuses to let `account_id` change afterwards.
+ * That trigger is doing its job: the account link is server-owned, so the seed
+ * sets it once and leaves it alone on every later run.
+ */
+async function seedTenancy(accounts) {
+  console.log('\nseeding the school and its seats ...');
+
+  const { data: existingOrg } = await supabase
+    .from('organizations')
+    .select('id')
+    .eq('slug', ORG.slug)
+    .maybeSingle();
+
+  let orgId = existingOrg?.id;
+
+  if (orgId) {
+    console.log(`  organization ${ORG.slug} already exists, reusing it`);
+  } else {
+    const { data: created, error } = await supabase
+      .from('organizations')
+      .insert(ORG)
+      .select('id')
+      .single();
+    if (error) throw error;
+    orgId = created.id;
+    console.log(`  created ${ORG.name}`);
+  }
+
+  for (const seat of SEATS) {
+    const userId = accounts.get(seat.email);
+    if (!userId) continue;
+
+    const { data: existing } = await supabase
+      .from('memberships')
+      .select('id')
+      .eq('org_id', orgId)
+      .eq('user_id', userId)
+      .maybeSingle();
+
+    if (existing) {
+      console.log(`  ${seat.email} is already seated as ${seat.role}`);
+    } else {
+      const { error } = await supabase
+        .from('memberships')
+        .insert({ org_id: orgId, user_id: userId, role: seat.role, status: 'active' });
+      if (error) throw error;
+      console.log(`  seated ${seat.email} as ${seat.role}`);
+    }
+
+    await supabase.from('profiles').update({ org_id: orgId }).eq('id', userId);
+  }
+
+  // A linked student account is what makes the student seat mean anything: the
+  // visibility policies hang off `students.account_id`, so without a link the
+  // student can sign in and see nothing at all.
+  const studentUser = accounts.get('student@liko.test');
+  const mayaUser = accounts.get('maya@liko.test');
+
+  if (studentUser && mayaUser) {
+    const { data: linked } = await supabase
+      .from('students')
+      .select('id')
+      .eq('account_id', studentUser)
+      .maybeSingle();
+
+    if (linked) {
+      console.log('  student account is already linked to a record');
+    } else {
+      const { data: candidate } = await supabase
+        .from('students')
+        .select('id, full_name')
+        .eq('owner_id', mayaUser)
+        .is('account_id', null)
+        .order('full_name')
+        .limit(1)
+        .maybeSingle();
+
+      if (candidate) {
+        await supabase.from('students').update({ account_id: studentUser }).eq('id', candidate.id);
+        console.log(`  linked the student account to ${candidate.full_name}`);
+      }
+    }
+  }
+
+  // The guardian is reached by address rather than by account, so the student
+  // and guardian seats exercise two different visibility paths.
+  const guardianEmail = 'guardian@liko.test';
+  const { data: guardianLinked } = await supabase
+    .from('students')
+    .select('id')
+    .eq('guardian_email', guardianEmail)
+    .maybeSingle();
+
+  if (!guardianLinked && mayaUser) {
+    const { data: candidate } = await supabase
+      .from('students')
+      .select('id, full_name')
+      .eq('owner_id', mayaUser)
+      .neq('full_name', 'Ana Ferreira')
+      .is('account_id', null)
+      .order('full_name')
+      .limit(1)
+      .maybeSingle();
+
+    if (candidate) {
+      await supabase
+        .from('students')
+        .update({ guardian_email: guardianEmail })
+        .eq('id', candidate.id);
+      console.log(`  pointed the guardian seat at ${candidate.full_name}`);
+    }
+  }
+}
+
 async function seed() {
+  /** Account id per email, so the tenancy pass below can attach everyone. */
+  const accounts = new Map();
+
   for (const spec of USERS) {
     console.log(`seeding ${spec.email} ...`);
     const user = await upsertUser(spec);
     const ownerId = user.id;
+    accounts.set(spec.email, ownerId);
 
     await supabase
       .from('profiles')
@@ -253,6 +403,8 @@ async function seed() {
 
     console.log(`  seeded ${insertedStudents.length} students`);
   }
+
+  await seedTenancy(accounts);
 
   console.log('\ndone.');
   console.log(`sign in with any of: ${USERS.map((u) => u.email).join(', ')}`);

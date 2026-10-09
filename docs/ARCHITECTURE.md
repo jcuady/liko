@@ -42,8 +42,12 @@ root layout and owns `<html>`, fonts, and providers.
 | `/admin` | `(dashboard)` | `org:manage` | Dynamic |
 | `/settings/*` | `(dashboard)` | any authenticated | Dynamic |
 | `/forbidden` | `(dashboard)` | any authenticated | Dynamic |
-| `/api/attendance` | api | `attendance:write` | Node |
 | `/api/auth/sign-out` | api | same-origin only | Node |
+
+There is no `/api/attendance`. It existed as a validating endpoint that
+acknowledged a save it never performed, and it was reachable and authenticated
+while telling a teacher their register had been written. Attendance is a server
+action instead, so the write and the session that authorised it travel together.
 
 ## The API seam
 

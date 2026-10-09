@@ -189,7 +189,15 @@ async function main() {
     process.exit(1);
   }
 
-  console.log('RESULT: all 15 tables and their security-relevant columns exist.');
+  /*
+   * The count comes from the list, never typed out. It said "all 15 tables"
+   * while the list above it held 16, which is the same drift that let this
+   * script check 15 tables against a 16-table migration and miss
+   * `grading_policies` entirely. A number in a summary line that nothing
+   * derives is a number that will be wrong and will not be noticed, because the
+   * line above it prints every table and looks right.
+   */
+  console.log(`RESULT: all ${TABLES.length} tables and their security-relevant columns exist.`);
   console.log('Existence is not correctness. Run scripts/rls-settling-test.mjs to prove');
   console.log('the policies behave: that a user cannot promote themselves, and that no');
   console.log('account can read another school.');

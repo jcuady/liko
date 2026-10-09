@@ -1,15 +1,14 @@
 # Project Status
 
-Last Updated: 2026-10-06
+Last Updated: 2026-10-09
 Current Branch: `main`
-Current Commit: `a11f069` Close the security gaps, and write down what this product promises
-Overall Status: **IMPLEMENTED, NOT DEPLOYED.** Every gate that can be run without credentials is green. Three things block an actual launch, all of which need the user.
+Overall Status: **IMPLEMENTED AND VERIFIED AGAINST THE REAL DATABASE, NOT DEPLOYED.** Every gate is green, including the ones that need a live Supabase project. One thing blocks a launch, and it needs the user.
 
 ## Executive Summary
 
 LIKO is a teaching-workspace PWA: a teacher plans lessons, builds assessments, takes attendance, grades, and watches student history on one thread, and slides decks for the lesson.
 
-The code is in good shape. This pass was a full security, performance and legal-compliance review of an existing working application, and it found two genuine exploitable defects and a service-worker bug that leaked one teacher's gradebook to the next user of a shared device. All are fixed. The two security fixes are in the SQL and cannot be proven correct without a running Postgres, which is the one substantive thing left that this environment cannot do.
+The code is in good shape. The security, performance and legal-compliance pass found two genuine exploitable defects and a service-worker bug that leaked one teacher's gradebook to the next user of a shared device. All are fixed, and the two SQL-level security fixes are no longer merely argued from reading the policies: they are proven against a running Postgres by `pnpm db:settle`, which signs in as a real student and confirms the exploits fail.
 
 The legal surface did not exist at all before this pass. There were no terms, no privacy notice and no cookie notice, despite the footer showing three dead links styled like compliance links. All three are now written, the signup form is gated on accepting them with a server-side check that cannot be coerced, and acceptance is recorded in an append-only table the account holder cannot edit.
 
@@ -42,9 +41,12 @@ Students cannot self-register. That was already structurally true; it is now exp
 
 ### Testing
 - Vitest 5 for unit, Playwright 1.63 for E2E
-- 13 unit files, 10 E2E specs
+- 16 unit files, 12 E2E specs
 - `pnpm check:responsive` and `pnpm check:behaviour` as static gates
 - E2E runs against a production build on port 3311
+- `pnpm db:apply`, `pnpm db:check`, `pnpm db:settle` and `pnpm verify:app` are the
+  live-database gates. They are deliberately not in CI: they need credentials
+  and a reachable project, and a gate that cannot run in CI is not a gate
 - Both check scripts verify they are pointed at this checkout by build id before
   reporting anything; they had been silently measuring another application on
   port 3000
@@ -64,11 +66,11 @@ Authorisation is two independent layers. `proxy.ts` gates routes before render, 
 | Terms / Privacy / Cookies | Done | n/a | n/a | Passing | Complete |
 | Cookie consent banner | Done | Done | Verified | Passing | Complete |
 | Signup with consent gate | Done | Done | Verified | Passing | Complete |
-| Consent records | n/a | Done | Unverified against Postgres | Passing (fixture) | Implemented, NOT VERIFIED in Supabase |
-| Sign in / sign out / reset | Done | Done | Unverified against Supabase | Passing (fixture) | Implemented, NOT VERIFIED in Supabase |
-| Tenancy and admin console | Done | Done | Unverified against Postgres | Passing (fixture) | Implemented, NOT VERIFIED in Supabase |
+| Consent records | n/a | Done | Verified | Passing (fixture and Supabase) | Complete |
+| Sign in / sign out / reset | Done | Done | Verified | Passing (fixture and Supabase) | Complete |
+| Tenancy and admin console | Done | Done | Verified | Passing (fixture and Supabase) | Complete |
 | Classes and roster | Done | Done | Verified | Passing | Complete |
-| Teacher-issued student/guardian accounts | Done | Done | Unverified against Postgres | Passing (fixture) | Implemented, NOT VERIFIED in Supabase |
+| Teacher-issued student/guardian accounts | Done | Done | Verified | Passing (fixture and Supabase) | Complete |
 | Assessments | Done | Done | Verified | Passing | Complete |
 | Gradebook and grading policies | Done | Done | Verified | Passing | Complete |
 | Attendance | Done | Done | Verified | Passing | Complete |
@@ -162,15 +164,16 @@ in a pricing file.
 
 ## In Progress
 
-- [ ] Nothing. The audit pass is complete; what remains is verification against real infrastructure.
+- [ ] Nothing. Every gate is green, including the four that need the live database.
 
 ## Remaining
 
-- [ ] Apply the migration to the real Supabase project, then run `pnpm db:check` to confirm and `pnpm db:settle` to prove the two security fixes
-- [ ] Seed a real database with `SUPABASE_SERVICE_ROLE_KEY`
-- [ ] `git push` to the configured remote
+- [x] Apply the migration to the real Supabase project, then run `pnpm db:check` to confirm and `pnpm db:settle` to prove the two security fixes
+- [x] Seed a real database with `SUPABASE_SERVICE_ROLE_KEY`
+- [x] `git push` to the configured remote
 - [ ] Authenticate with Vercel and deploy
 - [ ] Verify push delivery from a Home Screen-installed PWA
+- [ ] Have the legal text reviewed by a qualified lawyer
 - [ ] Have the legal text reviewed by a qualified lawyer
 
 ## Known Bugs
@@ -199,23 +202,26 @@ in a pricing file.
 - `src/lib/server-module-exports.test.ts` scans every `'use server'` module and fails the build if one exports anything that is not an async function. This exists because two exports were silently replaced by reference proxies on the client, which is a failure that only shows up when the value is used.
 
 ### Integration
-- Fixture mode only. The Supabase adapter has never been exercised.
+- Both adapters are exercised. `pnpm verify:app` drives the built application in a real browser against the live Supabase project: it signs in as all five demo accounts, renders every workspace route, checks that seeded data is actually on the page rather than an empty state, confirms the routes an account is not entitled to are refused, and performs a real attendance write that is read back out of Postgres with the service key.
 
 ### E2E
-- 10 specs. Each test uses a unique email address and nothing pins a shared count, because the fixture workspace is one shared mutable store and the specs run in parallel against a single server.
+- 12 specs. Each test uses a unique email address and nothing pins a shared count, because the fixture workspace is one shared mutable store and the specs run in parallel against a single server.
 
 ## Latest Test Results
 
-All run on 2026-10-06 against this working tree.
+All run on 2026-10-09 against this working tree. The four live-database gates are the ones that were impossible before credentials existed.
 
 | Gate | Command | Result |
 |---|---|---|
 | Typecheck | `pnpm typecheck` | **0 errors** |
 | Lint | `pnpm lint` | **0 errors, 0 warnings** |
-| Unit | `pnpm vitest run` | **164 passed** in 13 files |
-| Migration | `pnpm check:sql` | **105 statements parse; 74 cross-references resolve; RLS on 16/16 tables; 14/14 policies re-runnable** |
-| Production build | `pnpm build` (via the E2E web server) | **exit 0** |
-| End to end | `pnpm e2e` | **137 passed** across 10 specs, 2.6m |
+| Unit | `pnpm vitest run` | **214 passed** in 16 files |
+| Migration | `pnpm check:sql` | **124 statements parse; 91 cross-references resolve; RLS on 16/16 tables; 14/14 policies re-runnable** |
+| Production build | `pnpm build` | **exit 0** |
+| End to end | `pnpm e2e` | **156 passed** across 12 specs, 3.0m |
+| Live schema | `pnpm db:apply` then `pnpm db:check` | **16 tables, RLS on 16, 23 policies; all security-relevant columns present** |
+| Live RLS behaviour | `pnpm db:settle` | **6 passed, 0 failed**: self-promotion refused, cross-tenant read refused, server-owned link cannot be moved |
+| Live application | `pnpm verify:app` | **25 passed, 0 failed**: every workspace route renders with real seeded data, refusals hold, an attendance write is read back out of Postgres |
 
 ### What `check:sql` proves, and what it does not
 
@@ -296,11 +302,14 @@ Also closed: blind SSRF through the push endpoint, a rate-limit kill switch one 
 
 ## Blockers
 
-1. **`git push` fails.** `git ls-remote origin` returns `remote: Repository not found` for `https://github.com/jcuady/liko.git`. `credential.helper=manager` is set but no usable token is present, and there is no `GITHUB_TOKEN` or `GH_TOKEN`. Needs `gh auth login`, or the correct repository name if the repo was renamed.
-2. **Supabase OAuth not completed.** The MCP server is registered but exposes no database tools. Now verified directly rather than assumed: `pnpm db:check` reaches project `ulrjitekiylgepdyijsw` with the existing publishable key and reports **0 of 15 tables present**. The project exists and is live, but has no LIKO schema at all. This is stronger and more certain than the earlier "has never been applied": it is not partially applied, it is entirely absent.
-3. **`SUPABASE_SERVICE_ROLE_KEY` is blank.** `scripts/seed.mjs` has never run against a real database.
-4. **Vercel unauthenticated.** `vercel whoami` fails.
-5. **iOS push delivery unverifiable** without a Home Screen-installed PWA.
+Three of the five blockers listed here were resolved on 2026-10-09 and are kept here only so the record shows what they were.
+
+1. **RESOLVED: `git push`.** The remote is `https://github.com/jcuady/liko.git` and every commit is pushed. The earlier `Repository not found` was a credential problem, not a wrong repository name.
+2. **RESOLVED: the database was empty.** `pnpm db:apply` applied the migration to project `ulrjitekiylgepdyijsw`, which now holds 16 tables with row level security on all 16 and 23 policies.
+3. **RESOLVED: `SUPABASE_SERVICE_ROLE_KEY`.** `scripts/seed.mjs` has run; five demo accounts hold a school, three classes, 24 students, assessments, marks, attendance and history.
+4. **OPEN: Vercel unauthenticated.** `vercel whoami` fails. This is the one thing standing between this codebase and a live URL, and it needs the user.
+5. **OPEN: iOS push delivery unverifiable** without a Home Screen-installed PWA.
+6. **OPEN: the legal text has not been read by a lawyer.** It describes this implementation accurately, which is the most it can do, but accuracy about the system is not legal sufficiency.
 
 ### The RLS settling test
 
@@ -335,11 +344,22 @@ into `pnpm test` or CI.
 
 ## Recommended Next Actions
 
-1. Apply the migration, then run `pnpm db:check` and `pnpm db:settle`. That is the only thing standing between this codebase and an honest "verified" on its two most important security properties. The schema is confirmed absent, so this starts from nothing.
-2. Fix the git remote and push. Every commit so far exists only on this machine.
-3. Have the legal text reviewed. It describes this implementation accurately, which is the most it can do, but accuracy about the system is not the same as legal sufficiency.
+1. Authenticate with Vercel and deploy. Everything else that could be verified on this machine has been.
+2. Have the legal text reviewed by a lawyer. It describes this implementation accurately, which is the most it can do, but accuracy about the system is not the same as legal sufficiency.
+3. Rotate the service role key and the database password before this project carries anything real. Both have been handled in chat and written to a local `.env.local`, which is gitignored, but they were shared in a conversation.
 
 ## Recent Work
+
+### 2026-10-09
+
+Completed:
+- Applied the migration to the live Supabase project with a new `pnpm db:apply`, which brings the database up from a checkout with nothing but Node
+- Fixed the RLS infinite recursion that made `profiles`, `classes`, `organizations` and `memberships` return `42P17`, by adding three `SECURITY DEFINER` helper functions and rewriting six policies to call them
+- Proved the two security fixes rather than arguing them: `pnpm db:settle` signs in as a real student and confirms self-promotion and the cross-tenant read both fail
+- Seeded the project, then extended the seed to create the school, its five seats and the two read-only account links, because the admin console had nothing to read
+- Found and fixed a real defect that only a live database could surface: `memberships.user_id` referenced `auth.users`, so PostgREST could not resolve the embed the admin console reads and `/admin` returned 500. The foreign key now references `public.profiles`
+- Deleted `/api/attendance`, which validated a payload, authorised it, answered `202 {ok:true}`, and wrote nothing
+- Added `pnpm verify:app`, which drives the built application in a browser against the live project, asserts that seeded data is on the page rather than an empty state, and reads a real write back out of Postgres
 
 ### 2026-10-06
 
