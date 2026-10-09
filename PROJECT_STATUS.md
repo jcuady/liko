@@ -35,9 +35,9 @@ Students cannot self-register. That was already structurally true; it is now exp
 - `organizations` + `memberships` carry tenancy. There is no `owner` role; the four roles are `instructor`, `admin`, `student`, `guardian`, and `org:manage` means "can administer the organisation"
 
 ### Infrastructure
-- Vercel (target, unauthenticated)
+- Vercel, live at `https://liko-jcuadys-projects.vercel.app` (project `jcuadys-projects/liko`, framework preset `nextjs`, SSO protection off)
 - Serwist service worker, precache plus runtime rules
-- Environment: `LIKO_DATA_MODE` selects the Supabase or fixture adapter at boot, never at runtime
+- Environment: `LIKO_DATA_MODE` selects the Supabase or fixture adapter at boot, never at runtime. Production is pinned to `supabase` and verified by dataset, not by flag
 
 ### Testing
 - Vitest 5 for unit, Playwright 1.63 for E2E

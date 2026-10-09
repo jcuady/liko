@@ -68,3 +68,6 @@ sohne-font-family/
 .zprobe.cjs
 .eprobe.cjs
 .brandkit-args.json
+
+# Vercel CLI link state. Holds the project and org id for this directory.
+.vercel

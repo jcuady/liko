@@ -19,14 +19,14 @@ Project: `https://ulrjitekiylgepdyijsw.supabase.co`
 | Web push: routes, cron, service worker | Sweep proven against the live database; actual delivery still untested |
 | Migration SQL | Applied to `ulrjitekiylgepdyijsw`, idempotent, 16 tables |
 | Seed script | Run. Five accounts, one school, three classes, 24 students |
-| Git history | 22 commits on `main`, pushed, remote verified identical |
-| Deployment | **Never attempted.** Vercel is unauthenticated |
+| Git history | 27 commits on `main`, pushed, remote verified identical |
+| Deployment | **Live** at `https://liko-jcuadys-projects.vercel.app`, project `jcuadys-projects/liko`. Production build, `LIKO_DATA_MODE=supabase`, verified by signing in against live Supabase |
 
 The honest summary: every read and write through the seam has now run against the
 real database, not just the fixture adapter. `pnpm db:check`, `pnpm db:settle` and
-`pnpm verify:app` are the commands that prove it, and all three are green. What
-remains is the step that needs a signed-in Vercel account, plus two things that
-need hardware or a lawyer.
+`pnpm verify:app` are the commands that prove it, and all three are green. The
+deployment is up and serving real data. What remains is one blocked signup path
+that needs a Supabase email provider, plus things that need hardware or a lawyer.
 
 ### The seeded demo data
 
@@ -52,27 +52,70 @@ and is safe to re-run.
 
 ---
 
-## Step 1: Deploy to Vercel
+## Step 1: Deploy to Vercel — DONE
 
-This is the only step left that the agent cannot do. `vercel whoami` times out,
-so there is no session to deploy with.
+The app is live at **`https://liko-jcuadys-projects.vercel.app`** under the Vercel
+project `jcuadys-projects/liko`. To redeploy:
 
 ```bash
-vercel login
-vercel link
 vercel --prod
 ```
 
-Then add every production variable from the Deployment section of `README.md`.
-Two of them are the ones that break silently if missed:
+Three things were true out of the box and had to be corrected. Each one produced a
+deployment that reported success, so none of them would have been visible in a
+build log:
 
-| Variable | What happens if it is wrong |
-|---|---|
-| `LIKO_DATA_MODE=supabase` | It defaults to `fixtures`, so the demo workspace ships to real users |
-| `CRON_SECRET` | The daily at-risk sweep answers 401 and nobody is ever alerted. It fails closed by design, so it looks like a healthy no-op |
+| Setting | Default | Symptom if left alone |
+|---|---|---|
+| `Framework Preset` | `other` | The build succeeded and the deployment was `Ready`, but every page 404s. Vercel serves `public/` as a static site, so `/sw.js` and `/logo.jpg` return 200 while `/` and `/login` do not. The Next.js server never runs. |
+| SSO protection | `all_except_custom_domains` | Every URL answers 200 with a **Vercel login page** instead of the app. It hides the 404 above entirely, so fixing the framework first looks like it worked when it did not. |
+| `.env.local` upload | not ignored | `vercel --prod` uploads the whole directory, which would copy the service-role key, the session secret and the VAPID private key into the build. `.vercelignore` now blocks it. |
 
-The other variables are the Supabase URL and keys, `LIKO_SESSION_SECRET`,
-`NEXT_PUBLIC_SITE_URL` pointed at the real domain, and the VAPID pair.
+Fix them with:
+
+```bash
+vercel project update liko --framework nextjs \
+  --auto-detect build-command --auto-detect output-directory \
+  --auto-detect install-command --yes
+vercel project protection disable liko --sso
+```
+
+Once the framework preset is `nextjs` the build log should contain
+`Detected Next.js version: 16.4.0` and `Applying modifyConfig from Vercel`. Without
+those two lines, Vercel is not building this as a Next.js app.
+
+### Production environment variables
+
+All ten are set on the project as Production variables. `SUPABASE_SERVICE_ROLE_KEY`,
+`LIKO_SESSION_SECRET`, `VAPID_PRIVATE_KEY` and `CRON_SECRET` are stored as
+**Secrets**, so they are write-only and cannot be read back from the dashboard or
+pulled with `vercel env pull`. The rest are Config, because Config is what is
+reliably available during the build.
+
+Two deliberate omissions:
+
+- `LIKO_RATE_LIMIT_DISABLED` and `LIKO_E2E` are **not** set. Both bypass safety
+  behaviour, and the e2e bypass in particular must never be live.
+- `SUPABASE_DB_PASSWORD` is **not** set. It is only used by the Supabase CLI to
+  apply migrations locally, so it has no reason to exist in the build environment.
+
+`NEXT_PUBLIC_SITE_URL` is `https://liko-jcuadys-projects.vercel.app`. It is baked
+into `sitemap.xml` and `robots.txt`, so if a custom domain is added later this must
+be updated and the app redeployed, or password-reset and email-verification mails
+will point at the old origin.
+
+### What has been checked against the live deployment
+
+- Landing page, `sitemap.xml`, `robots.txt`, `manifest.webmanifest` and `/sw.js`
+  all serve 200.
+- `POST /api/cron/at-risk` without the bearer token answers **401**. The route
+  fails closed, as designed.
+- Signed in as `maya@liko.test` against the live database and loaded `/overview`,
+  `/grades`, `/attendance` and `/classes`. The gradebook lists the seeded Supabase
+  students (Ana Ferreira, Ben Osei, Clara Nwosu) and none of the fixture names
+  (Tomas Lindqvist, Amara Nwankwo, Ravi Menon). Zero browser console errors.
+- `/admin` correctly refuses an instructor with the access-denied page, so RBAC is
+  enforced in production and not only in fixture mode.
 
 ---
 
@@ -121,16 +164,19 @@ after the rotation.
 Work through this against the live URL before calling it launched.
 
 - [ ] Sign up with a fresh email, receive the verification mail, land on
-      `/overview?verified=1`
-- [ ] Sign in as `maya@liko.test`, confirm the seeded classes and students load
+      `/overview?verified=1`. **Blocked by Step 2**, not by code.
+- [x] Sign in as `maya@liko.test`, confirm the seeded classes and students load
 - [ ] Create a class, add a student, mark attendance, enter a grade, and reload
       to confirm every write survived
 - [ ] Enable notifications in Settings. Chrome or Edge desktop is the reliable
       path. iOS requires Add to Home Screen and cannot be verified here
 - [ ] Load the app with the network disabled, mark attendance, then restore the
       connection and confirm the outbox drains
-- [ ] Confirm `LIKO_DATA_MODE=supabase` is live, by checking that a brand-new
-      account sees no seeded demo data
+- [x] Confirm `LIKO_DATA_MODE=supabase` is live. Checked by content rather than by
+      a flag: the production gradebook lists the Supabase seed (Ana Ferreira, Ben
+      Osei, Clara Nwosu) and none of the fixture names (Tomas Lindqvist, Amara
+      Nwankwo, Ravi Menon). The two datasets share no students, so this is not
+      ambiguous.
 
 ---
 

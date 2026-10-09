@@ -1,0 +1,24 @@
+# Vercel upload ignore list.
+#
+# Vercel CLI uploads the project directory to build in the cloud. This file stops
+# local-only material from leaving the machine.
+#
+# `.env.local` holds the Supabase service-role key, the session signing secret and
+# the VAPID private key. Uploading it would copy production-grade secrets into the
+# build. Production values are supplied as Vercel project environment variables
+# instead. `.env.example` is the committed template and is safe to upload.
+
+.env
+.env.local
+.env*.local
+
+# Build and test output, regenerated on Vercel.
+.next
+out
+coverage
+playwright-report
+test-results
+.vercel
+
+# Large local artefacts that are not part of the application.
+*.tsbuildinfo
