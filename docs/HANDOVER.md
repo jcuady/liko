@@ -13,137 +13,84 @@ Project: `https://ulrjitekiylgepdyijsw.supabase.co`
 | Area | State |
 |---|---|
 | Landing page, pricing, brand | Done, audited |
-| Auth: signup, verification, reset, RBAC | Done, verified in fixture mode |
-| All seven workspace modules | Done, real CRUD through the seam |
+| Auth: signup, verification, reset, RBAC | Done, verified in fixture **and** Supabase mode |
+| All seven workspace modules | Done, real CRUD through the seam, verified against the live database |
 | Offline write queue | Done |
-| Web push: routes, cron, service worker | Code done, untested against a live service |
-| Migration SQL | Written and idempotent, **not yet applied** |
-| Seed script | Written, **never run** (no service key yet) |
-| Git history | One commit on `main`, remote set, **not yet pushed** |
-| Deployment | **Never attempted** |
+| Web push: routes, cron, service worker | Sweep proven against the live database; actual delivery still untested |
+| Migration SQL | Applied to `ulrjitekiylgepdyijsw`, idempotent, 16 tables |
+| Seed script | Run. Five accounts, one school, three classes, 24 students |
+| Git history | 22 commits on `main`, pushed, remote verified identical |
+| Deployment | **Never attempted.** Vercel is unauthenticated |
 
-The honest summary: the app is complete and self-consistent in `fixtures` mode,
-and nothing has been executed against a live database or a live push service.
-Steps 1 and 2 are what turn it from verified-in-fixture to verified-for-real.
+The honest summary: every read and write through the seam has now run against the
+real database, not just the fixture adapter. `pnpm db:check`, `pnpm db:settle` and
+`pnpm verify:app` are the commands that prove it, and all three are green. What
+remains is the step that needs a signed-in Vercel account, plus two things that
+need hardware or a lawyer.
 
----
+### The seeded demo data
 
-## Step 1: Apply the database schema
-
-The Supabase MCP server is registered but its OAuth was never completed, so no
-database tools are exposed to the agent.
-
-**1a.** Open <https://mcp.supabase.com/mcp> and complete the OAuth, selecting
-project `ulrjitekiylgepdyijsw`.
-
-**1b.** Apply the migration. Either route works:
-
-- Through the MCP server once OAuth is done, or
-- Open the project dashboard, paste
-  `supabase/migrations/20260101000000_initial_schema.sql` into the SQL editor,
-  and run it.
-
-The migration creates 10 tables, 2 triggers, enables RLS on every table, and
-adds `students` and `grades` to the `supabase_realtime` publication. It is
-idempotent, so re-running it is safe.
-
-**Verify:** the `profiles`, `classes`, and `students` tables exist and
-`pg_tables` reports `rowsecurity = true` for all ten.
-
----
-
-## Step 2: Add the service role key and seed
-
-`SUPABASE_SERVICE_ROLE_KEY` is blank in `.env.local`. Find it in the dashboard
-under Settings, API. It bypasses RLS entirely, so it stays server-side and must
-never be prefixed `NEXT_PUBLIC_`.
-
-Then set the mode and seed:
-
-```bash
-node -e "const fs=require('fs');const p='.env.local';let s=fs.readFileSync(p,'utf8');s=s.replace(/^LIKO_DATA_MODE=.*$/m,'LIKO_DATA_MODE=supabase');fs.writeFileSync(p,s)"
-node --env-file=.env.local scripts/seed.mjs
-```
-
-The seed creates five verified test accounts, all with password
-`LikoDemo!2026`:
+`node --env-file=.env.local scripts/seed.mjs` creates five confirmed accounts, all
+with password `LikoDemo!2026`:
 
 | Email | Role | Notes |
 |---|---|---|
-| `maya@liko.test` | instructor | Owns Chemistry, Period 2 |
-| `dev@liko.test` | admin | Owns Science, Period 4 |
-| `ingrid@liko.test` | instructor | Owns Physical Science, Year 1 |
-| `student@liko.test` | student | Owns no class, holds only scoped grants |
-| `guardian@liko.test` | guardian | Owns no class, holds only linked grants |
+| `maya@liko.test` | instructor | Owns Chemistry, Period 2. Seat: instructor |
+| `dev@liko.test` | admin | Owns Science, Period 4. Seat: admin |
+| `ingrid@liko.test` | instructor | Owns Physical Science, Year 1. Seat: instructor |
+| `student@liko.test` | student | Owns no class. Linked to Ana Ferreira's record |
+| `guardian@liko.test` | guardian | Owns no class. Reached through Ben Osei's guardian address |
 
-The last two exist so every column of the RBAC matrix is reachable by a real
-account. An earlier version of this document described Ingrid as a parent; the
-seed has always created her as an instructor, and the fixture store now mirrors
-the seed exactly.
-
-The same five accounts are seeded into the in-memory store when
+All five hold seats in one seeded school, which is what gives the admin console
+something to read. The same five are mirrored into the in-memory store under
 `LIKO_DATA_MODE=fixtures`, so `pnpm dev` and the Playwright suite have working
-logins without a database. The script refuses to run under `NODE_ENV=production`.
+logins with no database. The script refuses to run under `NODE_ENV=production`
+and is safe to re-run.
 
-> These are demo credentials in a public repository. Delete them, or change the
+> These are demo credentials in a repository. Delete them, or change the
 > password, before any real launch.
 
 ---
 
-## Step 3: Rotate the VAPID key pair
+## Step 1: Deploy to Vercel
 
-The private key supplied for this build appears in the project chat transcript.
-Anyone holding it can push a notification to every subscribed user. Generate a
-fresh pair before launch:
+This is the only step left that the agent cannot do. `vercel whoami` times out,
+so there is no session to deploy with.
+
+```bash
+vercel login
+vercel link
+vercel --prod
+```
+
+Then add every production variable from the Deployment section of `README.md`.
+Two of them are the ones that break silently if missed:
+
+| Variable | What happens if it is wrong |
+|---|---|
+| `LIKO_DATA_MODE=supabase` | It defaults to `fixtures`, so the demo workspace ships to real users |
+| `CRON_SECRET` | The daily at-risk sweep answers 401 and nobody is ever alerted. It fails closed by design, so it looks like a healthy no-op |
+
+The other variables are the Supabase URL and keys, `LIKO_SESSION_SECRET`,
+`NEXT_PUBLIC_SITE_URL` pointed at the real domain, and the VAPID pair.
+
+---
+
+## Step 2: Rotate the VAPID key pair and the Supabase service key
+
+The private key supplied for this build, and the service role key and database
+password, appear in the project chat transcript. Anyone holding the service key
+can read and write every table, bypassing RLS entirely. Generate fresh values
+before launch:
 
 ```bash
 npx web-push generate-vapid-keys
 ```
 
-Update `NEXT_PUBLIC_VAPID_PUBLIC_KEY` and `VAPID_PRIVATE_KEY` in `.env.local` and
-in the Vercel project. Existing browser subscriptions are bound to the old key,
-so testers must re-enable notifications once after the rotation.
-
----
-
-## Step 4: Publish to GitHub
-
-No GitHub credential is available to the agent: `gh` on PATH is an unrelated npm
-package, and no token is present in the environment. The remote is already set
-to a private repository, so only the push is left.
-
-1. Create the repository on <https://github.com/new>. Owner `jcuady`, name
-   `liko`, visibility **private**. It was chosen deliberately: this is unreleased
-   product code, and the repository names the Supabase project and ships demo
-   credentials in the seed script.
-
-```bash
-git push -u origin main
-```
-
-Git Credential Manager will prompt for a browser sign-in on first push.
-
-What is already guaranteed: `.env.local` is ignored by `.gitignore:21`, no
-secret value appears in any tracked file, and `.env.example` is a blank
-template. The Klim Söhne fonts are excluded too, because their bundled licence
-is personal-use only and the product ships Geist.
-
----
-
-## Step 5: Deploy to Vercel
-
-```bash
-vercel login
-vercel link
-```
-
-Then add every production variable from the Deployment section of `README.md`.
-`LIKO_DATA_MODE=supabase` is the one that matters most: it defaults to
-`fixtures`, so omitting it ships the demo workspace to real users.
-
-```bash
-vercel --prod
-```
+Then set `NEXT_PUBLIC_VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, and the Supabase
+keys, in `.env.local` and in the Vercel project. Existing browser subscriptions
+are bound to the old VAPID key, so testers must re-enable notifications once
+after the rotation.
 
 ---
 
@@ -169,15 +116,17 @@ Work through this against the live URL before calling it launched.
 
 Stated plainly so nobody is surprised later.
 
-1. **The whole Supabase path.** Every read and write through the seam ran against
-   the fixture adapter. The Supabase adapter has never executed.
-2. **iOS push delivery.** It needs a Home Screen-installed PWA and a real
-   subscription. No automated test can cover it.
-3. **The at-risk cron.** `/api/cron/at-risk` has never been invoked. Its 7-day
-   dedupe writes `student_history` rows with `event_type = 'intervention'` and a
-   `payload.alert` flag, because the CHECK constraint has no `at_risk_alert`
-   value.
-4. **Payment.** The pricing page is presentation only. No billing provider is
+1. **iOS push delivery.** It needs a Home Screen-installed PWA and a real
+   subscription. No automated test can cover it. Chrome and Edge desktop are the
+   reliable path.
+2. **The push send itself.** The at-risk sweep is proven: it authenticates, fails
+   closed without a secret, finds exactly the students under threshold, writes
+   `student_history` rows with `event_type = 'intervention'`, and respects the
+   seven-day cooldown on a second run. What is unproven is the outbound delivery,
+   because no real push subscription exists yet. Note that a sweep across all
+   teachers reports `teachers: 0` until somebody subscribes; that is correct, not
+   a fault.
+3. **Payment.** The pricing page is presentation only. No billing provider is
    wired, so the Starter tier is genuinely free rather than free-with-a-card.
 
 ---

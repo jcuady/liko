@@ -43,45 +43,65 @@
 
 **Quality**
 
-- 44 unit tests, three Playwright suites, production build verified
+- 214 unit tests across 16 files, 156 Playwright tests across 12 specs,
+  production build verified
+- Four live-database gates: `db:apply`, `db:check`, `db:settle` and
+  `verify:app`. They need credentials, so they are run by hand rather than in CI
 
 ---
 
-## Next: the six MVP modules
+## Delivered: the six MVP modules
 
-Each is a vertical slice, in this order. See the build order in
-`docs/ARCHITECTURE.md`.
+Each was a vertical slice. All six now read and write real data through the
+seam, and `pnpm verify:app` proves each renders with seeded data against a live
+Postgres rather than an empty state.
 
-1. **Roster and attendance.** Import from spreadsheet or LMS. Attendance is
-   already interactive and optimistic; it needs a real write path.
-2. **Lesson planner.** One plan reused across sections, standards attached.
-3. **Assessment builder.** Question types inheriting plan context, rubrics.
-4. **Gradebook.** Replace the fixture grid with persistence, keep the keyboard
-   model, add rubric reasoning per mark.
-5. **At-risk heatmap.** Real thresholds, configurable, with the existing
-   colour-plus-pattern-plus-label encoding preserved.
-6. **Report cards.** PDF export from data already entered.
+1. **Roster and attendance.** CSV import by heading alias, with a preview before
+   anything is written. Attendance marks cycle per cell and persist through a
+   server action.
+2. **Lesson planner.** Plans per class, standards attached, saved and reloaded.
+3. **Assessment builder.** Weighted assessments with types, due dates and
+   standard codes.
+4. **Gradebook.** Persistent marks, five built-in scales plus custom ones,
+   weighted totals, keyboard model, CSV export.
+5. **At-risk heatmap.** Derived from real marks and absences, encoded with
+   colour plus pattern plus label. A daily sweep alerts on the same threshold
+   rule, so the heatmap and the alert cannot disagree about who is at risk.
+6. **Report cards.** Not built. Deliberately deferred: it needs a PDF pipeline
+   and a layout decision, and neither is worth doing before the product has
+   users.
 
-Each module automatically appears in the landing page hero and bento, because
-those render the shipping components.
+Each module appears in the landing page hero and bento, because those render the
+shipping components rather than pictures of them.
 
-## Also queued
+## Also delivered
+
+- Push notifications: VAPID subscription, service worker, background sync, and
+  a daily at-risk cron verified against the live database
+- Multi-tenant institution management: one school, five seats, four roles
+- Student and guardian read-only access at real scope depth, enforced by RLS and
+  proven by `pnpm db:settle`
+
+## Still queued
 
 - AI lesson drafting, scoped per request, with a visible request log
-- SIS and LMS import
-- Push notifications
-- Multi-tenant institution management
-- Parent and student read-only portals at real scope depth
+- SIS and LMS roster import, beyond the CSV importer that shipped
 
 ---
 
-## Open decisions
+## Resolved decisions
 
-**The API layer.** `lib/api/client.ts` is fixture-backed. The shape of the real
-API determines several things downstream: whether sessions are issued by LIKO or
-by an external identity provider, whether rate-limit state moves to a shared
-store, and what the ownership-scoping filters look like. **This is the blocking
-decision for the module work.**
+**The API layer.** RESOLVED on 2026-10-07, when the project owner overrode the
+masterplan's instruction not to design a database. `lib/api/client.ts` selects
+between PostgREST and an in-memory fixture workspace at boot, so the product runs
+with no network and no credentials while the same code path serves real users.
+Sessions are issued by LIKO, rate-limit state is per-process, and the
+ownership-scoping filters are duplicated as explicit `.eq('owner_id', userId)`
+calls on top of RLS.
+
+**Session revocation.** Still absent. A stolen cookie is valid until it expires.
+
+## Open decisions
 
 **Söhne licensing.** Geist ships. If a Söhne licence is bought, the change is two
 imports in `app/layout.tsx`.
