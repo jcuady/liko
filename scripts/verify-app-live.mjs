@@ -517,6 +517,198 @@ async function verifySignup() {
   }
 }
 
+/**
+ * Posts from inside the page rather than through `page.request`.
+ *
+ * `page.request` shares the context's cookies, but the session here is set by a
+ * server action during sign-in and the requests made that way were answered 401
+ * even with a valid signed-in browser. Running the fetch inside the page means
+ * the browser sends exactly the headers it would send, which is also the more
+ * faithful test: this is what the service worker does when it subscribes.
+ */
+async function callAsPage(page, method, path, body) {
+  return page.evaluate(
+    async ([verb, url, payload]) => {
+      const response = await fetch(url, {
+        method: verb,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      return { status: response.status, body: await response.text() };
+    },
+    [method, `${BASE}${path}`, body],
+  );
+}
+
+/**
+ * The push subscription route: SSRF allowlist, RLS ownership, and the sweep's
+ * path from a stored row to an outbound send.
+ *
+ * This endpoint has never been exercised against a live database, and it is the
+ * one place in the product where a signed-in teacher supplies a URL that the
+ * server will later fetch. The refusal cases are asserted first because they are
+ * the security-relevant ones and they need no state.
+ *
+ * The suffix cases matter more than they look. A naive host check accepts
+ * `fcm.googleapis.com.attacker.com`, which an attacker obtains by owning
+ * `attacker.com`, and accepting it would turn this into a blind proxy out of the
+ * server. Those two payloads are the whole reason the rule compares parsed
+ * hostnames against dot-anchored suffixes.
+ */
+async function verifyPush() {
+  console.log('Push subscriptions');
+
+  const endpoint = `https://fcm.googleapis.com/fcm/send/verify-${Date.now()}`;
+  const payload = {
+    endpoint,
+    keys: { p256dh: 'BEl62iUYgUivxIkv69yViEuiBIa-Ib9-SkvMeAtA3LFgDzkrxZJjSgSnfckjBJuBkr3qBUYIHBQFLXYp5Nksh8U', auth: '8eDyX_uCN0XRhSbE5HG7pJLvWOhVr6jLGlhFwqsmGY' },
+  };
+
+  const browser = await chromium.launch();
+
+  try {
+    // ---- refusals that need no session ----------------------------------
+    const anonymous = await fetch(`${BASE}/api/push/subscribe`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    check('an anonymous subscribe is refused', anonymous.status === 401, `answered ${anonymous.status}`);
+
+    const crossOrigin = await fetch(`${BASE}/api/push/subscribe`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Origin: 'https://evil.example' },
+      body: JSON.stringify(payload),
+    });
+    check('a cross-origin subscribe is refused', crossOrigin.status === 403, `answered ${crossOrigin.status}`);
+
+    // ---- the allowlist --------------------------------------------------
+    const refusals = [
+      ['instance metadata over http', 'http://169.254.169.254/latest/meta-data/'],
+      ['a host that merely ends in the right characters', 'https://fcm.googleapis.com.attacker.com/x'],
+      ['a host with the right characters as a prefix', 'https://notfcm.googleapis.com/x'],
+      ['a valid host carrying credentials', 'https://user:pass@fcm.googleapis.com/x'],
+      ['a valid host on the wrong port', 'https://fcm.googleapis.com:8443/x'],
+      ['a loopback address', 'https://127.0.0.1/x'],
+    ];
+
+    const context = await browser.newContext();
+    await seedConsent(context);
+    const page = await context.newPage();
+    await signIn(page, 'maya@liko.test');
+
+    for (const [label, hostile] of refusals) {
+      const res = await callAsPage(page, 'POST', '/api/push/subscribe', {
+        endpoint: hostile,
+        keys: payload.keys,
+      });
+      check(`refuses ${label}`, res.status === 400, `answered ${res.status}`);
+    }
+
+    // ---- a legitimate subscription --------------------------------------
+    const accepted = await callAsPage(page, 'POST', '/api/push/subscribe', payload);
+    check('a real push endpoint is accepted', accepted.status === 204, `answered ${accepted.status}`);
+
+    const rows = await read(`push_subscriptions?endpoint=eq.${encodeURIComponent(endpoint)}&select=user_id`);
+    check(
+      'and it is stored against the signed-in teacher',
+      Array.isArray(rows) && rows.length === 1,
+      `rows: ${JSON.stringify(rows)}`,
+    );
+
+    // ---- re-subscribing must not duplicate ------------------------------
+    await callAsPage(page, 'POST', '/api/push/subscribe', payload);
+    const again = await read(`push_subscriptions?endpoint=eq.${encodeURIComponent(endpoint)}&select=id`);
+    check(
+      're-subscribing the same endpoint updates rather than duplicating',
+      again.length === 1,
+      `${again.length} rows after a second subscribe`,
+    );
+
+    // ---- and the sweep can now find a teacher ----------------------------
+    /*
+     * The sweep must actually have something to alert on, or it dispatches
+     * nothing and this proves nothing about the network path. A previous run of
+     * this script, or of the at-risk sweep itself, leaves `intervention` rows
+     * behind, and the seven-day cooldown then suppresses every student before any
+     * send happens. Clearing them first is what makes the dispatch assertion
+     * deterministic; the rows written below are removed again at the end so the
+     * database is left as it was found.
+     */
+    await remove('student_history?event_type=eq.intervention');
+
+    if (process.env.CRON_SECRET) {
+      const sweep = await fetch(`${BASE}/api/cron/at-risk`, {
+        headers: { Authorization: `Bearer ${process.env.CRON_SECRET}` },
+      }).then((r) => r.json());
+
+      /*
+       * With a stored subscription the sweep must now find a teacher, which is
+       * the link this whole chain depends on.
+       *
+       * The endpoint here is synthetic, so a delivery cannot succeed. What is
+       * being proved is that the request actually leaves the server and that a
+       * permanent rejection is handled as permanent: FCM answers 404 for an
+       * unknown subscription, the dispatcher treats that as "gone", and the row
+       * is deleted rather than retried forever. So `pruned` is the signal here,
+       * not `failed`. A run reporting neither sent nor pruned would mean the
+       * dispatcher never reached the network at all.
+       */
+      check(
+        'the sweep now finds a subscribed teacher instead of nobody',
+        sweep.teachers >= 1,
+        `sweep reported ${JSON.stringify(sweep)}`,
+      );
+      check(
+        'and it dispatched to the endpoint, treating the rejection as permanent',
+        sweep.pruned > 0 || sweep.notifications > 0 || sweep.failed > 0,
+        `notifications ${sweep.notifications}, pruned ${sweep.pruned}, failed ${sweep.failed}. ` +
+          'All three at zero would mean the dispatcher stopped before reaching the push service.',
+      );
+      note(
+        `sweep reported notifications: ${sweep.notifications}, pruned: ${sweep.pruned}, ` +
+          `failed: ${sweep.failed}. A synthetic endpoint is expected to be pruned, not delivered ` +
+          'to. Real delivery still needs a browser that accepts a subscription.',
+      );
+    }
+
+    // ---- one teacher cannot remove another's device ----------------------
+    const devContext = await browser.newContext();
+    await seedConsent(devContext);
+    const devPage = await devContext.newPage();
+    await signIn(devPage, 'dev@liko.test');
+
+    const devEndpoint = `https://fcm.googleapis.com/fcm/send/verify-dev-${Date.now()}`;
+    await callAsPage(devPage, 'POST', '/api/push/subscribe', {
+      endpoint: devEndpoint,
+      keys: payload.keys,
+    });
+
+    // Maya tries to delete Dev's subscription using her own session.
+    await callAsPage(page, 'DELETE', '/api/push/subscribe', { endpoint: devEndpoint });
+
+    const devRows = await read(`push_subscriptions?endpoint=eq.${encodeURIComponent(devEndpoint)}&select=user_id`);
+    check(
+      "one teacher cannot unsubscribe another teacher's device",
+      devRows.length === 1,
+      `dev's row count after maya's delete: ${devRows.length}`,
+    );
+
+    // ---- and she can remove her own --------------------------------------
+    await callAsPage(page, 'DELETE', '/api/push/subscribe', { endpoint });
+    const gone = await read(`push_subscriptions?endpoint=eq.${encodeURIComponent(endpoint)}&select=id`);
+    check('a teacher can remove their own subscription', gone.length === 0, `${gone.length} rows left`);
+
+    await remove(`push_subscriptions?endpoint=eq.${encodeURIComponent(devEndpoint)}`);
+    await devContext.close();
+    await context.close();
+  } finally {
+    await remove(`push_subscriptions?endpoint=eq.${encodeURIComponent(endpoint)}`);
+    await remove('student_history?event_type=eq.intervention');
+    await browser.close();
+  }
+}
+
 async function main() {
   for (const name of ['NEXT_PUBLIC_SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY']) {
     if (!process.env[name]) {
@@ -548,6 +740,13 @@ async function main() {
   } catch (error) {
     failures += 1;
     console.log(`  FAIL  the at-risk sweep could not be checked: ${error.message}`);
+  }
+
+  try {
+    await verifyPush();
+  } catch (error) {
+    failures += 1;
+    console.log(`  FAIL  push subscriptions could not be checked: ${error.message}`);
   }
 
   try {

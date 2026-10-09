@@ -151,13 +151,14 @@ Stated plainly so nobody is surprised later.
 2. **iOS push delivery.** It needs a Home Screen-installed PWA and a real
    subscription. No automated test can cover it. Chrome and Edge desktop are the
    reliable path.
-3. **The push send itself.** The at-risk sweep is proven: it authenticates, fails
-   closed without a secret, finds exactly the students under threshold, writes
-   `student_history` rows with `event_type = 'intervention'`, and respects the
-   seven-day cooldown on a second run. What is unproven is the outbound delivery,
-   because no real push subscription exists yet. Note that a sweep across all
-   teachers reports `teachers: 0` until somebody subscribes; that is correct, not
-   a fault.
+3. **The push send itself.** Almost everything is proven: subscription storage, the
+   SSRF allowlist against six hostile payloads including the suffix tricks a naive
+   host check would accept, per-teacher ownership on delete, the sweep finding a
+   subscribed teacher, and an outbound dispatch that reaches the push service and
+   treats a permanent 404 as permanent by deleting the dead row instead of
+   retrying it forever. What is unproven is a notification actually appearing on
+   a device, which needs a real browser subscription. Chrome and Edge desktop are
+   the reliable path; iOS needs Add to Home Screen.
 4. **Payment.** The pricing page is presentation only. No billing provider is
    wired, so the Starter tier is genuinely free rather than free-with-a-card.
 

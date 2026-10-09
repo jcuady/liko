@@ -78,7 +78,7 @@ Authorisation is two independent layers. `proxy.ts` gates routes before render, 
 | Slides deck editor | Done | Done | Verified | Passing | Complete |
 | Student history | Done | Done | Verified | Passing | Complete |
 | Profile and onboarding wizard | Done | Done | Verified | Passing | Complete |
-| Push notifications | Done | Done | Unverified on iOS | Passing (subscription) | Implemented, NOT VERIFIED for delivery |
+| Push notifications | Done | Done | Verified except delivery | Passing (subscription, SSRF, dispatch) | **The whole chain is proven except a banner appearing.** Subscription storage, the SSRF allowlist, per-teacher ownership, the sweep finding a subscribed teacher, and an outbound dispatch that treats a permanent 404 as permanent and deletes the dead row. Only real delivery to a browser needs hardware |
 | PWA and offline | Done | Done | Verified | Passing | Complete |
 | Responsive layout | Done | n/a | n/a | Passing | Complete |
 | Billing and payments | Not started | Not started | n/a | n/a | **NOT STARTED.** No Stripe, no checkout, no subscription state, no invoices |
@@ -221,7 +221,7 @@ All run on 2026-10-09 against this working tree. The four live-database gates ar
 | End to end | `pnpm e2e` | **156 passed** across 12 specs, 3.0m |
 | Live schema | `pnpm db:apply` then `pnpm db:check` | **16 tables, RLS on 16, 23 policies; all security-relevant columns present** |
 | Live RLS behaviour | `pnpm db:settle` | **6 passed, 0 failed**: self-promotion refused, cross-tenant read refused, server-owned link cannot be moved |
-| Live application | `pnpm verify:app` | **33 passed, 0 failed**: every workspace route renders with real seeded data, refusals hold, an attendance write is read back out of Postgres, the at-risk sweep authenticates and stays idempotent, and registration is reported as blocked by the email quota |
+| Live application | `pnpm verify:app` | **48 passed, 0 failed**: every workspace route renders with real seeded data, refusals hold, an attendance write is read back out of Postgres, the at-risk sweep authenticates and stays idempotent, the push subscription route refuses six SSRF payloads and enforces per-teacher ownership, an outbound dispatch reaches the push service and prunes a dead endpoint, and registration is reported as blocked by the email quota |
 
 ### What `check:sql` proves, and what it does not
 
