@@ -195,7 +195,23 @@ export async function registerAction(
       role: SELF_REGISTERED_ROLE,
       redirectTo: `${siteUrl()}/auth/callback`,
     });
-  } catch {
+  } catch (error) {
+    /*
+     * A spent email quota and a mistyped address produce the same opaque
+     * failure from the store, but they need opposite advice. Telling someone to
+     * check their details when the only problem is a full quota sends them off
+     * to fix something that is not broken. The rate-limit case is safe to name:
+     * it says nothing about whether the address is registered.
+     */
+    const code = error instanceof Error ? error.message : '';
+    if (code === 'SIGNUP_RATE_LIMITED') {
+      return {
+        ok: false,
+        message:
+          'We could not send your confirmation email just now. Wait a few minutes and try again.',
+      };
+    }
+
     // Same generic shape as a validation error, so a probing script learns
     // nothing about which addresses are registered.
     return {

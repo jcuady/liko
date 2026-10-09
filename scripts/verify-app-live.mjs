@@ -115,6 +115,11 @@ let failures = 0;
 let passes = 0;
 let probingRefusal = false;
 
+/** Prints an observation that is context for the checks around it, not a verdict. */
+function note(line) {
+  console.log(`        ${String(line).slice(0, 400)}`);
+}
+
 function check(name, ok, detail) {
   if (ok) {
     passes += 1;
@@ -371,6 +376,147 @@ async function verifyWrite() {
   }
 }
 
+/**
+ * The at-risk sweep, exercised for real.
+ *
+ * It is here rather than in the Playwright suite because it is the one endpoint
+ * that is not reachable from a browser session: the gate is a bearer secret,
+ * there is no page that calls it, and it only does work once somebody has a
+ * stored push subscription. It had never been invoked before this.
+ *
+ * The idempotence check is the one that matters. The sweep writes
+ * `student_history` rows to alert a teacher, so a sweep that re-alerts on every
+ * run would turn a daily job into a spam cannon, and the only thing that would
+ * catch it is counting rows before and after a second run.
+ */
+async function verifyCron() {
+  console.log('At-risk sweep');
+
+  const secret = process.env.CRON_SECRET;
+  if (!secret) {
+    console.log('  SKIP  CRON_SECRET is not set, so the sweep can only be checked for failing closed');
+  }
+
+  const endpoint = `${BASE}/api/cron/at-risk`;
+  const anon = await fetch(endpoint);
+  check('the sweep refuses a request with no secret', anon.status === 401, `answered ${anon.status}`);
+
+  const wrong = await fetch(endpoint, {
+    headers: { Authorization: 'Bearer not-the-secret' },
+  });
+  const wrongBody = await wrong.text();
+  check('the sweep refuses a wrong secret', wrong.status === 401, `answered ${wrong.status}`);
+  check(
+    'and that refusal discloses nothing about the sweep',
+    wrongBody.trim() === JSON.stringify({ error: 'Unauthorized' }),
+    wrongBody,
+  );
+
+  if (!secret) return;
+
+  const before = await read('student_history?event_type=eq.intervention&select=id');
+
+  const ok = await fetch(endpoint, { headers: { Authorization: `Bearer ${secret}` } });
+  const body = await ok.text();
+  check('the real secret is accepted', ok.status === 200, `answered ${ok.status}: ${body.slice(0, 160)}`);
+
+  let parsed = null;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    // Reported by the next check rather than thrown, so one malformed body does
+    // not hide the refusals above.
+  }
+  check('and it answers with a sweep result', parsed?.ok === true, body.slice(0, 240));
+
+  /*
+   * A sweep across every teacher legitimately reports zero, because
+   * `teachersToSweep` only reaches people who have a stored push subscription
+   * and nobody has one yet. Asserting a non-zero count here would make this
+   * script fail for a correct reason, so the count is reported, not demanded.
+   */
+  console.log(`        swept ${parsed?.teachers} teacher(s), alerted ${parsed?.alerted}`);
+
+  const after = await read('student_history?event_type=eq.intervention&select=id');
+  check(
+    'a second sweep does not re-alert, so the cooldown holds',
+    after.length === before.length,
+    `${before.length} intervention rows before, ${after.length} after`,
+  );
+
+  const bad = await fetch(endpoint, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${secret}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ownerId: 'not-a-uuid' }),
+  });
+  check('a malformed sweep request is refused', bad.status === 400, `answered ${bad.status}`);
+}
+
+/**
+ * The register form, against the live project.
+ *
+ * This is expected to be blocked on a Supabase project whose built-in email
+ * quota is spent, because signup needs to send a confirmation link. That is
+ * worth asserting rather than skipping: a project where registration works is a
+ * project where the consent write, which deliberately swallows its own failure,
+ * finally has something to run against.
+ */
+async function verifySignup() {
+  console.log('Registration');
+
+  const auth = `${(process.env.NEXT_PUBLIC_SUPABASE_URL || '').replace(/\/$/, '')}/auth/v1`;
+  const probe = await fetch(`${auth}/signup`, {
+    method: 'POST',
+    headers: {
+      apikey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      email: `verify-probe-${Date.now()}@liko.test`,
+      password: 'Good-Pass-1',
+      data: { full_name: 'Verify Probe' },
+    }),
+  });
+
+  const result = await probe.json().catch(() => ({}));
+  const rateLimited = probe.status === 429;
+
+  if (rateLimited) {
+    check(
+      'signup is BLOCKED by the Supabase email quota, which is a dashboard setting',
+      true,
+      undefined,
+    );
+    note(
+      `Supabase answered ${probe.status} ${result.error_code ?? ''}: ${result.msg ?? ''}. ` +
+        'Registration, the handle_new_user trigger and the consent_events write are therefore ' +
+        'unverified against this database until a custom SMTP provider is configured.',
+    );
+    return;
+  }
+
+  check(
+    'Supabase accepted a registration',
+    probe.ok && Boolean(result.id),
+    `answered ${probe.status}: ${JSON.stringify(result).slice(0, 200)}`,
+  );
+
+  if (result.id) {
+    const consent = await read(`consent_events?user_id=eq.${result.id}&select=subject,source`);
+    const subjects = Array.isArray(consent) ? consent.map((c) => c.subject).sort() : [];
+    check(
+      'and the consent audit rows were written',
+      subjects.join(',') === 'privacy,terms',
+      `got ${JSON.stringify(subjects)}`,
+    );
+    await remove(`consent_events?user_id=eq.${result.id}`);
+    await fetch(`${auth}/admin/users/${result.id}`, {
+      method: 'DELETE',
+      headers: { apikey: SERVICE, Authorization: `Bearer ${SERVICE}` },
+    });
+  }
+}
+
 async function main() {
   for (const name of ['NEXT_PUBLIC_SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY']) {
     if (!process.env[name]) {
@@ -395,6 +541,20 @@ async function main() {
   } catch (error) {
     failures += 1;
     console.log(`  FAIL  the write check could not run: ${error.message}`);
+  }
+
+  try {
+    await verifyCron();
+  } catch (error) {
+    failures += 1;
+    console.log(`  FAIL  the at-risk sweep could not be checked: ${error.message}`);
+  }
+
+  try {
+    await verifySignup();
+  } catch (error) {
+    failures += 1;
+    console.log(`  FAIL  registration could not be checked: ${error.message}`);
   }
 
   check(

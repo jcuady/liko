@@ -76,7 +76,29 @@ The other variables are the Supabase URL and keys, `LIKO_SESSION_SECRET`,
 
 ---
 
-## Step 2: Rotate the VAPID key pair and the Supabase service key
+## Step 2: Give Supabase a real email provider
+
+**Nobody can register until this is done.** The project returns
+`over_email_send_rate_limit` for every signup and every password reset, so the
+register form fails for every real teacher and the "forgot password" link never
+arrives. This is not a code fault and no amount of fixing the code will help: the
+built-in provider is quota-limited on this project's plan.
+
+It went unnoticed for a long time for a specific reason. The seed creates its
+accounts through `auth.admin.createUser`, which sends no email, so every test in
+the suite passed. The quota only surfaced when a person actually filled in the
+register form against the live project.
+
+In the Supabase dashboard, under Authentication, add a custom SMTP provider
+(SendGrid, Resend, Postmark) and point Auth at it. Raising the plan works too.
+
+Until that is done, the signup path, the `handle_new_user` trigger and the
+`consent_events` write are **unverified against the live database**. Sign-in is
+verified, because it needs no email.
+
+---
+
+## Step 3: Rotate the VAPID key pair and the Supabase service key
 
 The private key supplied for this build, and the service role key and database
 password, appear in the project chat transcript. Anyone holding the service key
@@ -116,17 +138,27 @@ Work through this against the live URL before calling it launched.
 
 Stated plainly so nobody is surprised later.
 
-1. **iOS push delivery.** It needs a Home Screen-installed PWA and a real
+1. **The signup path.** Blocked, not merely untested. Supabase's built-in email
+   quota is exhausted on this project, so `signUp` never returns a user. That
+   leaves three things that only run during registration unproven against the
+   live database: `signUp` itself, the `handle_new_user` trigger, and the
+   `consent_events` write. All three are exercised in fixture mode and all three
+   are straightforward. What makes this more than a coverage gap is that
+   `recordConsent` swallows its own failure by design, so once the email provider
+   is fixed, the first thing to check is that `consent_events` actually gains
+   rows. A signup that succeeds while the audit table is broken is exactly the
+   failure that returns nothing to catch it.
+2. **iOS push delivery.** It needs a Home Screen-installed PWA and a real
    subscription. No automated test can cover it. Chrome and Edge desktop are the
    reliable path.
-2. **The push send itself.** The at-risk sweep is proven: it authenticates, fails
+3. **The push send itself.** The at-risk sweep is proven: it authenticates, fails
    closed without a secret, finds exactly the students under threshold, writes
    `student_history` rows with `event_type = 'intervention'`, and respects the
    seven-day cooldown on a second run. What is unproven is the outbound delivery,
    because no real push subscription exists yet. Note that a sweep across all
    teachers reports `teachers: 0` until somebody subscribes; that is correct, not
    a fault.
-3. **Payment.** The pricing page is presentation only. No billing provider is
+4. **Payment.** The pricing page is presentation only. No billing provider is
    wired, so the Starter tier is genuinely free rather than free-with-a-card.
 
 ---

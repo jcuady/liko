@@ -65,9 +65,9 @@ Authorisation is two independent layers. `proxy.ts` gates routes before render, 
 | Pricing | Done | n/a | n/a | Passing | Complete |
 | Terms / Privacy / Cookies | Done | n/a | n/a | Passing | Complete |
 | Cookie consent banner | Done | Done | Verified | Passing | Complete |
-| Signup with consent gate | Done | Done | Verified | Passing | Complete |
-| Consent records | n/a | Done | Verified | Passing (fixture and Supabase) | Complete |
-| Sign in / sign out / reset | Done | Done | Verified | Passing (fixture and Supabase) | Complete |
+| Signup with consent gate | Done | Done | **Blocked, not verified** | Passing (fixture) | **Supabase path blocked by the email quota.** The form and its consent gate pass in fixtures. Against the live project the signup call returns `over_email_send_rate_limit`, so no account is ever created and `handle_new_user` never fires. Needs a custom SMTP provider or a higher plan before it can be verified |
+| Consent records | n/a | Done | **Blocked, not verified** | Passing (fixture) | **Never executed against Supabase.** `recordConsent` swallows its own failure by design, so a broken audit table is indistinguishable from a working one by return value alone. It runs on signup, which is blocked, so no row has ever been written to the live `consent_events` table |
+| Sign in / sign out / reset | Done | Done | Partial | Passing (fixture and Supabase) | Sign-in is proven against the live database by `pnpm verify:app`. **Password reset is blocked by the same email quota**, so no recovery link has been sent |
 | Tenancy and admin console | Done | Done | Verified | Passing (fixture and Supabase) | Complete |
 | Classes and roster | Done | Done | Verified | Passing | Complete |
 | Teacher-issued student/guardian accounts | Done | Done | Verified | Passing (fixture and Supabase) | Complete |
@@ -215,13 +215,13 @@ All run on 2026-10-09 against this working tree. The four live-database gates ar
 |---|---|---|
 | Typecheck | `pnpm typecheck` | **0 errors** |
 | Lint | `pnpm lint` | **0 errors, 0 warnings** |
-| Unit | `pnpm vitest run` | **214 passed** in 16 files |
+| Unit | `pnpm vitest run` | **220 passed** in 17 files |
 | Migration | `pnpm check:sql` | **124 statements parse; 91 cross-references resolve; RLS on 16/16 tables; 14/14 policies re-runnable** |
 | Production build | `pnpm build` | **exit 0** |
 | End to end | `pnpm e2e` | **156 passed** across 12 specs, 3.0m |
 | Live schema | `pnpm db:apply` then `pnpm db:check` | **16 tables, RLS on 16, 23 policies; all security-relevant columns present** |
 | Live RLS behaviour | `pnpm db:settle` | **6 passed, 0 failed**: self-promotion refused, cross-tenant read refused, server-owned link cannot be moved |
-| Live application | `pnpm verify:app` | **25 passed, 0 failed**: every workspace route renders with real seeded data, refusals hold, an attendance write is read back out of Postgres |
+| Live application | `pnpm verify:app` | **33 passed, 0 failed**: every workspace route renders with real seeded data, refusals hold, an attendance write is read back out of Postgres, the at-risk sweep authenticates and stays idempotent, and registration is reported as blocked by the email quota |
 
 ### What `check:sql` proves, and what it does not
 
@@ -310,6 +310,7 @@ Three of the five blockers listed here were resolved on 2026-10-09 and are kept 
 4. **OPEN: Vercel unauthenticated.** `vercel whoami` fails. This is the one thing standing between this codebase and a live URL, and it needs the user.
 5. **OPEN: iOS push delivery unverifiable** without a Home Screen-installed PWA.
 6. **OPEN: the legal text has not been read by a lawyer.** It describes this implementation accurately, which is the most it can do, but accuracy about the system is not legal sufficiency.
+7. **OPEN: Supabase's built-in email quota is exhausted, so nobody can register.** The project sends `over_email_send_rate_limit` for every signup and every password reset. It is not a code fault: the seed created its accounts through the admin API, which sends no email, which is why this only appeared when a real person filled in the register form. Fixing it needs a custom SMTP provider or a plan with a higher limit, both of which are dashboard decisions.
 
 ### The RLS settling test
 
@@ -345,8 +346,9 @@ into `pnpm test` or CI.
 ## Recommended Next Actions
 
 1. Authenticate with Vercel and deploy. Everything else that could be verified on this machine has been.
-2. Have the legal text reviewed by a lawyer. It describes this implementation accurately, which is the most it can do, but accuracy about the system is not the same as legal sufficiency.
-3. Rotate the service role key and the database password before this project carries anything real. Both have been handled in chat and written to a local `.env.local`, which is gitignored, but they were shared in a conversation.
+2. Configure a custom SMTP provider on Supabase. Until that is done nobody can register, and the signup path, the `handle_new_user` trigger and the `consent_events` write are unverified against the live database.
+3. Have the legal text reviewed by a lawyer. It describes this implementation accurately, which is the most it can do, but accuracy about the system is not the same as legal sufficiency.
+4. Rotate the service role key and the database password before this project carries anything real. Both have been handled in chat and written to a local `.env.local`, which is gitignored, but they were shared in a conversation.
 
 ## Recent Work
 

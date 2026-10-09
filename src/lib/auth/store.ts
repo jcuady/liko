@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 
 import { verifyPassword } from './password';
+import { classifySignupFailure } from './signup-error';
 import { isSupabaseMode } from '@/lib/data-mode';
 import { createSupabaseAdmin, createSupabaseAnon, createSupabaseServerClient } from '@/lib/supabase/server';
 import type { Role } from './rbac';
@@ -393,9 +394,16 @@ export async function signUp(input: {
   });
 
   if (error || !data.user) {
-    // Do not echo the provider message: it distinguishes "already registered"
-    // from other failures, which is enough to enumerate accounts.
-    throw new Error('ACCOUNT_NOT_CREATED');
+    /*
+     * Three different failures arrive here and only one of them is the caller's
+     * fault. "Already registered" has to stay indistinguishable from everything
+     * else, because separating it is how a list of addresses gets enumerated. A
+     * rate limit is the opposite case and is worth separating, because the
+     * generic advice is wrong for it. `signup-error.ts` carries the reasoning.
+     */
+    // Do not echo the provider message for anything it has not classified:
+    // that message distinguishes "already registered" from other failures.
+    throw new Error(classifySignupFailure(error));
   }
 
   const user: StoredUser = {
