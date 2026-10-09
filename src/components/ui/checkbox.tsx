@@ -46,7 +46,7 @@ const Checkbox = React.forwardRef<
       size={13}
       weight="bold"
       aria-hidden="true"
-      className="pointer-events-none absolute text-white opacity-0 peer-checked:opacity-100"
+      className="pointer-events-none absolute text-on-accent opacity-0 peer-checked:opacity-100"
     />
   </span>
 ));

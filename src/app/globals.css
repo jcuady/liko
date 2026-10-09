@@ -39,40 +39,13 @@
      The accent is the green measured off the supplied logo artwork rather than
      the masterplan's nominal #228b22. It is bluer and slightly darker, it
      carries the mark, and it also scores better against the warm canvas:
-     4.63:1 on #fdf8f5 against 4.15:1 for #228b22. */
+     4.63:1 on #fdf8f5 against 4.15:1 for #228b22.
+
+     These two are fixed brand marks, not themeable surface colours, so they stay
+     literal. They are used for the scrim behind a modal and the logo artwork,
+     and neither should invert when the theme does. */
   --color-charcoal: #1a1a1a;
   --color-viridian: #29813d;
-  --color-bg: #fdf8f5;
-
-  /* --- Surfaces --- */
-  --color-surface: #ffffff;
-  --color-surface-raised: #ffffff;
-  --color-surface-sunken: #f7f3ee;
-
-  /* --- Ink --- */
-  --color-ink: #1a1a1a;
-  --color-ink-muted: #5c5a54;
-  --color-ink-subtle: #837f76;
-
-  /* --- Accent (the only accent) --- */
-  --color-accent: #29813d;
-  --color-accent-hover: #216b34;
-  --color-accent-subtle: #e7f1e9;
-  --color-accent-ring: #29813d;
-  --color-on-accent: #ffffff;
-
-  /* --- Semantics --- */
-  --color-danger: #b3261e;
-  --color-danger-subtle: #fbeae9;
-  --color-warning: #8a5a00;
-  --color-warning-subtle: #fdf3e2;
-  --color-success: #1b731b;
-  --color-success-subtle: #e8f4e8;
-
-  /* --- Lines --- */
-  --color-border: #e5e0d9;
-  --color-border-strong: #d5cec4;
-  --color-ring-track: #e5e0d9;
 
   /* --- Shape (single radius system) --- */
   --radius-sm: 8px;
@@ -110,6 +83,66 @@
 }
 
 /* ==========================================================================
+   THEMEABLE COLOUR PRIMITIVES
+   WHY `inline`, AND WHY IT IS NOT OPTIONAL.
+
+   Every colour a component can reach has a Tailwind primitive (`bg-surface`,
+   `text-ink-muted`, `border-border`) and a semantic role (`--surface`,
+   `--ink-muted`, `--border`) that is the only place a value is written down.
+   `:root` and `.dark` both define the roles, so a role knows what it looks like
+   in each theme.
+
+   `@theme inline` is what connects them. A plain `@theme` block COPIES each
+   value into a `--color-*` custom property on `:root`, and utilities compile to
+   `var(--color-*)`. That property is declared once and never overridden, so the
+   utility keeps the light value in dark mode no matter what `.dark` says. The
+   utilities looked themeable and were not: 711 call sites across 86 files were
+   rendering the light palette on a dark page. Cards came out near-white on a
+   near-black canvas, and any frozen light foreground that landed on a themed
+   dark surface fell to 2.71:1, under the 4.5:1 floor.
+
+   `inline` makes Tailwind substitute the value at the point of use, so
+   `bg-surface` compiles to `background-color: var(--surface-raised)` and
+   resolves per theme. One seam, and the whole system follows it.
+
+   A token that no role consumes must not be invented here. Everything below
+   maps to a role that already exists and is already defined for both themes.
+   ========================================================================== */
+@theme inline {
+  /* --- Surfaces --- */
+  --color-bg: var(--surface);
+  --color-surface: var(--surface-raised);
+  --color-surface-raised: var(--surface-raised);
+  --color-surface-sunken: var(--surface-sunken);
+
+  /* --- Ink --- */
+  --color-ink: var(--ink);
+  --color-ink-muted: var(--ink-muted);
+  --color-ink-subtle: var(--ink-subtle);
+
+  /* --- Accent (the only accent) --- */
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-subtle: var(--accent-subtle);
+  --color-accent-ring: var(--accent-ring);
+  --color-on-accent: var(--on-accent);
+
+  /* --- Semantics --- */
+  --color-danger: var(--danger);
+  --color-danger-subtle: var(--danger-subtle);
+  --color-on-danger: var(--on-danger);
+  --color-warning: var(--warning);
+  --color-warning-subtle: var(--warning-subtle);
+  --color-success: var(--success);
+  --color-success-subtle: var(--success-subtle);
+
+  /* --- Lines --- */
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-ring-track: var(--ring-track);
+}
+
+/* ==========================================================================
    DARK MODE
    Dark is a paired system, not an inversion. Accent lifts and desaturates so
    it stays legible on dark surfaces without glowing. Contrast is tested
@@ -127,11 +160,13 @@
     --accent-hover: #216b34;
     --accent-subtle: #e7f1e9;
     --accent-ring: #29813d;
+    --on-accent: #ffffff;
     --border: #e5e0d9;
     --border-strong: #d5cec4;
     --ring-track: #e5e0d9;
     --danger: #b3261e;
     --danger-subtle: #fbeae9;
+    --on-danger: #ffffff;
     --warning: #8a5a00;
     --warning-subtle: #fdf3e2;
     --success: #1b731b;
@@ -154,11 +189,53 @@
     --accent-hover: #56b46a;
     --accent-subtle: #1b2a1f;
     --accent-ring: #46a05a;
-    --border: #2e3129;
-    --border-strong: #3d4036;
-    --ring-track: #2e3129;
+
+    /*
+       The label that sits ON the accent fill. It has to be its own role, and it
+       has to invert, because the fill lifts in dark mode while the light fill
+       does not.
+
+       Measured, not guessed:
+         white on #46a05a        3.26:1   FAIL, and 2.58:1 on hover
+         white on #29813d (light) 4.88:1  PASS, 6.53:1 on hover
+
+       Hover gets LIGHTER here, which is the correct direction for a dark theme,
+       so it is also the direction that destroys a white label. Carrying the page
+       near-black onto the fill instead scores 5.72:1 at rest and 7.22:1 on hover,
+       and it keeps the button reading as the same green the logo is.
+    */
+    --on-accent: #12130f;
+
+    /*
+       Borders. The dark theme started at 1.41:1 against the page and 1.30:1
+       against a card, so an input outline was effectively invisible and a card
+       edge did not exist.
+
+       The two roles are deliberately not the same value. `--border` draws
+       container edges and dividers, which only have to be locatable, so it stays
+       quiet. `--border-strong` draws the edge of something you can interact
+       with, and WCAG 1.4.11 requires 3:1 for exactly that. At #6b7160 it clears
+       3.40:1 on the card fill the inputs actually sit on.
+    */
+    --border: #4a4f43;
+    --border-strong: #6b7160;
+    --ring-track: #4a4f43;
     --danger: #f2b8b5;
     --danger-subtle: #2e1a19;
+
+    /*
+       Same inversion as `--on-accent`, and for the same reason: `--danger` lifts
+       to a pale red in dark mode, so a white label stops being a label.
+
+         white on #b3261e (light) 6.54:1   keep white here
+         white on #f2b8b5 (dark)  1.71:1   the destructive button, unreadable
+         #12130f on #f2b8b5       10.92:1  therefore carry the page near-black
+
+       There is one filled destructive control, so there is one role here. No
+       `on-success` or `on-warning` is invented for a component that does not
+       exist.
+    */
+    --on-danger: #12130f;
     --warning: #e8b84b;
     --warning-subtle: #2c2314;
     --success: #4fbc4f;

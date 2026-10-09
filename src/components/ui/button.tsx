@@ -23,7 +23,7 @@ const buttonVariants = cva(
         ghost: 'text-ink hover:bg-surface-sunken',
         link: 'text-accent underline-offset-4 hover:underline p-0 h-auto',
         danger:
-          'bg-danger text-white hover:opacity-90 shadow-sm',
+          'bg-danger text-on-danger hover:opacity-90 shadow-sm',
       },
       size: {
         /*

@@ -22,7 +22,7 @@ const Input = React.forwardRef<HTMLInputElement, InputProps>(
         ref={ref}
         type={type}
         className={cn(
-          'flex h-11 w-full rounded-[12px] border border-border bg-surface px-3.5 py-2',
+          'flex h-11 w-full rounded-[12px] border border-border-strong bg-surface px-3.5 py-2',
           // 16px below `lg` is the anti-zoom floor; the rem above is the
           // design system's own size.
           'text-base lg:text-[0.9375rem] text-ink placeholder:text-ink-subtle',
@@ -49,7 +49,7 @@ const Textarea = React.forwardRef<
       ref={ref}
       rows={rows}
       className={cn(
-        'flex w-full resize-y rounded-[12px] border border-border bg-surface px-3.5 py-2.5',
+        'flex w-full resize-y rounded-[12px] border border-border-strong bg-surface px-3.5 py-2.5',
         'text-base lg:text-[0.9375rem] text-ink placeholder:text-ink-subtle',
         'transition-colors duration-150 ease-[cubic-bezier(0.23,1,0.32,1)]',
         'hover:border-border-strong',
@@ -79,7 +79,7 @@ const Select = React.forwardRef<
   <select
     ref={ref}
     className={cn(
-      'flex h-11 w-full rounded-[12px] border border-border bg-surface px-3.5',
+      'flex h-11 w-full rounded-[12px] border border-border-strong bg-surface px-3.5',
       'text-base lg:text-[0.9375rem] text-ink',
       'transition-colors duration-150 ease-[cubic-bezier(0.23,1,0.32,1)]',
       'hover:border-border-strong',

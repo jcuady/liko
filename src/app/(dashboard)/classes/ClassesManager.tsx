@@ -540,7 +540,7 @@ function ImportRosterDialog({ classId }: { classId: string }) {
                   {...props}
                   type="file"
                   accept=".csv,text/csv"
-                  className="block w-full text-[0.9375rem] text-ink file:mr-3 file:rounded-[10px] file:border-0 file:bg-accent file:px-3 file:py-2 file:text-[0.9375rem] file:font-medium file:text-white"
+                  className="block w-full text-[0.9375rem] text-ink file:mr-3 file:rounded-[10px] file:border-0 file:bg-accent file:px-3 file:py-2 file:text-[0.9375rem] file:font-medium file:text-on-accent"
                   onChange={async (event) => {
                     const file = event.target.files?.[0];
                     if (!file) return;

@@ -66,8 +66,21 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
-  themeColor: '#29813d',
-  colorScheme: 'light',
+  /*
+     The browser chrome followed the page in name only. One fixed viridian meant
+     the mobile address bar stayed brand green over the near-black dark canvas,
+     and `colorScheme: 'light'` told the UA this was a light-only document, so
+     scrollbars, the default canvas and unstyled form controls were all painted
+     from the light palette while the app sat in dark mode.
+
+     Both now follow `prefers-color-scheme`, and they use the same two surface
+     values the token layer uses: the viridian in light, the dark page in dark.
+  */
+  themeColor: [
+    { media: '(prefers-color-scheme: light)', color: '#29813d' },
+    { media: '(prefers-color-scheme: dark)', color: '#12130f' },
+  ],
+  colorScheme: 'light dark',
 };
 
 export default function RootLayout({

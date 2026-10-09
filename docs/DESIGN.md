@@ -57,9 +57,13 @@ Three brand constants:
 
 | Token | Value | Role |
 |---|---|---|
-| `--color-charcoal` | `#1A1A1A` | Deep Viridian Charcoal, primary ink |
-| `--color-viridian` | `#29813D` | Forest Viridian, the single accent |
-| `--color-bg` | `#FDF8F5` | Warm White, page background |
+| `--color-charcoal` | `#1A1A1A` | Deep Viridian Charcoal. Modal scrim and brand artwork. Fixed, never themed |
+| `--color-viridian` | `#29813D` | Forest Viridian as shipped. The logo. Fixed, never themed |
+| `--color-bg` | `var(--surface)` | Warm White, page background. An alias of the page role, so it follows the theme |
+
+`--color-charcoal` and `--color-viridian` are the only literal colour values
+left in the theme. Both describe fixed brand marks rather than a surface, so
+neither should invert when the theme does. Everything else routes through a role.
 
 The accent is the green measured off the supplied logo artwork. `masterplan.md.txt`
 names `#228B22`, but the shipped mark is `#29813D`: a bluer, slightly deeper
@@ -87,16 +91,72 @@ over.
 |---|---|---|
 | `--surface` | `#FDF8F5` | `#12130F` |
 | `--surface-raised` | `#FFFFFF` | `#1A1C17` |
+| `--surface-sunken` | `#F7F3EE` | `#0D0E0B` |
 | `--ink` | `#1A1A1A` | `#F4F2EE` |
 | `--ink-muted` | `#5C5A54` | `#A8A69E` |
 | `--ink-subtle` | `#837F76` | `#86847C` |
 | `--accent` | `#29813D` | `#46A05A` |
 | `--accent-hover` | `#216B34` | `#56B46A` |
-| `--border` | `#E5E0D9` | `#2E3129` |
+| `--on-accent` | `#FFFFFF` | `#12130F` |
+| `--on-danger` | `#FFFFFF` | `#12130F` |
+| `--border` | `#E5E0D9` | `#4A4F43` |
+| `--border-strong` | `#D5CEC4` | `#6B7160` |
 
-Light-mode body text runs at 16.5:1 for primary ink and 7.1:1 for muted, both
-clear of AA. Muted text on the warm canvas is 4.6:1, which is the tightest pair
-in the system and worth re-checking if the canvas shifts.
+#### How a component reaches a colour
+
+There are two tiers and components only ever touch the second one.
+
+- **Primitives** (`--color-surface`, `--color-ink-muted`) are what Tailwind
+  compiles. They are declared `@theme inline`, so each one is written as
+  `var(--surface-raised)` and resolved at the point of use.
+- **Roles** (`--surface-raised`, `--ink-muted`) are the only place a value is
+  written down, and `:root` and `.dark` both declare them.
+
+`inline` is load-bearing, not stylistic. A plain `@theme` copies each value into
+a `--color-*` property on `:root` and utilities compile to `var(--color-*)`. That
+property is never overridden, so the utility keeps the light value whatever
+`.dark` says. That is exactly what happened here: 711 call sites across 86 files
+looked themeable and were not, rendering the light palette onto a dark page. Any
+future colour token added to the plain `@theme` block reintroduces the same bug,
+so the block is split and the split is commented in `globals.css`.
+
+#### Roles that have to invert
+
+A fill that changes lightness with the theme cannot keep a fixed label. Two roles
+exist for that, both measured rather than assumed:
+
+| Pair | Light | Dark |
+|---|---|---|
+| `--on-accent` on `--accent` | `#FFFFFF` on `#29813D`, 4.88:1 | `#12130F` on `#46A05A`, 5.72:1 (white would be 3.26:1) |
+| `--on-danger` on `--danger` | `#FFFFFF` on `#B3261E`, 6.54:1 | `#12130F` on `#F2B8B5`, 10.92:1 (white would be 1.71:1) |
+
+There is no `--on-success` or `--on-warning`: nothing renders a filled control
+in those hues, and a token with no consumer is maintenance for zero pixels.
+
+#### Borders carry two different jobs
+
+`--border` draws container edges and dividers, which only have to be locatable,
+so it stays quiet. `--border-strong` draws the edge of something interactive,
+and WCAG 1.4.11 requires 3:1 for exactly that. Form controls in `input.tsx`
+therefore use `border-border-strong` rather than `border-border`, which puts the
+dark-theme field edge at 3.40:1 against its own fill.
+
+Light-mode body text runs at 16.5:1 for primary ink and 6.9:1 for muted, both
+clear of AA.
+
+#### Known, measured gaps in light mode
+
+These predate the dark-mode work, were left alone deliberately, and are recorded
+here so they are not mistaken for oversight. All three are light-theme only.
+
+| Pair | Measured | Needs | Note |
+|---|---|---|---|
+| `--ink-subtle` on `--surface` | 3.79:1 | 4.5:1 | The tightest text pair in the system. `#726E65` clears 4.5:1 on all three light surfaces at the same hue. |
+| `--ink-subtle` on `--surface-raised` | 3.99:1 | 4.5:1 | Same fix. |
+| `--border-strong` on `--surface-raised` | 1.56:1 | 3:1 | The input edge. `#8B8478` reaches 3.70:1 but is visibly heavy for this design language, and every field already carries a text label. |
+
+Dark mode has no known failing pair. Re-verify with the browser measurement in
+`globals.css` rather than by reading the table above.
 
 ### Elevation
 
