@@ -141,6 +141,13 @@ check('the roster is offered', roster > 1, `${roster - 1} students`);
 await studentSelect.selectOption({ index: 1 });
 check('choosing a student enables saving', await saveBtn.isEnabled());
 
+// Keep a picture of the review grid, which is the screen a teacher actually
+// reads before committing a mark to a child. Written into docs/ so the evidence
+// of the feature lives with the feature rather than in a scratch file.
+await page.locator('#assessment-detail').screenshot({
+  path: 'C:/Users/jcuad/OneDrive/Documents/Liko/docs/scan-review.png',
+});
+
 // 6. The gradebook still renders after the grid change.
 await page.goto(`${BASE}/grades`, { waitUntil: 'networkidle' });
 const gradebookText = await page.locator('#workspace-main').innerText();

@@ -20,7 +20,7 @@ Project: `https://ulrjitekiylgepdyijsw.supabase.co`
 | Migration SQL | Applied to `ulrjitekiylgepdyijsw`, idempotent, 17 tables |
 | Seed script | Run. Five accounts, one school, three classes, 24 students, three "Bonding Quiz" assessments carrying 24 questions |
 | Quiz maker and sheet scanning | Done. An assessment carries its questions; a marked sheet is read against the answer key, confirmed by the teacher, assigned to a required student and scored on the server |
-| Git history | 27 commits on `main`, pushed, remote verified identical |
+| Git history | 31 commits on `main`, pushed, remote verified identical |
 | Deployment | **Live** at `https://liko-jcuadys-projects.vercel.app`, project `jcuadys-projects/liko`. Production build, `LIKO_DATA_MODE=supabase`, verified by signing in against live Supabase |
 
 The honest summary: every read and write through the seam has now run against the
