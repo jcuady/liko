@@ -127,6 +127,7 @@ test.describe('attendance register', () => {
     await expect(page.getByLabel('Register date')).toBeVisible();
   });
 
+
   test('mark all present updates the summary count', async ({ page }) => {
     await page.goto(`/attendance?date=${dayOffset(11)}`);
     await expect(page.locator('#workspace-main')).toBeVisible();

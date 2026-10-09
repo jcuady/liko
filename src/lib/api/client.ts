@@ -521,6 +521,31 @@ const supabaseAdapter: WorkspaceData = {
     const supabase = await requireClient();
     if (write.marks.length === 0) return;
 
+    /*
+     * The class has to belong to the caller before a single row is written.
+     *
+     * `attendance` is scoped to the owner, so the rows would be readable only by
+     * the writer and a forged `classId` would not leak anything back to them. It
+     * would still be a write into somebody else's class, attributed to the wrong
+     * teacher, and anything that ever aggregates by `class_id` would inherit it.
+     * A membership check that only happens to be unnecessary is not the same as
+     * one that happens to be enforced, so it is enforced here where every caller
+     * passes through: the attendance screen and the offline replay endpoint.
+     *
+     * Deliberately not filtered on `archived_at`. Marking a register for a class
+     * that is on its way out is ordinary, and refusing it would be a behaviour
+     * change dressed up as a security fix.
+     */
+    const { data: owned, error: classError } = await supabase
+      .from('classes')
+      .select('id')
+      .eq('id', write.classId)
+      .eq('owner_id', userId)
+      .maybeSingle();
+
+    if (classError) throw mapSupabaseError(classError);
+    if (!owned) throw new DataError('NOT_FOUND', 'That class is not yours.');
+
     // Upsert on the unique (class_id, student_id, date). This is what makes an
     // offline replay safe: replaying the same day twice updates the row rather
     // than duplicating it.

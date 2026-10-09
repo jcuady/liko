@@ -4,7 +4,7 @@ import * as React from 'react';
 
 import { cn } from '@/lib/utils';
 import {
-  pendingCount,
+  pendingSummary,
   startAutoFlush,
   subscribeToOutbox,
 } from '@/lib/outbox';
@@ -25,6 +25,7 @@ import {
 export function OfflineBanner() {
   const [online, setOnline] = React.useState(true);
   const [queued, setQueued] = React.useState(0);
+  const [latest, setLatest] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     const update = () => setOnline(navigator.onLine);
@@ -42,8 +43,11 @@ export function OfflineBanner() {
     let active = true;
 
     const refresh = () => {
-      void pendingCount().then((count) => {
-        if (active) setQueued(count);
+      void pendingSummary().then((summary) => {
+        if (active) {
+          setQueued(summary.count);
+          setLatest(summary.count === 1 ? summary.latest : null);
+        }
       });
     };
 
@@ -71,12 +75,23 @@ export function OfflineBanner() {
     >
       {online ? (
         <>
-          Syncing {queued} queued {queued === 1 ? 'change' : 'changes'}
+          {latest ? (
+            <>Syncing {latest}</>
+          ) : (
+            <>
+              Syncing {queued} queued {queued === 1 ? 'change' : 'changes'}
+            </>
+          )}
         </>
       ) : (
         <>
-          Offline. {queued} change{queued === 1 ? '' : 's'} queued on this
-          device.
+          {latest ? (
+            <>{latest} is queued on this device.</>
+          ) : (
+            <>
+              Offline. {queued} change{queued === 1 ? '' : 's'} queued on this device.
+            </>
+          )}
         </>
       )}
     </div>

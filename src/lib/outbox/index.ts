@@ -169,6 +169,30 @@ export async function pendingCount(): Promise<number> {
   }
 }
 
+/**
+ * How many writes are waiting, and what the most recent one is.
+ *
+ * One call rather than a count followed by a list, because the banner redraws
+ * on every queue change and two IndexedDB round trips per event is the kind of
+ * thing that makes a status banner feel heavier than the thing it is reporting.
+ *
+ * `latest` is only meaningful when there is exactly one pending write. With
+ * several, naming one of them would imply the others are not waiting, so the
+ * caller is expected to prefer the count in that case.
+ */
+export async function pendingSummary(): Promise<{ count: number; latest: string | null }> {
+  try {
+    const entries = await (await getDb()).getAllFromIndex(STORE, 'by-createdAt');
+    if (entries.length === 0) return { count: 0, latest: null };
+    return {
+      count: entries.length,
+      latest: entries[entries.length - 1].label || null,
+    };
+  } catch {
+    return { count: 0, latest: null };
+  }
+}
+
 export async function listPending(): Promise<OutboxEntry[]> {
   try {
     return await (await getDb()).getAllFromIndex(STORE, 'by-createdAt');

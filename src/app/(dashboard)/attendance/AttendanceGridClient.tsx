@@ -11,7 +11,8 @@ import { Input } from '@/components/ui/input';
 import { queryKeys } from '@/lib/query/keys';
 import type { AttendanceStatus } from '@/lib/api/types';
 
-import { loadAttendance, saveAttendance } from './actions';
+import { loadAttendance } from './actions';
+import { enqueueWrite } from '@/lib/outbox';
 
 /**
  * The register.
@@ -62,11 +63,49 @@ export function AttendanceRegister({
 
   const mutation = useMutation({
     mutationFn: async (payload: { marks: { studentId: string; status: AttendanceStatus }[] }) => {
-      const result = await saveAttendance({ classId, date, marks: payload.marks });
-      // A refusal is not a success. Throwing here is what makes the optimistic
-      // value roll back instead of standing.
-      if (!result.ok) throw new Error(result.message);
-      return result;
+      /*
+       * Through the outbox, not the server action.
+       *
+       * `enqueueWrite` puts the write in IndexedDB first and only then attempts
+       * the network, so a teacher who taps a register on a train keeps the marks
+       * and they replay on reconnect. Calling the server action directly meant
+       * an offline tap had nothing durable behind it: the queue was never
+       * written to, so the pending count was permanently zero and the "retry"
+       * affordance was decoration.
+       *
+       * A server action could not have been replayed anyway, because a queued
+       * record has to survive to `fetch(path)` hours later and an action id does
+       * not. `POST /api/attendance` is the replay target and is idempotent.
+       *
+       * The three outcomes are deliberately different, because they mean
+       * different things to the teacher:
+       *
+       *   null         offline; the write is durable and queued. Not a failure,
+       *                 so the optimistic mark stays and the banner counts it.
+       *   response 2xx saved.
+       *   response 4xx the server refused it. Thrown, so the optimistic value
+       *                 rolls back and the teacher is told, because retrying a
+       *                 refusal is how a wrong mark becomes permanent.
+       */
+      const response = await enqueueWrite({
+        path: '/api/attendance',
+        method: 'POST',
+        body: { classId, date, marks: payload.marks },
+        /*
+         * A human description of what is waiting. The banner shows this instead of
+         * a bare count when a single write is pending, because "Syncing 1 queued
+         * change" tells a teacher nothing about what they are waiting for.
+         */
+        label:
+          payload.marks.length === 1
+            ? `Attendance for ${date}`
+            : `${payload.marks.length} marks for ${date}`,
+      });
+
+      if (response === null) return { queued: true };
+
+      if (!response.ok) throw new Error(`refused with ${response.status}`);
+      return { queued: false };
     },
     onMutate: async (payload) => {
       await queryClient.cancelQueries({ queryKey: key });
@@ -90,7 +129,16 @@ export function AttendanceRegister({
         description: 'Your register is back to how it was.',
       });
     },
-    onSuccess: () => {
+    onSuccess: (result) => {
+      /*
+       * Only refetch when the write actually reached the server.
+       *
+       * A queued write has not landed yet, so invalidating here would pull the
+       * old marks back over the optimistic ones and the teacher's tap would
+       * appear to undo itself the moment they went offline. The queue is the
+       * record now; the refetch happens when the replay succeeds.
+       */
+      if (result.queued) return;
       void queryClient.invalidateQueries({ queryKey: key });
     },
   });
@@ -102,7 +150,16 @@ export function AttendanceRegister({
     setPendingCount((count) => count + 1);
     mutation
       .mutateAsync(payload)
-      .then(() => toast.success(successMessage))
+      .then((result) =>
+        // Saying "Mark saved." to a teacher who is offline is the kind of small
+        // lie that makes an app untrustworthy when they reload. Say what is
+        // actually true: it is held and will send itself.
+        result.queued
+          ? toast.info('Saved to the outbox.', {
+              description: 'This will sync when you are back online.',
+            })
+          : toast.success(successMessage),
+      )
       .catch(() => undefined)
       .finally(() => setPendingCount((count) => count - 1));
   };

@@ -148,18 +148,29 @@ Stated plainly so nobody is surprised later.
    is fixed, the first thing to check is that `consent_events` actually gains
    rows. A signup that succeeds while the audit table is broken is exactly the
    failure that returns nothing to catch it.
-2. **iOS push delivery.** It needs a Home Screen-installed PWA and a real
+2. **Offline attendance capture, end to end.** The outbox is wired, the replay
+   endpoint is idempotent and ownership-checked, and the online path is proven:
+   `pnpm verify:app` writes a mark, replays the same mark, confirms the row is
+   updated rather than duplicated, and confirms a forged class id is refused with
+   a 404 that the queue drops rather than retries. What is **not** demonstrated is
+   a mark captured while genuinely offline and replayed on reconnect. An attempt
+   to test that in headless Chromium via `context.setOffline` produced an
+   optimistic mark on screen but neither a queued row nor a toast, which could be
+   a harness artefact or a real defect; it was not distinguishable in the time
+   available, so the test was removed rather than shipped failing. **Check this by
+   hand**: throttle the network in DevTools, mark a register, confirm the banner
+   counts it, restore the connection, and reload.
+3. **iOS push delivery.** It needs a Home Screen-installed PWA and a real
    subscription. No automated test can cover it. Chrome and Edge desktop are the
    reliable path.
-3. **The push send itself.** Almost everything is proven: subscription storage, the
+4. **The push send itself.** Almost everything is proven: subscription storage, the
    SSRF allowlist against six hostile payloads including the suffix tricks a naive
    host check would accept, per-teacher ownership on delete, the sweep finding a
    subscribed teacher, and an outbound dispatch that reaches the push service and
    treats a permanent 404 as permanent by deleting the dead row instead of
    retrying it forever. What is unproven is a notification actually appearing on
-   a device, which needs a real browser subscription. Chrome and Edge desktop are
-   the reliable path; iOS needs Add to Home Screen.
-4. **Payment.** The pricing page is presentation only. No billing provider is
+   a device, which needs a real browser subscription.
+5. **Payment.** The pricing page is presentation only. No billing provider is
    wired, so the Starter tier is genuinely free rather than free-with-a-card.
 
 ---

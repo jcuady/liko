@@ -1,6 +1,5 @@
 import type { PrecacheEntry, SerwistGlobalConfig } from 'serwist';
 import {
-  BackgroundSyncPlugin,
   CacheFirst,
   ExpirationPlugin,
   NetworkFirst,
@@ -198,17 +197,30 @@ const serwist = new Serwist({
     },
     {
       /*
-       * Writes bypass every cache. When offline they are parked in a
-       * background-sync queue and replayed on reconnect.
+       * Writes bypass every cache and are never queued here.
+       *
+       * This used to hang Serwist's BackgroundSyncPlugin off this rule, so an
+       * offline write was parked in the worker's own IndexedDB queue. It was
+       * removed once the application had an outbox of its own, for three
+       * reasons, and the first is a correctness problem rather than a taste one:
+       *
+       *   1. Two queues meant two copies. The worker queued the request and the
+       *      outbox queued the same request, so an offline tap was replayed twice.
+       *   2. The worker's queue cannot say anything. It has no pending count, no
+       *      attempt counter and no opinion about whether a failure is permanent,
+       *      so a write stuck in it is invisible to the teacher and to the
+       *      banner. `lib/outbox` has all three and drops a 4xx rather than
+       *      retrying a refusal forever.
+       *   3. It could report success for a write that had not happened, which
+       *      is precisely the lie this whole path was rewritten to remove.
+       *
+       * `NetworkOnly` on its own is correct: the fetch fails, `enqueueWrite`
+       * catches it, and the record is already durable before anyone notices.
        */
       matcher: ({ url }) =>
         url.origin === self.location.origin && url.pathname.startsWith('/api/'),
       method: 'POST' as const,
-      handler: new NetworkOnly({
-        plugins: [
-          new BackgroundSyncPlugin('liko-sync', { maxRetentionTime: 60 * 24 }),
-        ],
-      }),
+      handler: new NetworkOnly(),
     },
   ],
 });

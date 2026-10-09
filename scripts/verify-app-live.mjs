@@ -480,6 +480,7 @@ async function verifySignup() {
 
   const result = await probe.json().catch(() => ({}));
   const rateLimited = probe.status === 429;
+  const addressRejected = result.error_code === 'email_address_invalid';
 
   if (rateLimited) {
     check(
@@ -491,6 +492,28 @@ async function verifySignup() {
       `Supabase answered ${probe.status} ${result.error_code ?? ''}: ${result.msg ?? ''}. ` +
         'Registration, the handle_new_user trigger and the consent_events write are therefore ' +
         'unverified against this database until a custom SMTP provider is configured.',
+    );
+    return;
+  }
+
+  if (addressRejected) {
+    /*
+     * Not a quota problem this time: Supabase refused the address itself. The
+     * probe uses a `.test` domain because the seed's accounts do, and the public
+     * signup path validates the TLD while `auth.admin.createUser` does not. That
+     * is worth knowing plainly, because it means the demo accounts could never
+     * have been created through the product's own registration form, only
+     * through the seed.
+     */
+    check(
+      'signup rejects the .test probe address, so the path stays unverified',
+      true,
+      undefined,
+    );
+    note(
+      `Supabase answered ${probe.status} ${result.error_code}: ${result.msg}. The email quota ` +
+        'appears to have reset, but this probe cannot exercise registration until it uses a real ' +
+        'address on a real domain.',
     );
     return;
   }
@@ -709,6 +732,108 @@ async function verifyPush() {
   }
 }
 
+/**
+ * The attendance endpoint that the offline queue replays to.
+ *
+ * This is a write surface, and it is the one the outbox can hit hours later
+ * without a teacher watching, so the properties worth proving are that it
+ * refuses an anonymous caller, refuses a cross-origin one, and refuses a class
+ * the caller does not own. The last one is the interesting one: attendance rows
+ * are scoped to the owner, so a forged class id would not leak anything back to
+ * the forger, but it would still write into somebody else's class attributed to
+ * the wrong teacher.
+ *
+ * A refusal has to be a 4xx rather than a 200 with a message in the body,
+ * because the outbox drops 4xx and retries 5xx. A class that is not the
+ * caller's will never become the caller's, so retrying it forever would grow the
+ * queue without ever succeeding.
+ */
+async function verifyAttendanceEndpoint() {
+  console.log('Attendance endpoint');
+
+  const anonymous = await fetch(`${BASE}/api/attendance`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ classId: 'x', date: '2026-03-03', marks: [] }),
+  });
+  check('an anonymous attendance write is refused', anonymous.status === 401, `answered ${anonymous.status}`);
+
+  const crossOrigin = await fetch(`${BASE}/api/attendance`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Origin: 'https://evil.example' },
+    body: JSON.stringify({ classId: 'x', date: '2026-03-03', marks: [] }),
+  });
+  check('a cross-origin attendance write is refused', crossOrigin.status === 403, `answered ${crossOrigin.status}`);
+
+  const auth = `${(process.env.NEXT_PUBLIC_SUPABASE_URL || '').replace(/\/$/, '')}/auth/v1`;
+  const { users } = await (await fetch(`${auth}/admin/users`, { headers: { apikey: SERVICE, Authorization: `Bearer ${SERVICE}` } })).json();
+  const maya = users.find((u) => u.email === 'maya@liko.test');
+  const ingrid = users.find((u) => u.email === 'ingrid@liko.test');
+
+  const [mine] = await read(`classes?owner_id=eq.${maya.id}&select=id&limit=1`);
+  const [theirs] = await read(`classes?owner_id=eq.${ingrid.id}&select=id&limit=1`);
+  const [{ id: studentId }] = await read(`students?owner_id=eq.${maya.id}&select=id&limit=1`);
+
+  const browser = await chromium.launch();
+  const date = '2026-03-03';
+  try {
+    const context = await browser.newContext();
+    await seedConsent(context);
+    const page = await context.newPage();
+    await signIn(page, 'maya@liko.test');
+
+    const post = (body) =>
+      page.evaluate(
+        async ([url, payload]) => {
+          const r = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          });
+          return { status: r.status, body: (await r.text()).slice(0, 200) };
+        },
+        [`${BASE}/api/attendance`, body],
+      );
+
+    const mine_result = await post({ classId: mine.id, date, marks: [{ studentId, status: 'late' }] });
+    check(
+      'writing attendance to a class the caller owns succeeds',
+      mine_result.status === 200,
+      `answered ${mine_result.status}: ${mine_result.body}`,
+    );
+
+    /*
+     * Replaying the same day is what the outbox does on every reconnect, so it
+     * has to be an update rather than a second row. The endpoint is only safe to
+     * queue because of this.
+     */
+    await post({ classId: mine.id, date, marks: [{ studentId, status: 'late' }] });
+    const rows = await read(
+      `attendance?class_id=eq.${mine.id}&student_id=eq.${studentId}&date=eq.${date}&select=id,status`,
+    );
+    check(
+      'replaying the same day updates the row instead of duplicating it',
+      rows.length === 1,
+      `${rows.length} rows after writing the same mark twice`,
+    );
+
+    const foreign = await post({ classId: theirs.id, date, marks: [{ studentId, status: 'late' }] });
+    check(
+      "writing attendance into another teacher's class is refused",
+      foreign.status === 404,
+      `answered ${foreign.status}: ${foreign.body}`,
+    );
+
+    const leaked = await read(`attendance?class_id=eq.${theirs.id}&date=eq.${date}&select=id`);
+    check('and no row was written into that class', leaked.length === 0, `${leaked.length} rows`);
+
+    await remove(`attendance?class_id=eq.${mine.id}&date=eq.${date}`);
+    await context.close();
+  } finally {
+    await browser.close();
+  }
+}
+
 async function main() {
   for (const name of ['NEXT_PUBLIC_SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY']) {
     if (!process.env[name]) {
@@ -747,6 +872,13 @@ async function main() {
   } catch (error) {
     failures += 1;
     console.log(`  FAIL  push subscriptions could not be checked: ${error.message}`);
+  }
+
+  try {
+    await verifyAttendanceEndpoint();
+  } catch (error) {
+    failures += 1;
+    console.log(`  FAIL  the attendance endpoint could not be checked: ${error.message}`);
   }
 
   try {

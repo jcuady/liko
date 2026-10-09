@@ -73,7 +73,7 @@ Authorisation is two independent layers. `proxy.ts` gates routes before render, 
 | Teacher-issued student/guardian accounts | Done | Done | Verified | Passing (fixture and Supabase) | Complete |
 | Assessments | Done | Done | Verified | Passing | Complete |
 | Gradebook and grading policies | Done | Done | Verified | Passing | Complete |
-| Attendance | Done | Done | Verified | Passing | Complete |
+| Attendance | Done | Done | Verified | Passing | Complete. Marks go through the offline outbox to `POST /api/attendance`, which is idempotent and safe to replay |
 | Lesson planner | Done | Done | Verified | Passing | Complete |
 | Slides deck editor | Done | Done | Verified | Passing | Complete |
 | Student history | Done | Done | Verified | Passing | Complete |
@@ -221,7 +221,7 @@ All run on 2026-10-09 against this working tree. The four live-database gates ar
 | End to end | `pnpm e2e` | **156 passed** across 12 specs, 3.0m |
 | Live schema | `pnpm db:apply` then `pnpm db:check` | **16 tables, RLS on 16, 23 policies; all security-relevant columns present** |
 | Live RLS behaviour | `pnpm db:settle` | **6 passed, 0 failed**: self-promotion refused, cross-tenant read refused, server-owned link cannot be moved |
-| Live application | `pnpm verify:app` | **48 passed, 0 failed**: every workspace route renders with real seeded data, refusals hold, an attendance write is read back out of Postgres, the at-risk sweep authenticates and stays idempotent, the push subscription route refuses six SSRF payloads and enforces per-teacher ownership, an outbound dispatch reaches the push service and prunes a dead endpoint, and registration is reported as blocked by the email quota |
+| Live application | `pnpm verify:app` | **54 passed, 0 failed**: every workspace route renders with real seeded data, refusals hold, an attendance write is read back out of Postgres and replays without duplicating, a write into another teacher's class is refused, the at-risk sweep authenticates and stays idempotent, the push route refuses six SSRF payloads and enforces per-teacher ownership, an outbound dispatch reaches the push service and prunes a dead endpoint, and registration is reported as blocked by the email quota |
 
 ### What `check:sql` proves, and what it does not
 
@@ -356,6 +356,7 @@ into `pnpm test` or CI.
 
 Completed:
 - Applied the migration to the live Supabase project with a new `pnpm db:apply`, which brings the database up from a checkout with nothing but Node
+- Found that the offline write queue had never worked. `enqueueWrite` was exported and called by nothing, so the queue was permanently empty, the offline banner permanently read zero, and a teacher's offline tap was dropped while the documentation described a background-sync queue. The cause was architectural: moving attendance writes to a server action had removed the HTTP endpoint the replay needs, because a queued record has to survive to `fetch(path)` hours later and an action id does not. Marks now go through the outbox to a real, idempotent `POST /api/attendance`
 - Fixed the RLS infinite recursion that made `profiles`, `classes`, `organizations` and `memberships` return `42P17`, by adding three `SECURITY DEFINER` helper functions and rewriting six policies to call them
 - Proved the two security fixes rather than arguing them: `pnpm db:settle` signs in as a real student and confirms self-promotion and the cross-tenant read both fail
 - Seeded the project, then extended the seed to create the school, its five seats and the two read-only account links, because the admin console had nothing to read

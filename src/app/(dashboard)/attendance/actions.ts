@@ -1,24 +1,35 @@
 'use server';
 
 /**
- * Attendance reads and writes.
+ * Attendance reads and per-student notes.
  *
- * WHY SERVER ACTIONS. The old screen fired `fetch('/api/attendance')`, and that
- * endpoint validated a payload and then discarded it, so a teacher could tap a
- * whole register, watch it "save", and reload to find nothing there. Calling
- * `markAttendance` through the data seam is what makes the register durable.
+ * WHY THE WRITE PATH IS NOT A SERVER ACTION. It was, and moving it there fixed
+ * a real bug: the screen used to fire `fetch('/api/attendance')` at an endpoint
+ * that validated a payload and discarded it, so a teacher could tap a whole
+ * register, watch it "save", and reload to find nothing there.
  *
- * The seam is `server-only`, so a client component cannot reach it directly.
- * These actions are the server half: they re-check the session and the
- * permission on every call, because a server action is an HTTP endpoint anyone
- * can post to and the proxy does not sit in front of it.
+ * That fix quietly broke the next thing. The offline outbox replays with a plain
+ * `fetch(record.path)` from the service worker or the flush loop, and a server
+ * action cannot be replayed that way: it needs a `Next-Action` header and a
+ * generated action id, neither of which survives being written to IndexedDB and
+ * sent hours later. So the queue was left with nothing to send to, nothing ever
+ * called `enqueueWrite`, and offline attendance stopped being captured while the
+ * documentation still described a background-sync queue.
+ *
+ * Marks therefore go through `enqueueWrite` to `POST /api/attendance`, which is
+ * idempotent and safe to replay. The route re-checks the session and the
+ * permission on every call, exactly as an action did.
+ *
+ * These two remain actions because neither is queued: a read has nothing to
+ * replay, and a note is an occasional deliberate act rather than something a
+ * teacher taps repeatedly on a bad connection.
  */
 
 import { revalidatePath } from 'next/cache';
 
 import { data } from '@/lib/api/client';
 import { requirePermission } from '@/lib/auth/guards';
-import type { AttendanceMark, AttendanceStatus, Severity } from '@/lib/api/types';
+import type { AttendanceStatus, Severity } from '@/lib/api/types';
 
 export interface AttendanceActionResult {
   ok: boolean;
@@ -33,39 +44,6 @@ export async function loadAttendance(
   const session = await requirePermission('attendance:write');
   const store = await data();
   return store.getAttendance(session.userId, classId, date);
-}
-
-export async function saveAttendance(input: {
-  classId: string;
-  date: string;
-  marks: AttendanceMark[];
-}): Promise<AttendanceActionResult> {
-  const session = await requirePermission('attendance:write');
-
-  // A blank date would write a row nobody can ever find again.
-  if (!input.classId || !/^\d{4}-\d{2}-\d{2}$/.test(input.date)) {
-    return {
-      ok: false,
-      message: 'That register could not be saved. Pick a date and try again.',
-    };
-  }
-
-  try {
-    const store = await data();
-    await store.markAttendance(session.userId, {
-      classId: input.classId,
-      date: input.date,
-      marks: input.marks,
-    });
-  } catch {
-    return {
-      ok: false,
-      message: 'That change could not be saved. Your register is back to how it was.',
-    };
-  }
-
-  revalidatePath('/attendance');
-  return { ok: true, message: 'Register saved.' };
 }
 
 const SEVERITIES: Severity[] = ['note', 'praise', 'concern', 'intervention'];
