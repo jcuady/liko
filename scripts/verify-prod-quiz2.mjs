@@ -51,8 +51,15 @@ await expect(page.getByLabel(/^Question \d+ prompt$/)).toHaveCount(8);
 await page.getByRole('link', { name: /Print the answer sheet/i }).click();
 await page.waitForURL(/\/assess\/sheet\?assessment=/, { timeout: 30_000 });
 
+// Load the sheet as its own document. Following the link client-side leaves the
+// previous route's flight payload in the same HTML, and /assess legitimately
+// carries the whole question set because it is the teacher's own page, so
+// reading that document would measure the wrong page.
+const sheetUrl = page.url();
+await page.goto(sheetUrl, { waitUntil: 'networkidle' });
+await expect(page.locator('section').first()).toBeVisible();
+
 const sheet = page.locator('section').first();
-await expect(sheet).toBeVisible();
 const bubbles = await sheet.locator('[data-bubble]').count();
 check('the printable sheet renders a bubble for every question and column', bubbles === 32, `${bubbles} bubbles`);
 
@@ -67,7 +74,12 @@ const filled = await sheet.locator('[data-bubble]').evaluateAll((nodes) =>
 check('no bubble on the sheet is filled, which is what a printed key would look like', filled.length === 0, `${filled.length} filled`);
 
 const sheetHtml = await page.content();
-check('the sheet page carries no answer key', !/answerKey/i.test(sheetHtml));
+const hit = /answerKey/i.exec(sheetHtml);
+check(
+  'the sheet page carries no answer key',
+  !hit,
+  hit ? `found "${sheetHtml.slice(Math.max(0, hit.index - 80), hit.index + 60)}"` : '',
+);
 
 await page.locator('section').first().screenshot({
   path: 'C:/Users/jcuad/OneDrive/Documents/Liko/docs/answer-sheet.png',

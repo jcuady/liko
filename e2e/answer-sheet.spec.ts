@@ -63,10 +63,38 @@ async function openSheet(page: Page) {
   await page.waitForURL(/\/assess\/sheet\?assessment=/, { timeout: 30_000 });
   await expect(page.getByRole('heading', { name: 'Bonding Quiz' })).toBeVisible();
 
+  /*
+   * Load the sheet as its own document. Following the link client-side leaves
+   * the previous route's flight payload in the same HTML, and the previous route
+   * is /assess, which legitimately carries the whole question set because it is
+   * the teacher's own page. Reading that document would be measuring the wrong
+   * page, and would keep reporting a leak after the leak was closed.
+   */
+  const sheetUrl = page.url();
+  await page.goto(sheetUrl, { waitUntil: 'networkidle' });
+  await expect(page.getByRole('heading', { name: 'Bonding Quiz' })).toBeVisible();
+
   return page.locator('section').first();
 }
 
 test.describe('the printed sheet', () => {
+  test('does not ship the answer key in the page payload', async ({ page }) => {
+    const sheet = await openSheet(page);
+    await expect(sheet).toBeVisible();
+
+    /*
+     * Server Components serialise their props into the HTML. The teacher owns
+     * these answers so nothing leaked to anyone who should not have them, but a
+     * page that prints a class's worth of questions has no reason to leave every
+     * answer for it in the source and the browser cache of whatever machine ran
+     * the print, and checking the payload is what makes that a property of the
+     * code rather than of the current prop list. `openSheet` loads this as its
+     * own document so the assertion reads the sheet page and not /assess.
+     */
+    const html = await page.content();
+    expect(html, 'no answerKey in the print page').not.toContain('answerKey');
+  });
+
   test('is laid out so the detector finds the grid it was promised', async ({ page }) => {
     const sheet = await openSheet(page);
 

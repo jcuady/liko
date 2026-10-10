@@ -224,7 +224,7 @@ All run on 2026-10-09 against this working tree, after the quiz maker and the sh
 | Unit | `pnpm vitest run` | **241 passed** in 18 files |
 | Migration | `pnpm check:sql` | **149 statements parse; 111 cross-references resolve; RLS on 18/18 tables; 14/14 policies re-runnable** |
 | Production build | `pnpm build` | **exit 0** |
-| End to end | `pnpm e2e` | **168 passed** across 15 specs, 3.4m |
+| End to end | `pnpm e2e` | **169 passed** across 15 specs, 2.9m |
 | Live schema | `pnpm db:apply` then `pnpm db:check` | **18 tables, RLS on 18, 27 policies; all security-relevant columns present** |
 | Live RLS behaviour | `pnpm db:settle` | **6 passed, 0 failed**: self-promotion refused, cross-tenant read refused, server-owned link cannot be moved |
 | Live application | `pnpm verify:app` | **54 passed, 0 failed**: every workspace route renders with real seeded data, refusals hold, an attendance write is read back out of Postgres and replays without duplicating, a write into another teacher's class is refused, the at-risk sweep authenticates and stays idempotent, the push route refuses six SSRF payloads and enforces per-teacher ownership, an outbound dispatch reaches the push service and prunes a dead endpoint, and registration is reported as blocked by the email quota |
