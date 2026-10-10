@@ -1078,6 +1078,7 @@ as $$
 declare
   v_student uuid;
   v_owner   uuid;
+  v_attempt uuid;
 begin
   select s.id, a.owner_id into v_student, v_owner
   from public.students s
@@ -1092,9 +1093,17 @@ begin
       using errcode = '42501';
   end if;
 
+  -- `returning id` on its own does not become this function's result. A bare
+  -- `insert ... returning` in plpgsql leaves the row produced and the function
+  -- returning nothing, which fails at runtime with "query has no destination for
+  -- result data". It cannot be caught by the migration checker, which only
+  -- parses, and it never runs in fixtures mode because there the store is a
+  -- JavaScript object and this function is not on the path at all.
   insert into public.quiz_attempts (assessment_id, student_id, owner_id)
   values (target_assessment, v_student, v_owner)
-  returning id;
+  returning id into v_attempt;
+
+  return v_attempt;
 end;
 $$;
 

@@ -1,4 +1,4 @@
-import type { QuestionRecord } from '@/lib/api/types';
+import type { QuestionKind, QuestionOption } from '@/lib/api/types';
 
 /**
  * The printable answer sheet.
@@ -33,13 +33,30 @@ import type { QuestionRecord } from '@/lib/api/types';
  * to mark a class cannot carry the answers.
  */
 
+/**
+ * What a printed row needs, which is not everything a stored question is.
+ *
+ * The teacher owns these questions and is entitled to know the answers, so this
+ * page is not a leak. It is still worth narrowing: Server Components serialise
+ * their props into the HTML, so passing the whole record would put every answer
+ * for the whole class into the page source and into the browser cache of
+ * whatever machine printed it. The sheet needs a prompt and some labels.
+ */
+export interface SheetQuestion {
+  id: string;
+  position: number;
+  kind: QuestionKind;
+  prompt: string;
+  options: QuestionOption[];
+}
+
 /** Rows per printed page. Below this the prompts start wrapping into each other. */
 const ROWS_PER_PAGE = 24;
 
 const LETTERS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
 
-function pages(questions: QuestionRecord[]) {
-  const out: QuestionRecord[][] = [];
+function pages(questions: SheetQuestion[]) {
+  const out: SheetQuestion[][] = [];
   for (let i = 0; i < questions.length; i += ROWS_PER_PAGE) {
     out.push(questions.slice(i, i + ROWS_PER_PAGE));
   }
@@ -47,7 +64,7 @@ function pages(questions: QuestionRecord[]) {
 }
 
 /** The whole assessment needs one column count, taken from the widest question. */
-export function optionColumns(questions: QuestionRecord[]): number {
+export function optionColumns(questions: SheetQuestion[]): number {
   return questions.reduce((widest, q) => Math.max(widest, q.options.length), 0);
 }
 
@@ -77,7 +94,7 @@ export function AnswerSheet({
 }: {
   title: string;
   className: string;
-  questions: QuestionRecord[];
+  questions: SheetQuestion[];
 }) {
   const columns = optionColumns(questions);
 

@@ -96,7 +96,23 @@ export default async function SheetPage({
       </div>
 
       <div className="mt-8 flex justify-center print:mt-0">
-        <AnswerSheet title={assessment.title} className={className} questions={questions} />
+        <AnswerSheet
+          title={assessment.title}
+          className={className}
+          /*
+           * Narrowed field by field rather than passed whole. The teacher owns
+           * these answers, but Server Components serialise props into the HTML,
+           * and a printed page should not leave every answer for the class in the
+           * source of whatever machine ran the print.
+           */
+          questions={questions.map((question) => ({
+            id: question.id,
+            position: question.position,
+            kind: question.kind,
+            prompt: question.prompt,
+            options: question.options,
+          }))}
+        />
       </div>
 
       <style>{`
