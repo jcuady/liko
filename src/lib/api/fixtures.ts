@@ -6,6 +6,7 @@ import {
   type GradingPolicy,
 } from '@/lib/grading/policy';
 import { DataError } from './errors';
+import { scoreAnswers } from '@/lib/omr/omr';
 import {
   demoAssessments,
   demoAttendance,
@@ -32,6 +33,8 @@ import type {
   AssessmentRecord,
   AttendanceStatus,
   AttendanceWrite,
+  AttemptRecord,
+  AttemptSummary,
   BehaviourLogRecord,
   ClassRecord,
   DeckRecord,
@@ -46,6 +49,9 @@ import type {
   QuestionRecord,
   SlideRecord,
   Stat,
+  StudentQuiz,
+  StudentQuizQuestion,
+  StudentQuizSummary,
   StudentRecord,
 } from './types';
 import type { WorkspaceData } from './client';
@@ -70,6 +76,16 @@ const CLASS_ID = 'cls_demo_01';
 const SECOND_CLASS_ID = 'cls_demo_02';
 const OWNER = 'demo-owner';
 
+/**
+ * The student demo account, and the roster row it is a login for.
+ *
+ * Both ids are fixed strings in `src/lib/auth/store.ts` and `workspace.ts`, named
+ * here rather than imported so this file does not reach across into the shape of
+ * the demo data for a constant that only ever means one thing.
+ */
+const DEMO_STUDENT_ACCOUNT = 'usr_demo_noor';
+const LINKED_STUDENT_ID = 'stu_001';
+
 function guard(operation: string): void {
   assertRealDataMode(operation);
 }
@@ -81,6 +97,7 @@ interface FixtureStore {
   assessments: AssessmentRecord[];
   questions: QuestionRecord[];
   grades: GradeRecord[];
+  attempts: AttemptRecord[];
   plans: LessonPlanRecord[];
   behaviour: BehaviourLogRecord[];
   history: HistoryRecord[];
@@ -125,12 +142,15 @@ function createStore(): FixtureStore {
     ],
     students: [
       /*
-       * `accountId` is null on every seeded row, which is the honest default:
-       * most students on a roster never need to sign in, and a demo that
-       * pre-linked five children to logins would misrepresent the normal state.
-       * The `student@` and `guardian@` demo accounts exist for the permission
-       * matrix; they are not attached to a roster row until a teacher issues a
-       * login from /classes, which is the only thing that can set this column.
+       * `accountId` is null on every row except one, which is the honest
+       * default: most students on a roster never need to sign in, and a demo that
+       * pre-linked every child to a login would misrepresent the normal state.
+       *
+       * One row is linked, because without it no student could ever sit a quiz
+       * in a demo and the whole student-facing half of the product would be
+       * unreachable to anyone running one. `scripts/seed.mjs` links the same
+       * account to the same student on the real project, so the fixture and the
+       * database tell an identical story about who the student demo account is.
        */
       ...fixtureStudents.map((student) => ({
         id: student.id,
@@ -142,7 +162,7 @@ function createStore(): FixtureStore {
         guardianEmail: null,
         guardianPhone: null,
         archivedAt: null,
-        accountId: null,
+        accountId: student.id === LINKED_STUDENT_ID ? DEMO_STUDENT_ACCOUNT : null,
       })),
       ...secondClassStudents.map((student) => ({
         id: student.id,
@@ -161,6 +181,7 @@ function createStore(): FixtureStore {
     assessments: demoAssessments,
     questions: demoQuestions,
     grades: demoGrades,
+    attempts: [],
     plans: demoPlans,
     behaviour: demoBehaviour,
     history: demoHistory,
@@ -211,6 +232,43 @@ function builtInPolicies(): GradingPolicyRecord[] {
 
 function seededKey(classId: string, date: string): string {
   return `${classId}:${date}`;
+}
+
+/**
+ * The roster row this account is a login for.
+ *
+ * `students.account_id` is the same link the database uses, which is what keeps
+ * the two adapters telling the same story about who is who.
+ */
+function studentForUser(userId: string): StudentRecord | null {
+  return (
+    store.students.find((row) => row.accountId === userId && row.archivedAt === null) ?? null
+  );
+}
+
+/** One student's attempts at one assessment, newest first. */
+function attemptsFor(store: FixtureStore, studentId: string, assessmentId: string): AttemptRecord[] {
+  return store.attempts
+    .filter((row) => row.studentId === studentId && row.assessmentId === assessmentId)
+    .sort((a, b) => b.startedAt.localeCompare(a.startedAt));
+}
+
+/**
+ * The attempt, but only if this account is the student sitting it.
+ *
+ * Returns null rather than throwing, so a forged id is indistinguishable from an
+ * id that never existed. That matches the RLS read on the real project, where the
+ * same query returns no rows.
+ */
+function ownedAttempt(
+  store: FixtureStore,
+  userId: string,
+  attemptId: string,
+): AttemptRecord | null {
+  const attempt = store.attempts.find((row) => row.id === attemptId);
+  const student = studentForUser(userId);
+  if (!attempt || !student || attempt.studentId !== student.id) return null;
+  return attempt;
 }
 
 function activeMembership(store: FixtureStore, userId: string): MemberRecord | null {
@@ -466,6 +524,206 @@ export const fixtures: WorkspaceData = {
     return store.questions
       .filter((row) => row.assessmentId === assessmentId)
       .sort((a, b) => a.position - b.position);
+  },
+
+  /*
+   * The student half, mirroring what the SQL functions do on the real project.
+   *
+   * WHY THE CALLER'S ID IS USED HERE AND IGNORED THERE. In Supabase mode `auth.uid()`
+   * decides which student is asking and this adapter must not be able to say
+   * otherwise. Fixtures have no auth.uid(), so the account has to be resolved to a
+   * roster row by the same link the database uses: `students.account_id`. The two
+   * adapters therefore answer the same question from different sources, and both
+   * refuse an assessment outside the caller's own class.
+   */
+  async listStudentQuizzes(userId) {
+    guard('listStudentQuizzes');
+    const student = studentForUser(userId);
+    if (!student) return [];
+
+    const quizzes = store.assessments
+      .filter((assessment) => assessment.classId === student.classId)
+      .map((assessment): StudentQuizSummary => {
+        const attempts = attemptsFor(store, student.id, assessment.id);
+        const open = attempts.find((attempt) => attempt.status === 'in_progress') ?? null;
+        const latest = attempts[0] ?? null;
+        return {
+          assessmentId: assessment.id,
+          title: assessment.title,
+          className: store.classes.find((row) => row.id === student.classId)?.name ?? '',
+          dueOn: assessment.dueOn,
+          questionCount: store.questions.filter((row) => row.assessmentId === assessment.id).length,
+          attemptId: open ? open.id : null,
+          status: latest ? latest.status : null,
+          submittedAt: latest ? latest.submittedAt : null,
+          attemptNumber: attempts.filter((attempt) => attempt.status === 'submitted').length,
+        };
+      })
+      // A quiz with no questions cannot be sat, so it is not on the list either.
+      .filter((quiz) => quiz.questionCount > 0);
+
+    return quizzes;
+  },
+
+  async getStudentQuiz(userId, attemptId) {
+    guard('getStudentQuiz');
+    const attempt = ownedAttempt(store, userId, attemptId);
+    if (!attempt) return null;
+
+    const assessment = store.assessments.find((row) => row.id === attempt.assessmentId);
+    const questions = store.questions
+      .filter((row) => row.assessmentId === attempt.assessmentId)
+      .sort((a, b) => a.position - b.position)
+      // Built field by field rather than by spreading the record, because a
+      // spread would carry `answerKey` straight onto the student's payload the
+      // first time a field was added to `QuestionRecord`.
+      .map(
+        (question): StudentQuizQuestion => ({
+          id: question.id,
+          kind: question.kind,
+          prompt: question.prompt,
+          options: question.options.map((option) => ({ key: option.key, text: option.text })),
+        }),
+      );
+
+    const siblings = attemptsFor(store, attempt.studentId, attempt.assessmentId).filter(
+      (row) => row.id !== attempt.id && row.status === 'submitted',
+    ).length;
+
+    return {
+      attemptId: attempt.id,
+      assessmentId: attempt.assessmentId,
+      title: assessment?.title ?? '',
+      className: store.classes.find((row) => row.id === assessment?.classId)?.name ?? '',
+      dueOn: assessment?.dueOn ?? null,
+      questions,
+      responses: attempt.responses,
+      status: attempt.status,
+      submittedAt: attempt.submittedAt,
+      attemptNumber: siblings + (attempt.status === 'submitted' ? 1 : 0),
+    } satisfies StudentQuiz;
+  },
+
+  async startQuizAttempt(userId, assessmentId) {
+    guard('startQuizAttempt');
+    const student = studentForUser(userId);
+    const assessment = store.assessments.find((row) => row.id === assessmentId);
+
+    // The SQL function refuses in one sentence and so does this: the assessment
+    // has to be one the caller is actually on the roster of.
+    if (!student || !assessment || assessment.classId !== student.classId) {
+      throw new DataError('FORBIDDEN', 'That quiz is not one of yours.');
+    }
+
+    // `ownerId` is read from the assessment, never from the caller, matching
+    // `start_quiz_attempt` where it comes from a row the caller cannot edit.
+    const record: AttemptRecord = {
+      id: `att_${store.attempts.length + 1}`,
+      assessmentId,
+      studentId: student.id,
+      ownerId: assessment.ownerId,
+      status: 'in_progress',
+      responses: [],
+      score: null,
+      maxScore: null,
+      startedAt: new Date().toISOString(),
+      submittedAt: null,
+    };
+    store.attempts = [...store.attempts, record];
+    return { ...record };
+  },
+
+  async saveQuizResponses(userId, attemptId, responses) {
+    guard('saveQuizResponses');
+    const attempt = ownedAttempt(store, userId, attemptId);
+    if (!attempt) throw new DataError('NOT_FOUND', 'That attempt does not exist.');
+    if (attempt.status !== 'in_progress') {
+      throw new DataError('CONFLICT', 'That attempt is no longer open for answers.');
+    }
+
+    // Only the field the column grant allows. The write builds a new record
+    // rather than assigning onto the old one, so widening this later to set a
+    // score is a visible edit rather than an inherited one.
+    const updated: AttemptRecord = { ...attempt, responses };
+    store.attempts = store.attempts.map((row) => (row.id === attemptId ? updated : row));
+    return { ...updated };
+  },
+
+  async submitQuizAttempt(userId, attemptId) {
+    guard('submitQuizAttempt');
+    const attempt = ownedAttempt(store, userId, attemptId);
+    if (!attempt) throw new DataError('NOT_FOUND', 'That attempt does not exist.');
+    if (attempt.status === 'submitted') {
+      throw new DataError('CONFLICT', 'That attempt was already submitted.');
+    }
+
+    const questions = store.questions
+      .filter((row) => row.assessmentId === attempt.assessmentId)
+      .sort((a, b) => a.position - b.position);
+
+    // The same recomputation the Supabase adapter does, from the stored key and
+    // never from anything the client sent.
+    const result = scoreAnswers(
+      questions.map((question) => ({
+        id: question.id,
+        kind: question.kind,
+        answerKey: question.answerKey,
+        points: question.points,
+      })),
+      attempt.responses.map((response) => ({
+        questionIndex: response.questionIndex,
+        optionKeys: response.optionKeys,
+      })),
+    );
+
+    const submittedAt = new Date().toISOString();
+    const updated: AttemptRecord = {
+      ...attempt,
+      status: 'submitted',
+      score: result.score,
+      maxScore: result.maxScore,
+      submittedAt,
+    };
+    store.attempts = store.attempts.map((row) => (row.id === attemptId ? updated : row));
+
+    await fixtures.upsertGrade(attempt.ownerId, {
+      assessmentId: attempt.assessmentId,
+      studentId: attempt.studentId,
+      score: result.score,
+      maxScore: result.maxScore,
+      source: 'online',
+      scanDetail: null,
+    });
+
+    return { ...updated };
+  },
+
+  async listAttempts(userId, assessmentId) {
+    guard('listAttempts');
+    const rows = store.attempts
+      .filter((row) => row.ownerId === userId && row.assessmentId === assessmentId)
+      .map(
+        (row): AttemptSummary => ({
+          id: row.id,
+          studentId: row.studentId,
+          studentName:
+            store.students.find((student) => student.id === row.studentId)?.fullName ??
+            'Unknown student',
+          status: row.status,
+          score: row.score,
+          maxScore: row.maxScore,
+          startedAt: row.startedAt,
+          submittedAt: row.submittedAt,
+        }),
+      );
+
+    // Newest per student, matching the Supabase adapter, so the two cannot
+    // disagree about which attempt the mark came from.
+    const newest = new Map<string, AttemptSummary>();
+    for (const row of rows) {
+      if (!newest.has(row.studentId)) newest.set(row.studentId, row);
+    }
+    return [...newest.values()];
   },
 
   async saveQuestions(_userId, questions) {

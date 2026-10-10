@@ -102,6 +102,13 @@ test.describe('landing page', () => {
 
   test('the FAQ answers the cost question first, and says it is free', async ({ page }) => {
     await page.goto('/#faq');
+    // Wait for hydration before clicking. The accordion is server-rendered, so
+    // the button is visible and readable long before it can respond, and a click
+    // that lands pre-hydration opens nothing at all. Under a loaded parallel run
+    // that is the difference between this test passing and failing on how busy
+    // the machine was, which is the one property a test must not have.
+    await page.waitForLoadState('networkidle');
+
     const first = page.getByRole('button', { name: /what does it cost/i }).first();
     await expect(first).toBeVisible();
     await first.click();

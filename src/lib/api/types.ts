@@ -213,13 +213,106 @@ export interface GradeRecord {
   rubric: RubricRow[];
   feedback: string | null;
   gradedAt: string;
-  /** `manual` when a teacher typed it, `scan` when it came off a sheet. */
+  /** `manual` when a teacher typed it, `scan` when it came off a sheet,
+   *  `online` when the student sat it themselves. */
   source: GradeSource;
   /** The marks exactly as read, plus what the teacher corrected. */
   scanDetail: ScannedAnswer[] | null;
 }
 
-export const gradeSourceSchema = z.enum(['manual', 'scan']);
+/**
+ * One question as a student answered it, on screen.
+ *
+ * Shaped like `ScannedAnswer` on purpose: both describe "what the student put
+ * against question N", and both are re-scored by the same `scoreAnswers` call on
+ * the server. A second shape for the same idea is a second thing to keep correct.
+ */
+export interface OnlineAnswer {
+  questionIndex: number;
+  optionKeys: string[];
+}
+
+export const attemptStatusSchema = z.enum(['in_progress', 'submitted']);
+export type AttemptStatus = z.infer<typeof attemptStatusSchema>;
+
+export interface AttemptRecord {
+  id: string;
+  assessmentId: string;
+  studentId: string;
+  ownerId: string;
+  status: AttemptStatus;
+  responses: OnlineAnswer[];
+  /** Null until the server has scored it. A student never writes this. */
+  score: number | null;
+  maxScore: number | null;
+  startedAt: string;
+  submittedAt: string | null;
+}
+
+/**
+ * A quiz as the student's side sees it: enough to render the questions, and
+ * deliberately not enough to score them.
+ *
+ * WHY THE KEY IS NOT HERE. This object reaches a student's device. It is built
+ * from the stored questions with `answerKey` and `points` removed, and the
+ * renderer has no field to print a mark from. The same reasoning that keeps the
+ * key off the scan screen: a page that leaks the answer cannot be used to mark a
+ * class, and a quiz that leaks it cannot be sat twice.
+ */
+export interface StudentQuizQuestion {
+  id: string;
+  kind: QuestionKind;
+  prompt: string;
+  options: QuestionOption[];
+}
+
+export interface StudentQuiz {
+  attemptId: string;
+  assessmentId: string;
+  title: string;
+  className: string;
+  dueOn: string | null;
+  questions: StudentQuizQuestion[];
+  responses: OnlineAnswer[];
+  status: AttemptStatus;
+  submittedAt: string | null;
+  /** How many attempts the student has already submitted, including this one. */
+  attemptNumber: number;
+}
+
+/** One row on the student's quiz list. */
+export interface StudentQuizSummary {
+  assessmentId: string;
+  title: string;
+  className: string;
+  dueOn: string | null;
+  questionCount: number;
+  /** The attempt to resume or sit, created on demand. Null until it exists. */
+  attemptId: string | null;
+  status: AttemptStatus | null;
+  submittedAt: string | null;
+  attemptNumber: number;
+}
+
+/**
+ * A teacher's view of one attempt.
+ *
+ * Carries the score but not the responses on purpose: the mark belongs to the
+ * gradebook, and re-reading what the student chose from the attempt list is not
+ * a question this screen is asking.
+ */
+export interface AttemptSummary {
+  id: string;
+  studentId: string;
+  studentName: string;
+  status: AttemptStatus;
+  score: number | null;
+  maxScore: number | null;
+  startedAt: string;
+  submittedAt: string | null;
+}
+
+export const gradeSourceSchema = z.enum(['manual', 'scan', 'online']);
 export type GradeSource = z.infer<typeof gradeSourceSchema>;
 
 export const rubricRowSchema = z.object({

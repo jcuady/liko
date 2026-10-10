@@ -17,9 +17,10 @@ Project: `https://ulrjitekiylgepdyijsw.supabase.co`
 | All seven workspace modules | Done, real CRUD through the seam, verified against the live database |
 | Offline write queue | Done |
 | Web push: routes, cron, service worker | Sweep proven against the live database; actual delivery still untested |
-| Migration SQL | Applied to `ulrjitekiylgepdyijsw`, idempotent, 17 tables |
+| Migration SQL | Applied to `ulrjitekiylgepdyijsw`, idempotent, 18 tables |
 | Seed script | Run. Five accounts, one school, three classes, 24 students, three "Bonding Quiz" assessments carrying 24 questions |
 | Quiz maker and sheet scanning | Done. An assessment carries its questions; a marked sheet is read against the answer key, confirmed by the teacher, assigned to a required student and scored on the server |
+| Two ways to deliver one quiz | Both live. `/quiz` is the student-facing quiz, and `/assess/sheet` prints the answer sheet the scanner reads |
 | Git history | 31 commits on `main`, pushed, remote verified identical |
 | Deployment | **Live** at `https://liko-jcuadys-projects.vercel.app`, project `jcuadys-projects/liko`. Production build, `LIKO_DATA_MODE=supabase`, verified by signing in against live Supabase |
 
@@ -220,15 +221,22 @@ Stated plainly so nobody is surprised later.
 5. **Payment.** The pricing page is presentation only. No billing provider is
    wired, so the Starter tier is genuinely free rather than free-with-a-card.
 6. **The sheet reader on real paper.** The detector is proven against synthetic
-   sheets: flat, upright, high-contrast bubbles drawn on a canvas, where the
-   expected score is worked out by hand from the stored key. A photograph of a
-   photocopied sheet, taken at an angle on a desk, with a shadow across it or a
-   crease through a column, is a different problem and has not been tried. The
-   reason it is a known limitation rather than a silent one is that the grid is
-   always shown for correction before anything is written, so a bad read costs a
-   teacher a moment of checking rather than a wrong mark on a child. **Check this
-   by hand**: print the demo sheet, fill it in, photograph it on a phone and
-   upload it.
+   sheets and against the printed page at print resolution: the real route is
+   screenshotted, shaded the way a pencil would shade it, and read by the real
+   detector, which finds eight rows, four columns and the marks exactly as drawn.
+   What that does not cover is a phone photograph taken at an angle, on a desk,
+   with a shadow across it or a crease through a column. The reason this is a
+   known limitation rather than a silent one is that the grid is always shown for
+   correction before anything is written, so a bad read costs a teacher a moment
+   of checking rather than a wrong mark on a child. **Check this by hand**: print
+   the sheet from `/assess`, fill it in, photograph it on a phone and upload it.
+7. **The answer key never reaching a student.** The online quiz was checked by
+   asserting the serialised page payload contains no `answerKey` and no
+   `correct` flag, not by looking at the screen. That is the assertion that
+   matters and it is worth re-running after any change to the quiz read path,
+   because a refactor that returns `QuestionRecord` instead of the narrower
+   student shape would still look correct on screen while handing over every
+   answer in the class.
 
 ---
 

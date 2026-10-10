@@ -10,7 +10,14 @@ import {
   isUnscoped,
   permissionForPath,
   scopeFor,
+  type Permission,
 } from './rbac';
+
+/**
+ * Permissions an administrator does not hold, with the reason beside each one so
+ * the list cannot grow by accident.
+ */
+const ADMIN_EXCEPTIONS: Permission[] = ['quiz:take'];
 
 describe('role matrix', () => {
   it('covers every role and permission without gaps', () => {
@@ -31,9 +38,35 @@ describe('role matrix', () => {
 
   it('gives administrators everything', () => {
     for (const permission of PERMISSIONS) {
+      // `quiz:take` is the one deliberate exception, and it is enumerated rather
+      // than carved out below, so that adding a second exception fails this test
+      // instead of quietly becoming normal.
+      if (ADMIN_EXCEPTIONS.includes(permission)) continue;
       expect(can('admin', permission)).toBe(true);
       expect(isUnscoped('admin', permission)).toBe(true);
     }
+  });
+
+  it('refuses to let an administrator sit a quiz on a child record', () => {
+    /*
+     * Every other permission is a read or an edit of work staff did themselves.
+     * Sitting a quiz writes a mark against a student, from an account that is
+     * not that student, which would let a mark appear in a class gradebook
+     * without the teacher knowing it happened.
+     */
+    for (const permission of ADMIN_EXCEPTIONS) {
+      expect(can('admin', permission)).toBe(false);
+      expect(isUnscoped('admin', permission)).toBe(false);
+    }
+  });
+
+  it('keeps every teaching role off the quiz-taking route', () => {
+    // Teachers write quizzes at /assess. Letting them sit one as well would put
+    // a second, unmarked copy of the answers in front of whoever marks it.
+    expect(can('instructor', 'quiz:take')).toBe(false);
+    expect(can('admin', 'quiz:take')).toBe(false);
+    expect(can('guardian', 'quiz:take')).toBe(false);
+    expect(scopeFor('student', 'quiz:take')).toBe('own');
   });
 
   it('never lets a student or guardian write anything', () => {

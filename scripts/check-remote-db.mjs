@@ -41,6 +41,7 @@ const TABLES = [
   'assessments',
   'questions',
   'grades',
+  'quiz_attempts',
   'lesson_plans',
   'behaviour_logs',
   'student_history',

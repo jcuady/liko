@@ -29,6 +29,7 @@ const PERMISSION_LABELS: Record<Permission, string> = {
   'assess:write': 'Create assessments',
   'grade:read': 'View grades',
   'grade:write': 'Record grades',
+  'quiz:take': 'Sit a quiz',
   'analytics:read': 'View the overview',
   'history:read': 'View student history',
   'user:manage': 'Manage people',

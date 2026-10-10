@@ -170,9 +170,10 @@ test.describe('the access model', () => {
     await expect(rowFor('Administrator').getByText('Manage the organisation')).toBeVisible();
     await expect(rowFor('Student').getByText('View grades')).toBeVisible();
 
-    // Three scoped grants in this row, so the count is the stronger assertion:
-    // classes, grades and history are all own-records-only for a student.
-    await expect(rowFor('Student').getByText('Own records only')).toHaveCount(3);
+    // Four scoped grants in this row: classes, grades, history and sitting a
+    // quiz are all own-records-only for a student. The count is the stronger
+    // assertion because these grants belong to no other role in this row.
+    await expect(rowFor('Student').getByText('Own records only')).toHaveCount(4);
     await expect(rowFor('Parent or guardian').getByText('Linked records only')).toHaveCount(3);
 
     // A refusal is shown as well as a grant, with no scope beside it. That

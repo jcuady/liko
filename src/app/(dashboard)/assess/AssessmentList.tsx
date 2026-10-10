@@ -1,7 +1,9 @@
 ﻿'use client';
 
 import * as React from 'react';
+import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
+import { PrinterIcon } from '@phosphor-icons/react';
 
 import { Badge, Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { NewAssessmentDialog } from '@/components/product/NewAssessmentDialog';
@@ -173,6 +175,25 @@ export function AssessmentList({
             questions={activeQuestions}
             students={classRoster}
           />
+
+          {/*
+            Print is the other half of the loop. Scanning has always existed and
+            nothing in the product produced the sheet it reads, so this link sits
+            directly above the reader rather than behind a menu: the two are one
+            action with a photocopier in the middle.
+          */}
+          <div className="flex flex-wrap items-center gap-3">
+            <Link
+              href={`/assess/sheet?assessment=${encodeURIComponent(active.id)}`}
+              className="inline-flex h-11 items-center gap-2 rounded-[12px] border border-border-strong bg-surface px-3.5 text-[0.9375rem] text-ink transition-colors duration-150 hover:border-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring/25"
+            >
+              <PrinterIcon size={18} aria-hidden="true" />
+              Print the answer sheet
+            </Link>
+            <span className="text-meta text-ink-muted">
+              Same questions, laid out for a scanner. No answers on it.
+            </span>
+          </div>
         </div>
       ) : null}
     </div>

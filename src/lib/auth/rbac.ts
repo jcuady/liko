@@ -17,6 +17,7 @@ export const PERMISSIONS = [
   'assess:write',
   'grade:read',
   'grade:write',
+  'quiz:take',
   'analytics:read',
   'history:read',
   'user:manage',
@@ -41,6 +42,7 @@ const MATRIX: Record<Role, Record<Permission, Scope>> = {
     'assess:write': 'yes',
     'grade:read': 'yes',
     'grade:write': 'yes',
+    'quiz:take': 'no',
     'analytics:read': 'yes',
     'history:read': 'yes',
     'user:manage': 'no',
@@ -54,6 +56,7 @@ const MATRIX: Record<Role, Record<Permission, Scope>> = {
     'assess:write': 'yes',
     'grade:read': 'yes',
     'grade:write': 'yes',
+    'quiz:take': 'no',
     'analytics:read': 'yes',
     'history:read': 'yes',
     'user:manage': 'yes',
@@ -67,6 +70,7 @@ const MATRIX: Record<Role, Record<Permission, Scope>> = {
     'assess:write': 'no',
     'grade:read': 'own',
     'grade:write': 'no',
+    'quiz:take': 'own',
     'analytics:read': 'no',
     'history:read': 'own',
     'user:manage': 'no',
@@ -80,6 +84,7 @@ const MATRIX: Record<Role, Record<Permission, Scope>> = {
     'assess:write': 'no',
     'grade:read': 'linked',
     'grade:write': 'no',
+    'quiz:take': 'no',
     'analytics:read': 'no',
     'history:read': 'linked',
     'user:manage': 'no',
@@ -125,6 +130,12 @@ export const ROUTE_PERMISSIONS: { prefix: string; permission: Permission }[] = [
   { prefix: '/overview', permission: 'analytics:read' },
   { prefix: '/grades', permission: 'grade:read' },
   { prefix: '/assess', permission: 'assess:write' },
+  // Sits a student. `own` is the grant, and the ownership check is the join
+  // from the login to its roster row, so a student reaches one class's quizzes
+  // and no other. A teacher holds `no` here: they author quizzes at `/assess`,
+  // and giving them a way to sit one would put a second, unmarked copy of the
+  // answers in a screen a marker can see.
+  { prefix: '/quiz', permission: 'quiz:take' },
   { prefix: '/plan', permission: 'plan:write' },
   // Slides sit beside the planner because they are the same job: preparing
   // something to teach with. Same gate, so the two never disagree about who
@@ -162,6 +173,7 @@ export const PROTECTED_PREFIXES = [
   '/slides',
   '/assess',
   '/grades',
+  '/quiz',
   '/history',
   '/settings',
   '/admin',
@@ -215,7 +227,14 @@ const PRIMARY_ROUTES = [
   '/assess',
 ];
 
-const SECONDARY_ROUTES = ['/history', '/settings/notifications', '/settings/profile', '/settings/appearance', '/admin'];
+const SECONDARY_ROUTES = [
+  '/quiz',
+  '/history',
+  '/settings/notifications',
+  '/settings/profile',
+  '/settings/appearance',
+  '/admin',
+];
 
 /**
  * Where a signed-in user lands by default.

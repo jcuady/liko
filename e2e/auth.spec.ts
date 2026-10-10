@@ -99,7 +99,15 @@ test.describe('registration', () => {
 
     await page.getByRole('button', { name: /Create workspace/i }).click();
 
-    await expect(page.getByRole('alert')).toBeVisible();
+    /*
+     * Named, not just `getByRole('alert')`. The form renders one alert per
+     * invalid field as well as the summary, so the bare role matched five or six
+     * elements whenever the submit raced the field state and every field
+     * reported at once. It passed or failed on how fast the machine was, which
+     * is the worst property a test can have. The summary is the element this
+     * assertion means: an inline error rather than a crash page.
+     */
+    await expect(page.getByRole('alert', { name: /Check the highlighted fields/i })).toBeVisible();
     await expect(page).toHaveURL(/\/register/);
   });
 

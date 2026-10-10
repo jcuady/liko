@@ -10,6 +10,7 @@ import {
   type GradingPolicy,
 } from '@/lib/grading/policy';
 import { createSupabaseAdmin, createSupabaseServerClient } from '@/lib/supabase/server';
+import { scoreAnswers } from '@/lib/omr/omr';
 import { DataError, mapSupabaseError } from './errors';
 import type {
   AssessmentRecord,
@@ -17,6 +18,8 @@ import type {
   AttendanceMark,
   AttendanceStatus,
   AttendanceWrite,
+  AttemptRecord,
+  AttemptSummary,
   BehaviourLogRecord,
   ClassLevel,
   ClassRecord,
@@ -32,6 +35,7 @@ import type {
   LessonPlanRecord,
   MemberRecord,
   MembershipStatus,
+  OnlineAnswer,
   OrgInput,
   OrgPlan,
   OrgRecord,
@@ -45,6 +49,9 @@ import type {
   SlideLayout,
   SlideRecord,
   Stat,
+  StudentQuiz,
+  StudentQuizQuestion,
+  StudentQuizSummary,
   StudentRecord,
 } from './types';
 
@@ -122,6 +129,37 @@ export interface WorkspaceData {
    */
   getAssessment(userId: string, assessmentId: string): Promise<AssessmentRecord | null>;
   listQuestions(userId: string, assessmentId: string): Promise<QuestionRecord[]>;
+
+  /*
+   * Quizzes a student may sit, and the attempt lifecycle.
+   *
+   * Every read a student is given goes through a SQL function whose result
+   * shape has no answer key in it. That is a deliberate constraint on this
+   * interface: `StudentQuiz` has no field to score from, so a caller cannot
+   * accidentally build one and ship it. The key is read server-side at submit
+   * time and never crosses the wire in either direction.
+   *
+   * WHY THE TWO ADAPTERS TREAT `userId` DIFFERENTLY. The Supabase adapter
+   * ignores it, because `auth.uid()` inside RLS and inside the SQL functions is
+   * the only thing that should decide which student is asking, and a parameter
+   * the caller controls cannot be that. The fixtures adapter uses it, because a
+   * fixture session has no `auth.uid()` and the account-to-roster link
+   * `students.account_id` is the same mapping the database makes. Both refuse an
+   * assessment outside the caller's own class. Do not "fix" the ignored
+   * parameter by filtering on it in the Supabase adapter: it would be a second,
+   * weaker source of identity sitting next to the one that is enforced.
+   */
+  listStudentQuizzes(userId: string): Promise<StudentQuizSummary[]>;
+  getStudentQuiz(userId: string, attemptId: string): Promise<StudentQuiz | null>;
+  startQuizAttempt(userId: string, assessmentId: string): Promise<AttemptRecord>;
+  saveQuizResponses(
+    userId: string,
+    attemptId: string,
+    responses: OnlineAnswer[],
+  ): Promise<AttemptRecord>;
+  submitQuizAttempt(userId: string, attemptId: string): Promise<AttemptRecord>;
+  /** Who has sat it, from the teacher's side. Never their answers. */
+  listAttempts(userId: string, assessmentId: string): Promise<AttemptSummary[]>;
   listGrades(userId: string, classId: string): Promise<GradeRecord[]>;
   listLessonPlans(userId: string, classId: string): Promise<LessonPlanRecord[]>;
   listBehaviourLogs(userId: string, classId: string): Promise<BehaviourLogRecord[]>;
@@ -500,6 +538,312 @@ const supabaseAdapter: WorkspaceData = {
       .order('position', { ascending: true });
     throwIf(error);
     return (data ?? []).map(mapQuestion);
+  },
+
+  /*
+   * The student half of the quiz.
+   *
+   * `userId` is deliberately unused below. It is the caller's account, not their
+   * student record, and nothing here should trust a mapping between the two that
+   * the application supplied: `auth.uid()` inside the SQL functions and inside
+   * RLS is what decides which student is asking. Passing an id in and filtering
+   * on it would be the same mistake as trusting a body-supplied owner.
+   */
+  async listStudentQuizzes(userId) {
+    void userId;
+    const supabase = await requireClient();
+
+    const { data, error } = await supabase.rpc('student_quizzes');
+    throwIf(error);
+    const rows = (data ?? []) as Row[];
+    if (rows.length === 0) return [];
+
+    const studentId = str(rows[0]!.student_id);
+    const { data: attemptRows, error: attemptError } = await supabase
+      .from('quiz_attempts')
+      .select('*')
+      .eq('student_id', studentId)
+      .order('created_at', { ascending: false });
+    throwIf(attemptError);
+
+    const byAssessment = new Map<string, Row[]>();
+    for (const row of (attemptRows ?? []) as Row[]) {
+      const list = byAssessment.get(str(row.assessment_id)) ?? [];
+      list.push(row);
+      byAssessment.set(str(row.assessment_id), list);
+    }
+
+    return rows.map((row): StudentQuizSummary => {
+      const attempts = byAssessment.get(str(row.assessment_id)) ?? [];
+      const open = attempts.find((attempt) => str(attempt.status) === 'in_progress') ?? null;
+      const latest = attempts[0] ?? null;
+
+      return {
+        assessmentId: str(row.assessment_id),
+        title: str(row.title),
+        className: str(row.class_name),
+        dueOn: (row.due_on as string | null) ?? null,
+        questionCount: num(row.question_count, 0),
+        attemptId: open ? str(open.id) : null,
+        status: latest ? (str(latest.status) === 'submitted' ? 'submitted' : 'in_progress') : null,
+        submittedAt: (latest?.submitted_at as string | null) ?? null,
+        attemptNumber: attempts.filter((attempt) => str(attempt.status) === 'submitted').length,
+      };
+    });
+  },
+
+  async getStudentQuiz(userId, attemptId) {
+    void userId;
+    const supabase = await requireClient();
+
+    // RLS decides whether this attempt is theirs; a forged id reads as no row.
+    const { data: attempt, error } = await supabase
+      .from('quiz_attempts')
+      .select('*')
+      .eq('id', attemptId)
+      .maybeSingle();
+    throwIf(error);
+    if (!attempt) return null;
+    const row = attempt as Row;
+
+    const assessmentId = str(row.assessment_id);
+
+    // Two calls, both SECURITY DEFINER, neither able to return a key.
+    const [{ data: questionRows, error: questionError }, { data: metaRows, error: metaError }] =
+      await Promise.all([
+        supabase.rpc('student_quiz_questions', { target_assessment: assessmentId }),
+        supabase.rpc('student_quizzes'),
+      ]);
+    throwIf(questionError);
+    throwIf(metaError);
+
+    const meta = ((metaRows ?? []) as Row[]).find((m) => str(m.assessment_id) === assessmentId);
+
+    const { data: priorRows, error: priorError } = await supabase
+      .from('quiz_attempts')
+      .select('id,status')
+      .eq('assessment_id', assessmentId)
+      .eq('student_id', str(row.student_id))
+      .neq('id', attemptId);
+    throwIf(priorError);
+
+    const submittedBefore = ((priorRows ?? []) as Row[]).filter((p) => str(p.status) === 'submitted')
+      .length;
+    const submitted = str(row.status) === 'submitted';
+
+    return {
+      attemptId,
+      assessmentId,
+      title: meta ? str(meta.title) : '',
+      className: meta ? str(meta.class_name) : '',
+      dueOn: (meta?.due_on as string | null) ?? null,
+      questions: ((questionRows ?? []) as Row[]).map(mapStudentQuestion),
+      responses: mapResponses(row.responses),
+      status: submitted ? 'submitted' : 'in_progress',
+      submittedAt: (row.submitted_at as string | null) ?? null,
+      attemptNumber: submittedBefore + (submitted ? 1 : 0),
+    } satisfies StudentQuiz;
+  },
+
+  async startQuizAttempt(userId, assessmentId) {
+    void userId;
+    const supabase = await requireClient();
+    const { data, error } = await supabase.rpc('start_quiz_attempt', {
+      target_assessment: assessmentId,
+    });
+    if (error && error.message.includes('not one of yours')) {
+      throw new DataError('FORBIDDEN', 'That quiz is not one of yours.');
+    }
+    throwIf(error);
+
+    const attemptId = str(data);
+    const { data: row, error: readError } = await supabase
+      .from('quiz_attempts')
+      .select('*')
+      .eq('id', attemptId)
+      .maybeSingle();
+    throwIf(readError);
+    if (!row) throw new DataError('NOT_FOUND', 'That attempt could not be started.');
+    return mapAttempt(row as Row);
+  },
+
+  async saveQuizResponses(userId, attemptId, responses) {
+    void userId;
+    const supabase = await requireClient();
+    // Only `responses` is granted to the authenticated role, so this statement
+    // cannot become a way to write a score even if the caller forges the id.
+    const { data, error } = await supabase
+      .from('quiz_attempts')
+      .update({ responses })
+      .eq('id', attemptId)
+      .eq('status', 'in_progress')
+      .select()
+      .maybeSingle();
+    throwIf(error);
+    if (!data) {
+      throw new DataError('CONFLICT', 'That attempt is no longer open for answers.');
+    }
+    return mapAttempt(data as Row);
+  },
+
+  async submitQuizAttempt(userId, attemptId) {
+    void userId;
+    const supabase = await requireClient();
+
+    /*
+     * WHY THE OWNERSHIP PROOF COMES FIRST. Everything below this line runs with
+     * the service role, which ignores RLS. The read above is the only thing that
+     * establishes the attempt belongs to the caller, and it happens with the
+     * student's own privileges, so a forged id arrives here as "no row" rather
+     * than as somebody else's submission. Elevating first and checking later
+     * would make the check meaningless.
+     */
+    const { data: owned, error: ownedError } = await supabase
+      .from('quiz_attempts')
+      .select('*')
+      .eq('id', attemptId)
+      .maybeSingle();
+    throwIf(ownedError);
+    if (!owned) throw new DataError('NOT_FOUND', 'That attempt does not exist.');
+
+    const attempt = owned as Row;
+    if (str(attempt.status) === 'submitted') {
+      throw new DataError('CONFLICT', 'That attempt was already submitted.');
+    }
+
+    const admin = await createSupabaseAdmin();
+    if (!admin) {
+      throw new DataError(
+        'FORBIDDEN',
+        'Submitting a quiz needs the service role key, which this server is not configured with.',
+      );
+    }
+
+    /*
+     * The answer key is read here and nowhere else. It cannot be read with the
+     * caller's session, because that is the whole point of keeping it off the
+     * student, so this is the one place the key is ever loaded, and it is
+     * loaded into a server frame that is never serialised to the browser.
+     */
+    const { data: questionRows, error: questionError } = await admin
+      .from('questions')
+      .select('*')
+      .eq('assessment_id', str(attempt.assessment_id))
+      .order('position', { ascending: true });
+    throwIf(questionError);
+
+    const questions = (questionRows ?? []).map(mapQuestion);
+    const responses = mapResponses(attempt.responses);
+
+    const result = scoreAnswers(
+      questions.map((question) => ({
+        id: question.id,
+        kind: question.kind,
+        answerKey: question.answerKey,
+        points: question.points,
+      })),
+      responses.map((response) => ({
+        questionIndex: response.questionIndex,
+        optionKeys: response.optionKeys,
+      })),
+    );
+
+    const submittedAt = new Date().toISOString();
+
+    // The `status` predicate is a compare-and-set: a double submit, or a replay,
+    // matches nothing and is reported as already submitted rather than
+    // overwriting the first mark. PostgREST returns no error for an update that
+    // matched zero rows, so the row is read back rather than assumed.
+    const { data: submitted, error: submitError } = await admin
+      .from('quiz_attempts')
+      .update({
+        status: 'submitted',
+        score: result.score,
+        max_score: result.maxScore,
+        submitted_at: submittedAt,
+      })
+      .eq('id', attemptId)
+      .eq('status', 'in_progress')
+      .select()
+      .maybeSingle();
+    throwIf(submitError);
+    if (!submitted) {
+      throw new DataError('CONFLICT', 'That attempt was already submitted.');
+    }
+
+    /*
+     * One mark per student per assessment, the same uniqueness `grades` already
+     * holds. A re-sit replaces the mark rather than adding a second one, and it
+     * is written with the owner being the quiz's teacher, so the gradebook they
+     * already open can edit it by hand afterwards.
+     */
+    const { error: gradeError } = await admin.from('grades').upsert(
+      {
+        owner_id: str(attempt.owner_id),
+        assessment_id: str(attempt.assessment_id),
+        student_id: str(attempt.student_id),
+        score: result.score,
+        max_score: result.maxScore,
+        source: 'online',
+        scan_detail: null,
+        graded_at: submittedAt,
+      },
+      { onConflict: 'assessment_id,student_id' },
+    );
+    throwIf(gradeError);
+
+    return mapAttempt(submitted as Row);
+  },
+
+  async listAttempts(userId, assessmentId) {
+    const supabase = await requireClient();
+    const { data, error } = await supabase
+      .from('quiz_attempts')
+      .select('id,student_id,status,score,max_score,started_at,submitted_at,created_at')
+      .eq('owner_id', userId)
+      .eq('assessment_id', assessmentId)
+      .order('created_at', { ascending: false });
+    throwIf(error);
+
+    const rows = (data ?? []) as Row[];
+    if (rows.length === 0) return [];
+
+    // One row per student: the most recent attempt is the one that counts, and
+    // an earlier one still being listed beside it invites the wrong mark being
+    // read off the screen.
+    const newest = new Map<string, Row>();
+    for (const row of rows) {
+      const key = str(row.student_id);
+      if (!newest.has(key)) newest.set(key, row);
+    }
+    const kept = [...newest.values()];
+
+    const { data: studentRows, error: studentError } = await supabase
+      .from('students')
+      .select('id,full_name')
+      .eq('owner_id', userId)
+      .in(
+        'id',
+        kept.map((row) => str(row.student_id)),
+      );
+    throwIf(studentError);
+
+    const names = new Map(
+      ((studentRows ?? []) as Row[]).map((row) => [str(row.id), str(row.full_name)]),
+    );
+
+    return kept.map(
+      (row): AttemptSummary => ({
+        id: str(row.id),
+        studentId: str(row.student_id),
+        studentName: names.get(str(row.student_id)) ?? 'Unknown student',
+        status: str(row.status) === 'submitted' ? 'submitted' : 'in_progress',
+        score: (row.score as number | null) ?? null,
+        maxScore: (row.max_score as number | null) ?? null,
+        startedAt: iso(row.started_at),
+        submittedAt: (row.submitted_at as string | null) ?? null,
+      }),
+    );
   },
 
   async listGrades(userId, classId) {
@@ -1371,6 +1715,11 @@ function mapAssessment(row: Row): AssessmentRecord {
   };
 }
 
+function gradeSource(value: unknown): GradeSource {
+  const raw = str(value, 'manual');
+  return raw === 'scan' || raw === 'online' ? raw : 'manual';
+}
+
 function mapGrade(row: Row): GradeRecord {
   return {
     id: str(row.id),
@@ -1382,8 +1731,60 @@ function mapGrade(row: Row): GradeRecord {
     rubric: Array.isArray(row.rubric) ? (row.rubric as GradeRecord['rubric']) : [],
     feedback: (row.feedback as string | null) ?? null,
     gradedAt: iso(row.graded_at),
-    source: (str(row.source, 'manual') as GradeSource) === 'scan' ? 'scan' : 'manual',
+    source: gradeSource(row.source),
     scanDetail: Array.isArray(row.scan_detail) ? (row.scan_detail as ScannedAnswer[]) : null,
+  };
+}
+
+/**
+ * A question as a student is allowed to receive it.
+ *
+ * Note what is absent: `answerKey` and `ownerId`. This is the only place a
+ * student-facing question is built, and it is built from a function that cannot
+ * return a key in the first place, so dropping the field here is a second line
+ * rather than the only one.
+ */
+function mapStudentQuestion(row: Row): StudentQuizQuestion {
+  const options = Array.isArray(row.options)
+    ? (row.options as { key?: unknown; text?: unknown }[])
+        .filter((o) => o && typeof o.key === 'string' && typeof o.text === 'string')
+        .map((o) => ({ key: o.key as string, text: o.text as string }))
+    : [];
+  return {
+    id: str(row.id),
+    kind: str(row.kind) === 'multiple' ? 'multiple' : 'single',
+    prompt: str(row.prompt),
+    options,
+  };
+}
+
+function mapResponses(value: unknown): OnlineAnswer[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((item) => Boolean(item) && typeof item === 'object')
+    .map((item) => {
+      const record = item as Record<string, unknown>;
+      return {
+        questionIndex: num(record.questionIndex, -1),
+        optionKeys: strArray(record.optionKeys),
+      };
+    })
+    .filter((answer) => answer.questionIndex >= 0);
+}
+
+function mapAttempt(row: Row): AttemptRecord {
+  const status = str(row.status) === 'submitted' ? 'submitted' : 'in_progress';
+  return {
+    id: str(row.id),
+    assessmentId: str(row.assessment_id),
+    studentId: str(row.student_id),
+    ownerId: str(row.owner_id),
+    status,
+    responses: mapResponses(row.responses),
+    score: (row.score as number | null) ?? null,
+    maxScore: (row.max_score as number | null) ?? null,
+    startedAt: iso(row.started_at),
+    submittedAt: (row.submitted_at as string | null) ?? null,
   };
 }
 

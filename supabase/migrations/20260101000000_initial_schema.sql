@@ -434,9 +434,79 @@ alter table public.grades add column if not exists
 alter table public.grades add column if not exists
   scan_detail jsonb;
 
+-- The check above was written before a quiz could be sat on a screen. It has to
+-- say so, and it has to be re-stated rather than edited, because this file has
+-- already run once against the live project: `add column if not exists` is a
+-- no-op on a column that exists, so widening the list means dropping the
+-- constraint Postgres generated and putting a new one in its place. Both halves
+-- are guarded, so this is safe on a fresh database and on a live one.
+do $$
+begin
+  alter table public.grades drop constraint if exists grades_source_check;
+  alter table public.grades
+    add constraint grades_source_check check (source in ('manual', 'scan', 'online'));
+end $$;
+
 drop trigger if exists grades_set_updated_at on public.grades;
 create trigger grades_set_updated_at
   before update on public.grades
+  for each row execute function public.set_updated_at();
+
+-- ---------------------------------------------------------------------------
+-- quiz_attempts: a quiz sat on a screen rather than on paper
+--
+-- WHY THIS IS NOT A COLUMN ON `grades`. A sheet carries one mark per student,
+-- and so does a gradebook, but an online quiz is written more than once: a
+-- student can save answers, close the tab, and come back. Collapsing that into
+-- `grades` would mean a mark existed while it was still being decided, and a
+-- gradebook cannot say which of its cells are final.
+--
+-- `responses` holds what the student chose, in question order, so the sheet the
+-- student actually sat can be reopened and compared against what the machine
+-- concluded, exactly as `grades.scan_detail` does for a scan. `score` is written
+-- once, by the server, at submission.
+--
+-- `owner_id` is the teacher who wrote the quiz, not the student who sat it, so
+-- the generic "own rows" policy below is what lets a teacher read their own
+-- class's attempts without a policy per role.
+-- ---------------------------------------------------------------------------
+create table if not exists public.quiz_attempts (
+  id            uuid primary key default gen_random_uuid(),
+  assessment_id uuid not null references public.assessments (id) on delete cascade,
+  student_id    uuid not null references public.students (id) on delete cascade,
+  owner_id      uuid not null references auth.users (id) on delete cascade,
+  status        text not null default 'in_progress'
+                check (status in ('in_progress', 'submitted')),
+  -- A list of `{ questionId, optionKeys }`, not an object keyed by question id,
+  -- because order is meaningful here and the reader is the same code that reads
+  -- a sheet: both are indexed by position.
+  responses     jsonb not null default '[]'::jsonb,
+  score         numeric(8,2) check (score is null or score >= 0),
+  max_score     numeric(8,2) check (max_score is null or max_score > 0),
+  started_at    timestamptz not null default now(),
+  submitted_at  timestamptz,
+  created_at    timestamptz not null default now(),
+  updated_at    timestamptz not null default now(),
+  constraint quiz_attempts_responses_array check (jsonb_typeof(responses) = 'array'),
+  -- A submission without a score is the one state that would let a gradebook
+  -- show a number nobody computed.
+  constraint quiz_attempts_submitted_is_scored check (
+    status = 'in_progress'
+    or (submitted_at is not null and score is not null and max_score is not null)
+  )
+);
+
+create index if not exists quiz_attempts_student_idx
+  on public.quiz_attempts (student_id);
+
+-- One row per attempt, and the gradebook wants the newest submitted one per
+-- student, so the index carries the order the question is actually asked in.
+create index if not exists quiz_attempts_assessment_idx
+  on public.quiz_attempts (assessment_id, submitted_at desc);
+
+drop trigger if exists quiz_attempts_set_updated_at on public.quiz_attempts;
+create trigger quiz_attempts_set_updated_at
+  before update on public.quiz_attempts
   for each row execute function public.set_updated_at();
 
 -- ---------------------------------------------------------------------------
@@ -854,6 +924,7 @@ alter table public.attendance        enable row level security;
 alter table public.assessments       enable row level security;
 alter table public.questions         enable row level security;
 alter table public.grades            enable row level security;
+alter table public.quiz_attempts     enable row level security;
 alter table public.lesson_plans      enable row level security;
 alter table public.behaviour_logs    enable row level security;
 alter table public.student_history   enable row level security;
@@ -870,7 +941,8 @@ declare
 begin
   foreach t in array array[
     'classes', 'students', 'attendance', 'assessments', 'questions', 'grades',
-    'lesson_plans', 'behaviour_logs', 'student_history', 'decks', 'slides'
+    'lesson_plans', 'behaviour_logs', 'student_history', 'decks', 'slides',
+    'quiz_attempts'
   ]
   loop
     execute format('drop policy if exists "own rows" on public.%I', t);
@@ -881,6 +953,168 @@ begin
     );
   end loop;
 end $$;
+
+-- ---------------------------------------------------------------------------
+-- quiz_attempts: the student half
+--
+-- WHY A HELPER AND NOT AN INLINE EXISTS. The obvious predicate for "this attempt
+-- is mine" is `exists (select 1 from public.students where account_id =
+-- auth.uid())`. RLS is applied inside a policy subquery as though the caller
+-- made the call, and a student cannot select their own quiz's `assessments` row,
+-- so any policy that has to look at the assessment through the caller's own
+-- privileges evaluates to false and the insert is refused for a reason that has
+-- nothing to do with the student. A SECURITY DEFINER helper reads the same rows
+-- with the owner's privileges and answers only a question about the CALLER,
+-- which is what the helpers above already exist for.
+--
+-- WHAT THE STUDENT CANNOT DO. Not "should not", cannot. `score`, `max_score`,
+-- `status`, `student_id` and `owner_id` are unreachable by the student's token:
+-- the column grant below removes table-level UPDATE and re-adds exactly one
+-- column. A student who opens devtools and PATCHes PostgREST directly, skipping
+-- the server action entirely, is refused on `score` rather than quietly ignored.
+-- That is the same boundary the `profiles` role column has, for the same reason.
+-- The attempt is created and submitted by the server through the service role.
+-- ---------------------------------------------------------------------------
+create or replace function public.owns_student_record(target_student uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1
+    from public.students s
+    where s.id = target_student
+      and s.account_id = auth.uid()
+      and s.archived_at is null
+  );
+$$;
+
+-- ---------------------------------------------------------------------------
+-- quiz_attempts: what a student is allowed to be handed
+--
+-- WHY FUNCTIONS AND NOT A WIDENED POLICY. A student needs the prompt text and
+-- the option labels of a quiz in their own class. Those live on `questions`,
+-- whose rows also carry `answer_key`. Widening that table's SELECT policy would
+-- hand every student every answer in one query, so the read is expressed as a
+-- function instead: it declares the columns it returns, and `answer_key` is not
+-- one of them. There is no column to select later and no way to widen it from
+-- the client, because the result shape is the function's `returns table`.
+--
+-- The function is SECURITY DEFINER so it can join through `assessments` and
+-- `classes`, which the student cannot read, and it filters on `auth.uid()` so
+-- that capability is spent on the caller alone. Every row it returns is a row
+-- the caller is entitled to; it reveals nothing about anyone else.
+--
+-- The one thing deliberately NOT here: the attempt's score. A student is told
+-- they submitted and nothing else, so there is no function for a student to
+-- call that could return one.
+-- ---------------------------------------------------------------------------
+create or replace function public.student_quizzes()
+returns table (
+  student_id    uuid,
+  assessment_id uuid,
+  title         text,
+  class_name    text,
+  due_on        date,
+  question_count integer
+)
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select s.id, a.id, a.title, c.name, a.due_on, count(q.id)::integer
+  from public.students s
+  join public.classes c on c.id = s.class_id
+  join public.assessments a on a.class_id = s.class_id
+  join public.questions q on q.assessment_id = a.id
+  where s.account_id = auth.uid()
+    and s.archived_at is null
+  group by s.id, a.id, a.title, c.name, a.due_on
+  order by a.due_on nulls last, a.title;
+$$;
+
+create or replace function public.student_quiz_questions(target_assessment uuid)
+returns table (
+  id       uuid,
+  -- Not `position`: that is the name of a built-in function in the grammar, and
+  -- a bare column called position fails to parse inside a `returns table`.
+  question_position integer,
+  kind     text,
+  prompt   text,
+  options  jsonb,
+  points   numeric
+)
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select q.id, q.position, q.kind, q.prompt, q.options, q.points
+  from public.questions q
+  join public.assessments a on a.id = q.assessment_id
+  join public.students s on s.class_id = a.class_id
+  where q.assessment_id = target_assessment
+    and s.account_id = auth.uid()
+    and s.archived_at is null
+  order by q.position;
+$$;
+
+-- WHY THE ROW IS CREATED HERE RATHER THAN BY AN INSERT POLICY. The student is
+-- not allowed to choose `owner_id`, which decides whose gradebook the attempt
+-- belongs to, or `status`, which decides whether it counts, so INSERT is revoked
+-- from `authenticated` outright and this is the only way a row comes into being.
+-- It is SECURITY DEFINER for that reason alone: the caller has no INSERT right
+-- of its own, and the function is the single place those two fields are chosen.
+-- Everything it chooses is read from `assessments`, not from the request.
+create or replace function public.start_quiz_attempt(target_assessment uuid)
+returns uuid
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_student uuid;
+  v_owner   uuid;
+begin
+  select s.id, a.owner_id into v_student, v_owner
+  from public.students s
+  join public.assessments a on a.class_id = s.class_id
+  where a.id = target_assessment
+    and s.account_id = auth.uid()
+    and s.archived_at is null
+  limit 1;
+
+  if v_student is null then
+    raise exception 'that quiz is not one of yours'
+      using errcode = '42501';
+  end if;
+
+  insert into public.quiz_attempts (assessment_id, student_id, owner_id)
+  values (target_assessment, v_student, v_owner)
+  returning id;
+end;
+$$;
+
+drop policy if exists "linked account reads own attempt" on public.quiz_attempts;
+create policy "linked account reads own attempt" on public.quiz_attempts
+  for select using (public.owns_student_record(quiz_attempts.student_id));
+
+drop policy if exists "linked account saves own answers" on public.quiz_attempts;
+create policy "linked account saves own answers" on public.quiz_attempts
+  for update
+  using (public.owns_student_record(quiz_attempts.student_id))
+  with check (public.owns_student_record(quiz_attempts.student_id));
+
+-- INSERT is revoked outright rather than policed. The row the student is about to
+-- create has fields they must not choose: `owner_id` decides whose gradebook it
+-- lands in, and `status` decides whether it is finished. Creating it server-side
+-- removes the question instead of policing it.
+revoke insert on public.quiz_attempts from authenticated;
+revoke update on public.quiz_attempts from authenticated;
+grant update (responses) on public.quiz_attempts to authenticated;
 
 -- ---------------------------------------------------------------------------
 -- profiles: row scope AND column scope

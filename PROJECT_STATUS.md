@@ -31,7 +31,7 @@ Students cannot self-register. That was already structurally true; it is now exp
 - `web-push` for notifications, VAPID
 
 ### Database
-- Supabase Postgres, 17 tables, one migration: `supabase/migrations/20260101000000_initial_schema.sql`
+- Supabase Postgres, 18 tables, one migration: `supabase/migrations/20260101000000_initial_schema.sql`
 - `organizations` + `memberships` carry tenancy. There is no `owner` role; the four roles are `instructor`, `admin`, `student`, `guardian`, and `org:manage` means "can administer the organisation"
 
 ### Infrastructure
@@ -74,6 +74,8 @@ Authorisation is two independent layers. `proxy.ts` gates routes before render, 
 | Assessments | Done | Done | Verified | Passing | Complete |
 | Quiz maker | Done | Done | Verified | Passing (unit + e2e) | **Complete.** An assessment now carries its questions: single choice and multiple select only, with an answer key, points and 2 to 8 options per question. They live in a new `questions` table and are edited through `/assess`, where an assessment is selected rather than merely listed. No `free_text` kind exists on purpose, because a printed bubble sheet cannot carry one and offering it would produce questions that look markable and score zero on every scan |
 | Marked-sheet scanning | Done | Done | Verified against the live database | Passing (19 unit + 3 e2e) | **Complete, single and multiple select only.** A photo or file of a marked sheet is thresholded with Otsu, segmented into bubbles by 8-connected components, gated on shape and on median bubble size, clustered into rows and columns, and scored against the stored key. The teacher sees an editable grid and confirms before anything is written, and the student is a required field because a sheet carries a score and no name. Proven end to end against live Supabase: a synthetic sheet scored 8/11 and landed as a `grades` row with `source='scan'` and all eight reads in `scan_detail` |
+| Printable answer sheet | Done | Done | Verified by reading the printed page back | Passing (2 e2e) | **The missing half of print-and-scan.** The scanner had always existed and nothing in the product produced the sheet it reads, so a teacher was expected to invent a layout and hope. `/assess/sheet` prints one, sized in millimetres against the detector's own gates: 11mm bubbles against a normalised minimum shape of about 51px, 10pt prompts that stay under it, 14mm rows that cannot merge. Proven by screenshotting the real printed page, shading a known set of bubbles and running the real detector over those pixels |
+| Sitting a quiz online | Done | Done | Verified end to end in fixture and production shape | Passing (4 e2e) | **A student signs in and sits it on their own device, any time before the due date**, one question per screen, answers saved at every step. No score is shown anywhere on the student's side, so the answer key never leaves the database. The mark is recomputed on the server at submission and lands in the teacher's gradebook with `source='online'` |
 | Gradebook and grading policies | Done | Done | Verified | Passing | Complete |
 | Attendance | Done | Done | Verified | Passing | Complete. Marks go through the offline outbox to `POST /api/attendance`, which is idempotent and safe to replay |
 | Lesson planner | Done | Done | Verified | Passing | Complete |
@@ -219,11 +221,11 @@ All run on 2026-10-09 against this working tree, after the quiz maker and the sh
 |---|---|---|
 | Typecheck | `pnpm typecheck` | **0 errors** |
 | Lint | `pnpm lint` | **0 errors, 0 warnings** |
-| Unit | `pnpm vitest run` | **239 passed** in 18 files |
-| Migration | `pnpm check:sql` | **131 statements parse; 95 cross-references resolve; RLS on 17/17 tables; 14/14 policies re-runnable** |
+| Unit | `pnpm vitest run` | **241 passed** in 18 files |
+| Migration | `pnpm check:sql` | **149 statements parse; 111 cross-references resolve; RLS on 18/18 tables; 14/14 policies re-runnable** |
 | Production build | `pnpm build` | **exit 0** |
-| End to end | `pnpm e2e` | **162 passed** across 13 specs, 2.8m |
-| Live schema | `pnpm db:apply` then `pnpm db:check` | **17 tables, RLS on 17, 24 policies; all security-relevant columns present** |
+| End to end | `pnpm e2e` | **168 passed** across 15 specs, 3.4m |
+| Live schema | `pnpm db:apply` then `pnpm db:check` | **18 tables, RLS on 18, 27 policies; all security-relevant columns present** |
 | Live RLS behaviour | `pnpm db:settle` | **6 passed, 0 failed**: self-promotion refused, cross-tenant read refused, server-owned link cannot be moved |
 | Live application | `pnpm verify:app` | **54 passed, 0 failed**: every workspace route renders with real seeded data, refusals hold, an attendance write is read back out of Postgres and replays without duplicating, a write into another teacher's class is refused, the at-risk sweep authenticates and stays idempotent, the push route refuses six SSRF payloads and enforces per-teacher ownership, an outbound dispatch reaches the push service and prunes a dead endpoint, and registration is reported as blocked by the email quota |
 
@@ -237,7 +239,7 @@ result against the file's own contents:
 - every relation named by a policy, grant, index or trigger resolves to a table
   or function this migration creates. A `create policy ... on public.studentz`
   parses perfectly and fails at deploy; this catches it.
-- row level security is enabled on all 17 tables. The audit that found the two
+- row level security is enabled on all 18 tables. The audit that found the two
   cross-tenant bugs found a third table in the same family of mistake.
 - every policy is dropped before it is created, so a second run works. That is
   the run somebody performs while recovering.
@@ -331,7 +333,7 @@ Also closed: blind SSRF through the push endpoint, a rate-limit kill switch one 
 Three of the five blockers listed here were resolved on 2026-10-09 and are kept here only so the record shows what they were.
 
 1. **RESOLVED: `git push`.** The remote is `https://github.com/jcuady/liko.git` and every commit is pushed. The earlier `Repository not found` was a credential problem, not a wrong repository name.
-2. **RESOLVED: the database was empty.** `pnpm db:apply` applied the migration to project `ulrjitekiylgepdyijsw`, which now holds 17 tables with row level security on all 17 and 24 policies.
+2. **RESOLVED: the database was empty.** `pnpm db:apply` applied the migration to project `ulrjitekiylgepdyijsw`, which now holds 18 tables with row level security on all 18 and 27 policies.
 3. **RESOLVED: `SUPABASE_SERVICE_ROLE_KEY`.** `scripts/seed.mjs` has run; five demo accounts hold a school, three classes, 24 students, assessments, marks, attendance and history.
 4. **OPEN: Vercel unauthenticated.** `vercel whoami` fails. This is the one thing standing between this codebase and a live URL, and it needs the user.
 5. **OPEN: iOS push delivery unverifiable** without a Home Screen-installed PWA.
@@ -377,6 +379,28 @@ into `pnpm test` or CI.
 4. Rotate the service role key and the database password before this project carries anything real. Both have been handled in chat and written to a local `.env.local`, which is gitignored, but they were shared in a conversation.
 
 ## Recent Work
+
+### 2026-10-10
+
+Added, so that one set of questions has two real deliveries rather than one and a half:
+- **Sitting a quiz online.** A student signs in, opens `/quiz`, and answers one question per screen on their own device, any time before the due date. Answers save at every step, because a phone locks and a signal drops. Nothing on the student's screen carries a score: the attempt is scored on the server at submission and the mark lands in the teacher's gradebook with `source='online'`
+- **The printable answer sheet.** The scanner had always existed and nothing in the product produced the sheet it reads, which made "print and scan" a loop with a missing link. `/assess/sheet` prints it, in millimetres, against the detector's own gates rather than against taste alone
+
+The security shape of the online quiz is the part worth stating plainly. A quiz runner is a page that renders the questions of an assessment whose answer key is sitting in the database next door. Three things hold that line:
+- The key is never selected on a path a student can reach. `student_quiz_questions` declares the columns it returns and `answer_key` is not one of them, so there is no column to widen later and no result shape to smuggle it through. Asserted in e2e against the serialised payload, not against visible text
+- A student's token cannot write its own score. `score`, `status` and the ids are unreachable: `UPDATE` is revoked from `authenticated` and re-granted on the single `responses` column, so opening devtools and PATCHing PostgREST directly is refused rather than ignored
+- The row is created by a `SECURITY DEFINER` function that reads `owner_id` off the assessment rather than off the request, because a student must not choose whose gradebook their attempt belongs to
+
+The ownership proof is deliberately the first thing that happens in the submit path, before any service-role read. Everything after it runs with the service role, which ignores RLS, and the only thing that establishes the attempt belongs to the caller is a read made with the caller's own privileges, where a forged id arrives as "no row".
+
+Proven rather than asserted:
+- The printed page is screenshot at print resolution, shaded the way a pencil would shade it, and read by the real detector: 8 rows, 4 columns, marks exactly as drawn. A prompt that grew large enough to clear the detector's minimum shape would become a phantom bubble and shift every mark, and nothing else in the suite would notice
+- The online flow answers the stored key, submits, and confirms the confirmation screen contains no score, no percentage and no correct-answer flag
+
+Fixed while proving it:
+- Three quiz-maker tests failed on 45 second locator timeouts because `/Bonding Quiz/i` also matched the pre-existing "Unit 3 Quiz: Bonding", so `.first()` opened the empty one. The selector was anchored
+- The gradebook leaked its horizontal overflow to the document. `overflow-x-auto` was not enough and a class with four assessments scrolled the whole page sideways by 22px on a 375px phone. Paint containment on the same box holds the document at 375 while the table still scrolls
+- The builder painted "Add the first question to make this assessment scannable" for an assessment that already had eight. An empty state that is briefly true is a lie a teacher acts on
 
 ### 2026-10-09, later
 

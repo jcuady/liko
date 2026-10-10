@@ -12,6 +12,7 @@ import {
   GridFourIcon,
   ListChecksIcon,
   PaintBrushIcon,
+  PencilSimpleLineIcon,
   PresentationChartIcon,
   ShieldCheckIcon,
   StackIcon,
@@ -73,6 +74,13 @@ export const ADMIN_NAV: NavItem[] = [
 ];
 
 export const SECONDARY_NAV: NavItem[] = [
+  /*
+   * The student's own route. It is in the secondary list because it is the one
+   * destination a teacher never sees: `quiz:take` is granted to students alone,
+   * so this line changes the student navigation and leaves every teacher's
+   * sidebar, tab bar and overflow sheet exactly as it was.
+   */
+  { href: '/quiz', label: 'Quizzes', icon: PencilSimpleLineIcon },
   { href: '/history', label: 'History', icon: ClockCounterClockwiseIcon },
   { href: '/settings/notifications', label: 'Notifications', icon: BellIcon },
   { href: '/settings/profile', label: 'Profile', icon: UserCircleIcon },
