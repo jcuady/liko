@@ -148,6 +148,36 @@ test.describe('the slide editor', () => {
     );
   });
 
+  test('every edit reports itself, not only the first one on a slide', async ({ page }) => {
+    /*
+     * WHY TWO EDITS.
+     *
+     * The first change to a slide that has never been edited writes the whole
+     * element list. Every change after that patches one element through a
+     * different action. The status line watched only the first of those two
+     * writers, so the panel sat on "changes here save on their own" from the
+     * second edit onwards and never said a save had landed, while one was
+     * genuinely in flight.
+     *
+     * A test that edits once cannot see this, because the first edit is always
+     * the other path. That is how it reached a deployed site with a green suite.
+     */
+    await STAGE(page).locator('[data-slide-element]').first().click();
+
+    await changeWeight(page);
+    await expect(page.getByText('Changes saved.')).toBeVisible();
+
+    // Second edit on the same slide, which is the one that goes the other way.
+    const second = await changeWeight(page);
+    await expect(
+      page.getByText('Changes saved.'),
+      `the second edit (${second}) reported itself`,
+    ).toBeVisible();
+
+    const after = await STAGE_TEXT(page).evaluate((node) => getComputedStyle(node).fontWeight);
+    expect(after, 'the second edit is the one on the slide').toBe(RENDERED_WEIGHT[second]);
+  });
+
   test('the change survives a reload, which is what saving means', async ({ page }) => {
     await STAGE(page).locator('[data-slide-element]').first().click();
 

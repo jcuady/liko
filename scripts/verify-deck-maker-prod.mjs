@@ -175,15 +175,32 @@ try {
   );
 
   // Change it and read the rendered result, which is the property that matters.
+  /*
+   * A DIFFERENT WEIGHT FROM THE ONE ALREADY STORED.
+   *
+   * This runs against a deck that persists between runs, so whatever weight the
+   * last run left is the weight this one starts from. Asking for "bold" every
+   * time means the second run onwards asks for what is already there: the
+   * rendered slide does not move, the poll times out, and the reload check
+   * compares 700 with 700 and reports success for a change that never happened.
+   */
   const text = elements.first().locator('p, ul').first();
   const before = await text.evaluate((node) => getComputedStyle(node).fontWeight);
-  await weight.selectOption('bold');
+  const stored = await weight.inputValue();
+  const target = stored === 'bold' ? 'medium' : 'bold';
+  await weight.selectOption(target);
+
+  const expected = target === 'bold' ? '700' : '500';
   let after = before;
-  for (let attempt = 0; attempt < 20 && after === before; attempt += 1) {
+  for (let attempt = 0; attempt < 25 && after !== expected; attempt += 1) {
     await page.waitForTimeout(150);
     after = await text.evaluate((node) => getComputedStyle(node).fontWeight);
   }
-  check('changing the weight changes the rendered slide', after !== before, `${before} -> ${after}`);
+  check(
+    'changing the weight changes the rendered slide',
+    after === expected,
+    `${before} -> ${after}, expected ${expected}`,
+  );
 
   /*
    * Waited for, not sampled. The panel debounces for 700ms and then writes to
@@ -207,7 +224,7 @@ try {
     .locator('p, ul')
     .first()
     .evaluate((node) => getComputedStyle(node).fontWeight);
-  check('the weight survived a reload on the live database', reloaded === after, `${after} -> ${reloaded}`);
+  check('the weight survived a reload on the live database', reloaded === expected, `${expected} -> ${reloaded}`);
 
   // ---------------------------------------------------------------- the file
   check('a file can be brought into the deck', await settles(page.getByLabel('Choose a file')));

@@ -479,6 +479,37 @@ export function SlideEditor({
   });
 
   /*
+   * STYLE WRITES GO OUT ONE AT A TIME.
+   *
+   * `updateElementStyle` reads the slide, changes one element and writes the
+   * whole list back, because the column is one jsonb value. Two of those
+   * overlapping each other is a read, a read, a write, a write, and the second
+   * write carries the array as the first one read it. A teacher who changes the
+   * weight and then the colour quickly loses whichever change lands second, and
+   * there is no error anywhere: both requests succeed.
+   *
+   * React Query runs concurrent mutations on one hook in parallel, so the
+   * ordering has to be imposed here. A teacher changing two things in a second
+   * is not an unusual thing to do, and "the last one you asked for is the one
+   * you get" has to be true rather than usually true.
+   */
+  const styleQueue = React.useRef<Promise<unknown>>(Promise.resolve());
+
+  const queueStyleSave = (input: {
+    slideId: string;
+    elementId: string;
+    style: SlideTextElement['style'];
+  }) => {
+    setSaved(false);
+    styleQueue.current = styleQueue.current
+      .then(() => saveStyle.mutateAsync(input))
+      .then(
+        () => setSaved(true),
+        () => setSaved(true),
+      );
+  };
+
+  /*
    * Typing is debounced and styling is not. A style control is one discrete
    * choice and is saved on the element it changed, so two teachers editing
    * different elements of one slide do not overwrite each other. Typing is a
@@ -833,7 +864,7 @@ export function SlideEditor({
                      * who looked away for a second.
                      */}
                     <p role="status" className="text-meta text-ink-subtle">
-                      {saveContent.isPending
+                      {saveContent.isPending || saveStyle.isPending
                         ? 'Saving'
                         : saved
                           ? 'Changes saved.'
@@ -970,7 +1001,18 @@ export function SlideEditor({
                   const fromLayout = elements === null;
                   patchElement(selectedElementId, { style }, fromLayout);
                   if (!fromLayout) {
-                    saveStyle.mutate({
+                    /*
+                     * THIS WRITE TOO HAS TO REPORT ITSELF.
+                     *
+                     * The first edit on a slide goes through `saveContent`, and
+                     * every edit after it goes through `saveStyle`. The status
+                     * line watched only the first, so from the second edit
+                     * onwards the panel sat on "changes here save on their own"
+                     * while a write was in flight, and never once said it had
+                     * landed. It looked correct on a slide nobody had edited
+                     * yet, which is exactly the state the tests ran in.
+                     */
+                    queueStyleSave({
                       slideId: selected.id,
                       elementId: selectedElementId,
                       style,
