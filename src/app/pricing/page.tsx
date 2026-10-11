@@ -14,7 +14,7 @@ const DESCRIPTION =
 
 export function generateMetadata(): Metadata {
   return {
-    title: 'Pricing that fits one teacher or a whole staff.',
+    title: 'Pricing that fits one teacher or a whole staff',
     description: DESCRIPTION,
     alternates: { canonical: '/pricing' },
     openGraph: {

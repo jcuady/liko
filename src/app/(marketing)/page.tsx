@@ -35,7 +35,13 @@ const DESCRIPTION =
 
 export function generateMetadata(): Metadata {
   return {
-    title: 'Less admin. More teaching.',
+    /*
+     * No trailing full stop. The root layout appends ". LIKO" to every title
+     * that does not override the template, so a title ending in a period
+     * rendered as "Less admin. More teaching.. LIKO" in the tab and in the
+     * search result. `src/lib/metadata.test.ts` holds the line.
+     */
+    title: 'Less admin. More teaching',
     description: DESCRIPTION,
     alternates: { canonical: '/' },
     openGraph: {
