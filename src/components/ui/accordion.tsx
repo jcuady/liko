@@ -9,12 +9,12 @@ import { cn } from '@/lib/utils';
 /*
  * The Root carries no styles of its own, so `className` is only passed through.
  *
- * `data-slot="accordion"` here is a contract marker, not a styling hook.
- * `AccordionPrimitive.Root` is a context provider and renders no DOM node, so
- * the attribute never reaches the HTML. It is kept because it is what shadcn
- * ships and because it documents intent for anyone reading the source, but
- * `data-[slot=accordion]` will not match anything. Every part below Root is a
- * real element and its slot does render.
+ * It does render a `div`, so `data-slot="accordion"` reaches the HTML. That was
+ * worth checking rather than assuming: the sibling wrappers in this kit sit on
+ * Radix context primitives that render nothing, and it is tempting to assume
+ * every Root behaves the same way. It does not. Server rendering the primitive
+ * and looking at the markup is the only way to tell the two apart, and it costs
+ * one line.
  */
 const Accordion = React.forwardRef<
   React.ComponentRef<typeof AccordionPrimitive.Root>,

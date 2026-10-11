@@ -9,10 +9,10 @@ import { cn } from '@/lib/utils';
  * `Root` renders no DOM node of its own, so it has no ref and no `className` to
  * forward. It still needs a wrapper so it can carry `data-slot`.
  *
- * That slot is a contract marker and never reaches the HTML, because there is
- * no element to put it on. Styling for this menu targets `dropdown-menu-content`
- * and the parts inside it, which are real elements. `Tooltip` has the same
- * arrangement and says so in its own file.
+ * That slot does not reach the HTML, because there is no element to put it on.
+ * Verified by server rendering the primitive, which returns an empty string.
+ * Style this menu through `dropdown-menu-content` and the parts inside it,
+ * which are real elements.
  */
 function DropdownMenu(props: React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Root>) {
   return <DropdownMenuPrimitive.Root data-slot="dropdown-menu" {...props} />;

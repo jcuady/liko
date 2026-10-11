@@ -7,10 +7,10 @@ import { cn } from '@/lib/utils';
 
 // The Root carries no styles of its own, so `className` is only passed through.
 /*
- * `data-slot="tabs"` on the Root is a contract marker, not a styling hook.
- * `TabsPrimitive.Root` is a context provider and renders no DOM node, so the
- * attribute never reaches the HTML. `tabs-list`, `tabs-trigger` and
- * `tabs-content` are real elements and their slots do render.
+ * `TabsPrimitive.Root` renders a `div`, so this slot does reach the HTML.
+ * Confirmed by server rendering the primitive rather than by assuming, because
+ * `Tooltip.Provider`, `Tooltip.Root` and `DropdownMenu.Root` in this same kit
+ * render nothing and their slots do not. The two look identical in the source.
  */
 const Tabs = React.forwardRef<
   React.ComponentRef<typeof TabsPrimitive.Root>,

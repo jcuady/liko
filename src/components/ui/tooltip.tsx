@@ -10,10 +10,12 @@ import { cn } from '@/lib/utils';
  * and no `className` to forward. They still need wrappers so they can carry
  * `data-slot`. `Trigger` does render a button, so it forwards both.
  *
- * Note that `data-slot="tooltip"` and `data-slot="tooltip-provider"` never
- * reach the HTML, because there is no element to put them on. They match what
- * shadcn ships and they record intent in the source, but they are not styling
- * hooks. `tooltip-trigger` and `tooltip-content` are real elements.
+ * Neither of those two slots reaches the HTML, because there is no element to
+ * put it on. That is not an assumption: server rendering the primitives returns
+ * an empty string. `Tabs.Root` and `Accordion.Root`, which look identical here,
+ * do render a `div` and their slots do reach the page, so the two kinds cannot
+ * be told apart by reading. Style against `tooltip-trigger` and
+ * `tooltip-content`, which are real elements.
  */
 function TooltipProvider(
   props: React.ComponentPropsWithoutRef<typeof TooltipPrimitive.Provider>,

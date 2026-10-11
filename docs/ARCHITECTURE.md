@@ -41,10 +41,13 @@ Three conventions the kit holds to, all of which were added in one pass and all
 of which are easy to break again:
 
 - **Every rendered part carries `data-slot`.** That is shadcn's targeting
-  contract and what makes `data-[slot=x]` styling possible. Four of them are
-  contract markers only: `accordion`, `tabs`, `tooltip`, `tooltip-provider` and
-  `dropdown-menu` sit on Radix context primitives that render no DOM, so they
-  never reach the HTML. Styling targets the real parts. Each file says so.
+  contract and what makes `data-[slot=x]` styling possible. Three of them do not
+  reach the HTML, because they sit on Radix primitives that render nothing:
+  `tooltip`, `tooltip-provider` and `dropdown-menu`. `tabs` and `accordion` sit
+  on primitives that look identical in the source and do render a `div`, so
+  their slots are live. The two kinds cannot be told apart by reading the
+  source; they were settled by server rendering each primitive and looking at
+  the markup. Each file records its own answer.
 - **`displayName` is the component's own name.** An older shadcn idiom assigns
   `X.displayName = RadixPrimitive.Y.displayName`, which is `undefined`, because
   no Radix primitive defines one. React then calls the component "ForwardRef"
