@@ -6,7 +6,9 @@ import {
   type GradingPolicy,
 } from '@/lib/grading/policy';
 import { DataError } from './errors';
+import { newInviteCode, inviteExpiry } from '@/lib/security/invite-code';
 import { scoreAnswers } from '@/lib/omr/omr';
+import { codeBlockFits, codeBlockWidthMm, SHEET_CONTENT_MM } from '@/lib/omr/code-block';
 import {
   demoAssessments,
   demoAttendance,
@@ -42,6 +44,7 @@ import type {
   GradingPolicyRecord,
   HeatCell,
   HistoryRecord,
+  InviteRecord,
   LessonPlanRecord,
   MemberRecord,
   OrgRecord,
@@ -110,6 +113,8 @@ interface FixtureStore {
    */
   orgs: Map<string, OrgRecord>;
   memberships: MemberRecord[];
+  /** Issued invitations. Empty at boot, because a demo workspace has no admin who asked for one. */
+  invites: InviteRecord[];
   decks: DeckRecord[];
   slides: SlideRecord[];
 }
@@ -189,6 +194,7 @@ function createStore(): FixtureStore {
     profiles: new Map(demoProfiles.map((profile) => [profile.id, profile])),
     orgs: new Map([[demoOrg.id, { ...demoOrg }]]),
     memberships: demoMemberships.map((member) => ({ ...member })),
+    invites: [],
     decks: demoDecks.map((deck) => ({ ...deck })),
     slides: demoSlides.map((slide) => ({ ...slide })),
   };
@@ -271,8 +277,20 @@ function ownedAttempt(
   return attempt;
 }
 
+/**
+ * The organisation this account is currently acting in.
+ *
+ * Newest active membership first, matching the `order('created_at', desc)` in
+ * `supabaseOrgFor`. That order is load-bearing rather than cosmetic: an account
+ * holds two active memberships once it accepts an invitation, and taking the
+ * first row here while the database takes the latest would mean the demo
+ * workspace and the real project sent the same person to two different schools.
+ */
 function activeMembership(store: FixtureStore, userId: string): MemberRecord | null {
-  return store.memberships.find((row) => row.userId === userId && row.status === 'active') ?? null;
+  const rows = store.memberships
+    .filter((row) => row.userId === userId && row.status === 'active')
+    .sort((a, b) => b.joinedAt.localeCompare(a.joinedAt));
+  return rows[0] ?? null;
 }
 
 /** Active admins of one organisation, which is the count that keeps a tenant recoverable. */
@@ -280,6 +298,52 @@ function countAdmins(store: FixtureStore, orgId: string): number {
   return store.memberships.filter(
     (row) => row.orgId === orgId && row.role === 'admin' && row.status === 'active',
   ).length;
+}
+
+/** People currently holding a seat, which is what `active_seat_count` counts. */
+function activeSeatCount(store: FixtureStore, orgId: string): number {
+  return store.memberships.filter(
+    (row) => row.orgId === orgId && row.status === 'active',
+  ).length;
+}
+
+/**
+ * THE BLOCK, in a second place.
+ *
+ * Byte for byte the sentence `redeem_org_invite` raises, so the demo workspace
+ * refuses a join in the same words the database does. A fixture that said
+ * something softer would be worse than no block at all: the refusal is the part
+ * of this flow a school administrator actually meets, and it has to read the
+ * same whether the app is pointed at fixtures or at a database.
+ *
+ * The middle noun pluralises on the LIMIT, which is what the SQL does too, since
+ * that is the number the sentence is about.
+ */
+function noRoomLeft(org: OrgRecord, active: number): DataError {
+  return new DataError(
+    'CONFLICT',
+    `There is no room left: ${org.name} has ${active} active ` +
+      `${org.seatLimit === 1 ? 'seat' : 'seats'} of ${org.seatLimit} seats. ` +
+      'Ask an administrator to raise the seat limit, then use this code again.',
+  );
+}
+
+/**
+ * The organisation whose invitations this account may read or issue.
+ *
+ * The inner check behind `org:manage` at the action, for the same reason
+ * `requireOrgManager` exists: a server action is a public endpoint, and the role
+ * in the session is only half the answer to which school was meant.
+ */
+function requireOrgAdmin(store: FixtureStore, userId: string): OrgRecord {
+  const caller = activeMembership(store, userId);
+  if (caller?.role !== 'admin') {
+    throw new DataError('FORBIDDEN', 'Only an admin can invite people to this organisation.');
+  }
+
+  const org = store.orgs.get(caller.orgId);
+  if (!org) throw new DataError('NOT_FOUND', 'This account has no organisation yet.');
+  return org;
 }
 
 /**
@@ -305,6 +369,21 @@ function personalOrg(userId: string, store: FixtureStore): { org: OrgRecord; mem
     seatLimit: 1,
     billingEmail: null,
     createdAt,
+    // A solo workspace is one person, so there is no principal, no grade span and
+    // no enrolment to record. Every field is null and the status is the default,
+    // which is also the state a school starts in before anyone fills the form in.
+    profile: {
+      countryCode: null,
+      sector: null,
+      gradeMin: null,
+      gradeMax: null,
+      enrolment: null,
+      timezone: null,
+      contactName: null,
+      contactRole: null,
+      verificationStatus: 'unverified',
+      verifiedAt: null,
+    },
   };
 
   const membership: MemberRecord = {
@@ -476,9 +555,45 @@ export const fixtures: WorkspaceData = {
       id: `asm_${store.assessments.length + 1}`,
       ownerId: OWNER,
       archivedAt: null,
+      // Always born without a code block. The block depends on the class size,
+      // and the class is not settled when an assessment is created.
+      idFormatEnabled: false,
+      idFormatGroups: null,
+      idFormatCodes: null,
     };
     store.assessments = [...store.assessments, record];
     return record;
+  },
+
+  async setAssessmentIdFormat(_userId, assessmentId, shape) {
+    guard('setAssessmentIdFormat');
+    const index = store.assessments.findIndex((row) => row.id === assessmentId);
+    if (index === -1) throw new DataError('NOT_FOUND', 'That assessment no longer exists.');
+
+    /*
+     * The shape is refused here exactly as the database check refuses it, rather
+     * than being clamped. A teacher who asked for nine codes per digit has made a
+     * mistake, and silently turning that into eight would print a sheet whose
+     * block the scan route is then told to expect a different size of.
+     */
+    if (shape && (shape.groups < 1 || shape.groups > 3 || shape.perGroup < 2 || shape.perGroup > 8)) {
+      throw new DataError('VALIDATION', 'That code block size cannot be printed.');
+    }
+    if (shape && !codeBlockFits(shape.groups, shape.perGroup)) {
+      throw new DataError(
+        'VALIDATION',
+        `That code block is ${Math.round(codeBlockWidthMm(shape.groups, shape.perGroup))}mm wide and the ` +
+          `sheet has ${SHEET_CONTENT_MM}mm to print in.`,
+      );
+    }
+
+    store.assessments = store.assessments.map((row, at) =>
+      at !== index
+        ? row
+        : shape
+          ? { ...row, idFormatEnabled: true, idFormatGroups: shape.groups, idFormatCodes: shape.perGroup }
+          : { ...row, idFormatEnabled: false, idFormatGroups: null, idFormatCodes: null },
+    );
   },
 
   async upsertGrade(_userId, input) {
@@ -955,8 +1070,36 @@ export const fixtures: WorkspaceData = {
 
     org.name = input.name;
     org.plan = input.plan;
-    org.seatLimit = input.seatLimit;
     org.billingEmail = input.billingEmail;
+
+    /*
+     * The seat limit cannot be lowered below the people already sitting on
+     * seats. A limit below the current headcount is not a stricter limit, it is
+     * an organisation that has already broken its own rule, and the admin who
+     * set it would then have no way to fix anything else about it. The same
+     * refusal exists on the Supabase path, in `updateOrg` there.
+     */
+    const seated = store.memberships.filter(
+      (row) => row.orgId === org.id && row.status === 'active',
+    ).length;
+    if (input.seatLimit < seated) {
+      throw new DataError(
+        'CONFLICT',
+        `This workspace already has ${seated} active ${seated === 1 ? 'person' : 'people'}. ` +
+          `A limit below that cannot be applied.`,
+      );
+    }
+    org.seatLimit = input.seatLimit;
+
+    /*
+     * The institutional profile is merged rather than replaced, because every
+     * field on it is independently optional and a form that saves three fields
+     * should not blank the other five. The verification status is NOT writable
+     * here: nothing in the product may mark a school as checked.
+     */
+    if (input.profile) {
+      org.profile = { ...org.profile, ...input.profile };
+    }
 
     return { ...org };
   },
@@ -1024,6 +1167,111 @@ export const fixtures: WorkspaceData = {
      */
     const profile = store.profiles.get(member.userId);
     if (profile) profile.orgId = status === 'active' ? member.orgId : null;
+  },
+
+  async listInvites(userId) {
+    guard('listInvites');
+    const org = requireOrgAdmin(store, userId);
+
+    return store.invites
+      .filter((row) => row.orgId === org.id)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .map((row) => ({ ...row }));
+  },
+
+  async createInvite(userId, input) {
+    guard('createInvite');
+    const org = requireOrgAdmin(store, userId);
+
+    /*
+     * No seat check here, and the Supabase path has none either: a code can sit
+     * unclaimed until it expires, so counting at issue time would refuse people
+     * who never joined. The seat is spent in `redeemInvite`, which is where the
+     * database spends it too.
+     */
+    const invite: InviteRecord = {
+      id: `inv_${crypto.randomUUID()}`,
+      orgId: org.id,
+      email: input.email,
+      role: input.role,
+      // The same generator the Supabase path uses, so a demo code is as
+      // unguessable as a real one and a test cannot learn to predict them.
+      code: newInviteCode(),
+      createdBy: userId,
+      createdAt: new Date().toISOString(),
+      expiresAt: inviteExpiry(),
+      acceptedAt: null,
+      acceptedBy: null,
+    };
+
+    store.invites.push(invite);
+    return { ...invite };
+  },
+
+  async redeemInvite(userId, code) {
+    guard('redeemInvite');
+
+    const normalised = code.trim().toUpperCase();
+
+    /*
+     * The same four refusals, in the same order, with the same wording as
+     * `redeem_org_invite`. Order matters because each refusal is a different
+     * answer for the person holding the code: an unused code handed to somebody
+     * who already joined is "you are already part of that school", and reporting
+     * "no room left" instead would send them to the wrong person.
+     */
+    const invite = store.invites.find(
+      (row) =>
+        row.code === normalised &&
+        row.acceptedAt === null &&
+        new Date(row.expiresAt).getTime() > Date.now(),
+    );
+    if (!invite) {
+      throw new DataError(
+        'CONFLICT',
+        'That invitation code is not valid, has expired, or has already been used.',
+      );
+    }
+
+    const org = store.orgs.get(invite.orgId);
+    if (!org) throw new DataError('NOT_FOUND', 'This account has no organisation yet.');
+
+    // Any membership, not just an active one: the SQL check is `exists`, because a
+    // suspended member still belongs to the school and re-accepting would give
+    // them a second row to be counted twice.
+    const already = store.memberships.some(
+      (row) => row.orgId === org.id && row.userId === userId,
+    );
+    if (already) {
+      throw new DataError('CONFLICT', 'You are already part of that school.');
+    }
+
+    const active = activeSeatCount(store, org.id);
+    if (active >= org.seatLimit) throw noRoomLeft(org, active);
+
+    const profile = store.profiles.get(userId);
+    const joinedAt = new Date().toISOString();
+    store.memberships.push({
+      id: `mem_${crypto.randomUUID()}`,
+      userId,
+      orgId: org.id,
+      fullName: profile?.fullName ?? '',
+      email: profile?.email ?? '',
+      role: invite.role,
+      status: 'active',
+      joinedAt,
+    });
+
+    /*
+     * `accepted_at` is what makes a code single use, and it is written after the
+     * seat check rather than before it: a refused redemption must leave the code
+     * usable, because the sentence it was refused with ends by telling the person
+     * to use it again.
+     */
+    invite.acceptedAt = joinedAt;
+    invite.acceptedBy = userId;
+
+    return { orgId: org.id, orgName: org.name };
   },
 
   /*

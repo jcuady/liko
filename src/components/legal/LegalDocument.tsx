@@ -6,15 +6,17 @@ import { MarketingNav } from '@/components/layout/MarketingNav';
 import { Footer } from '@/components/layout/Footer';
 
 /**
- * Shared shell for the three legal documents.
+ * Shared shell for the legal documents.
  *
  * WHY THIS EXISTS. Terms, Privacy and Cookies are the same page with different
- * text. Building the frame three times meant three chances for the layout to
- * drift and, more importantly, three chances to leave one of them without the
- * version line that says which text the reader actually accepted. The version is
- * passed in and printed, because `TERMS_VERSION` in `src/lib/auth/consent.ts` is
- * what a consent record is stamped with, and a record whose document cannot be
- * pinned to a version is not evidence of anything.
+ * text, and the acceptable use, children&apos;s privacy, subprocessors and data
+ * processing documents are that same shell rather than four more near copies.
+ * Building the frame per document meant many chances for the layout to drift
+ * and, more importantly, many chances to leave one of them without the version
+ * line that says which text the reader actually accepted. The version is passed
+ * in and printed, because `TERMS_VERSION` in `src/lib/auth/consent.ts` is what a
+ * consent record is stamped with, and a record whose document cannot be pinned
+ * to a version is not evidence of anything.
  */
 
 export interface LegalSection {
@@ -124,6 +126,24 @@ export function LegalDocument({ title, summary, version, sections }: LegalMeta) 
                 <RelatedLink href="/terms">Terms of Use</RelatedLink>
                 <RelatedLink href="/privacy">Privacy Notice</RelatedLink>
                 <RelatedLink href="/cookies">Cookie Notice</RelatedLink>
+                {/*
+                  WHY ALL SEVEN AND NOT THE ORIGINAL THREE. A reader who arrives
+                  at one legal document usually has a question the other six
+                  answer, and the documents divide into clusters: the acceptable
+                  use rules are what the terms summarise, the children's notice
+                  is what the privacy notice defers to, the subprocessor list is
+                  the evidence behind the privacy notice's third party sentence,
+                  and the data processing agreement is the instrument both the
+                  other two describe. Splitting them across pages and then
+                  hiding half of them behind a footer is what makes a set of
+                  documents read as fragments. Kept as a plain flat list
+                  because a seven item tree would be a sitemap wearing a
+                  document's clothes.
+                */}
+                <RelatedLink href="/acceptable-use">Acceptable Use Policy</RelatedLink>
+                <RelatedLink href="/children-privacy">Children&apos;s Privacy Notice</RelatedLink>
+                <RelatedLink href="/subprocessors">Subprocessors</RelatedLink>
+                <RelatedLink href="/dpa">Data Processing Agreement</RelatedLink>
               </div>
             </div>
           </div>

@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 
-import { scanSheet } from '../src/lib/omr/omr';
+import { scanSheet, formatIdCode, idToStudentNumber } from '../src/lib/omr/omr';
 
 /**
  * The sheet the product prints must be the sheet the product can read.
@@ -74,7 +74,7 @@ async function openSheet(page: Page) {
   await page.goto(sheetUrl, { waitUntil: 'networkidle' });
   await expect(page.getByRole('heading', { name: 'Bonding Quiz' })).toBeVisible();
 
-  return page.locator('section').first();
+  return page.locator('[data-answer-sheet="0"]');
 }
 
 test.describe('the printed sheet', () => {
@@ -133,7 +133,10 @@ test.describe('the printed sheet', () => {
     }, blank.toString('base64'));
 
     const gray = new Uint8Array(Buffer.from(decoded.data, 'base64'));
-    const read = scanSheet(gray, decoded.width, decoded.height);
+    // Told what the sheet carries. Without this the code block is just the
+    // ninth row and every column comes from it, which is what these two tests
+    // measured before the demo quiz grew a block.
+    const read = scanSheet(gray, decoded.width, decoded.height, { idBlock: { groups: 2, perGroup: 6 } });
 
     expect(read.rows, 'one row per question').toBe(KEY.length);
     expect(read.cols, 'one column per option').toBe(4);
@@ -180,7 +183,7 @@ test.describe('the printed sheet', () => {
     }, shot.toString('base64'));
 
     const gray = new Uint8Array(Buffer.from(decoded.data, 'base64'));
-    const read = scanSheet(gray, decoded.width, decoded.height);
+    const read = scanSheet(gray, decoded.width, decoded.height, { idBlock: { groups: 2, perGroup: 6 } });
 
     expect(read.rows, 'one row per question').toBe(KEY.length);
     expect(read.cols, 'one column per option').toBe(4);
@@ -197,6 +200,119 @@ test.describe('the printed sheet', () => {
 
     readMarks.forEach((mark, index) => {
       expect(same(mark, GIVEN[index]!), `question ${index + 1}`).toBe(true);
+    });
+  });
+
+  /*
+   * The code block, on the real printed page.
+   *
+   * The unit tests draw a code block with `test-sheet.ts`, which proves the
+   * arithmetic. This proves the MARKS ON PAPER: the gap the reader measures to
+   * find where one digit ends has to be the gap the stylesheet actually prints,
+   * or the block splits somewhere else and the student behind the sheet changes.
+   * Nothing that draws its own sheet could catch that.
+   *
+   * The demo quiz prints two groups of six, and the fixture roster is eight
+   * students sorted by name, so code [0][3] is student number 4.
+   */
+  test.describe('with a code block', () => {
+    async function decodeShot(page: Page, shot: Buffer) {
+      const decoded = await page.evaluate(async (base64) => {
+        const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+        const bitmap = await createImageBitmap(new Blob([bytes], { type: 'image/png' }));
+        const maxEdge = 1400;
+        const scale = Math.min(1, maxEdge / Math.max(bitmap.width, bitmap.height));
+        const width = Math.round(bitmap.width * scale);
+        const height = Math.round(bitmap.height * scale);
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(bitmap, 0, 0, width, height);
+        const frame = ctx.getImageData(0, 0, width, height).data;
+        const gray = new Uint8Array(width * height);
+        for (let i = 0, p = 0; i < frame.length; i += 4, p += 1) {
+          gray[p] = (frame[i]! * 299 + frame[i + 1]! * 587 + frame[i + 2]! * 114) / 1000;
+        }
+        let binary = '';
+        for (let i = 0; i < gray.length; i += 1) binary += String.fromCharCode(gray[i]!);
+        return { data: btoa(binary), width, height };
+      }, shot.toString('base64'));
+
+      const gray = new Uint8Array(Buffer.from(decoded.data, 'base64'));
+      return scanSheet(gray, decoded.width, decoded.height, {
+        idBlock: { groups: 2, perGroup: 6 },
+      });
+    }
+
+    test('reads the code a student shaded and leaves every answer where it was', async ({
+      page,
+    }) => {
+      const sheet = await openSheet(page);
+
+      // The block is on the page at all. Twelve bubbles, two groups of six.
+      await expect(sheet.locator('[data-bubble="0-id-0-0"]')).toBeVisible();
+      await expect(sheet.locator('[data-bubble="0-id-1-5"]')).toBeVisible();
+
+      await sheet.evaluate((root) => {
+        const marks = ['0-id-0-0', '0-id-1-3'];
+        for (const id of marks) {
+          const bubble = root.querySelector<HTMLElement>(`[data-bubble="${id}"]`);
+          if (!bubble) throw new Error(`no code bubble ${id}`);
+          bubble.style.background = '#000000';
+        }
+      });
+
+      const read = await decodeShot(page, await sheet.screenshot({ type: 'png', scale: 'device' }));
+
+      expect(read.idMissing, 'the block was found').toBe(false);
+      expect(read.id?.wellFormed, 'it divided into two groups of six').toBe(true);
+      expect(read.id?.digits, 'exactly the bubbles that were shaded').toEqual([0, 3]);
+      // 0 * 6 + 3 + 1: codes are zero-based, student numbers are not.
+      expect(idToStudentNumber(read.id), 'student number').toBe(4);
+      expect(formatIdCode(read.id), 'code as printed').toBe('03');
+
+      // The part that would be catastrophic if it broke. A block left in would
+      // become the fullest row, define twelve columns, and shift every answer.
+      expect(read.rows, 'the block did not become an answer row').toBe(KEY.length);
+      expect(read.cols, 'one column per option').toBe(4);
+    });
+
+    test('names nobody when the code block is left blank', async ({ page }) => {
+      const sheet = await openSheet(page);
+
+      const read = await decodeShot(page, await sheet.screenshot({ type: 'png', scale: 'device' }));
+
+      // The block is present and correctly shaped, and every digit is unreadable.
+      // That is the "shade your code" case, and the answer to it is to ask the
+      // teacher, never to pick the nearest student.
+      expect(read.id?.wellFormed, 'the block was still found and split').toBe(true);
+      expect(read.id?.digits, 'no digit was guessed').toEqual([null, null]);
+      expect(formatIdCode(read.id), 'no code').toBeNull();
+      expect(idToStudentNumber(read.id), 'no student').toBeNull();
+    });
+
+    test('keeps the class roster off the printed paper', async ({ page }) => {
+      await openSheet(page);
+
+      /*
+       * The key is on the page so the teacher can read it while handing sheets
+       * out, and it must never reach the paper: a sheet printed with the class
+       * roster beside the codes is handed out loose and loses the anonymity that
+       * lets a child fill one in without being watched. `print:hidden` is the
+       * mechanism, and this asserts it is actually on the key rather than
+       * trusting the styling to stay where it was put.
+       *
+       * Asserted through `data-code-key` rather than an ancestor search. Two
+       * ancestors on this page carry `print:hidden`, the key and the screen
+       * chrome above it, so "some ancestor is print:hidden" was true whether or
+       * not the key itself was hidden. That assertion passed on a key that would
+       * have printed every name in the class.
+       */
+      const key = page.locator('[data-code-key]');
+      await expect(key).toBeVisible();
+      await expect(key).toHaveClass(/print:hidden/);
+      await expect(key).toContainText('Ana Ferreira');
     });
   });
 });

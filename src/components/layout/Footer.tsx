@@ -34,6 +34,27 @@ interface Column {
   links: ReadonlyArray<{ href: string; label: string }>;
 }
 
+/*
+ * WHY THE LEGAL COLUMN IS THE FULL SET. This was three links when there were
+ * three legal documents, and it stayed three after four more appeared, which
+ * left the acceptable use rules, the children's notice, the subprocessor list
+ * and the processing agreement reachable only from inside another document.
+ *
+ * That is the wrong shape for this set specifically. The documents divide into
+ * clusters: the acceptable use rules are what the terms summarise, the
+ * children's notice is what the privacy notice defers to, the subprocessor list
+ * is the evidence behind the privacy notice's sentence about third parties, and
+ * the processing agreement is the instrument the other two describe. A reader
+ * who has to guess which document holds the answer is a reader who concludes
+ * there is no answer.
+ *
+ * Order is deliberate: the three that were already here stay at the top so no
+ * existing position moves, then the four that answer the questions those three
+ * defer to. All seven are also linked from the "Related documents" footer of
+ * every legal document itself, so a reader arriving mid-document has the same
+ * set without going back to the site footer.
+ */
+
 const PRODUCT: Column = {
   heading: 'Product',
   links: [
@@ -67,6 +88,10 @@ const LEGAL: Column = {
     { href: '/terms', label: 'Terms of Use' },
     { href: '/privacy', label: 'Privacy Notice' },
     { href: '/cookies', label: 'Cookie Notice' },
+    { href: '/acceptable-use', label: 'Acceptable Use' },
+    { href: '/children-privacy', label: "Children's Privacy" },
+    { href: '/subprocessors', label: 'Subprocessors' },
+    { href: '/dpa', label: 'Data Processing Agreement' },
   ],
 };
 
@@ -137,6 +162,38 @@ export function Footer({ context = 'marketing' }: { context?: FooterContext }) {
               className="rounded-[6px] text-[0.8125rem] text-ink-subtle transition-colors duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-accent"
             >
               Cookies
+            </Link>
+            {/*
+              The remaining four documents are listed here rather than left to
+              the LEGAL column alone. This strip is the shortest path off a
+              marketing page, and the three most contested questions LIKO gets
+              asked are a parent's rights, what the acceptable use rules are, and
+              who holds the data. All three were previously answerable only by
+              someone who already knew to ask.
+            */}
+            <Link
+              href="/children-privacy"
+              className="rounded-[6px] text-[0.8125rem] text-ink-subtle transition-colors duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-accent"
+            >
+              Children
+            </Link>
+            <Link
+              href="/acceptable-use"
+              className="rounded-[6px] text-[0.8125rem] text-ink-subtle transition-colors duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-accent"
+            >
+              Acceptable Use
+            </Link>
+            <Link
+              href="/subprocessors"
+              className="rounded-[6px] text-[0.8125rem] text-ink-subtle transition-colors duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-accent"
+            >
+              Subprocessors
+            </Link>
+            <Link
+              href="/dpa"
+              className="rounded-[6px] text-[0.8125rem] text-ink-subtle transition-colors duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-accent"
+            >
+              DPA
             </Link>
           </nav>
         </div>

@@ -130,6 +130,49 @@ export interface AssessmentRecord {
   dueOn: string | null;
   standardCodes: string[];
   archivedAt: string | null;
+  /** Whether the printable sheet carries a student code block. */
+  idFormatEnabled: boolean;
+  /**
+   * Digits and codes per digit. Both null when the block is off, and the
+   * database refuses any other combination, so a consumer never has to decide
+   * what a half-configured shape means.
+   */
+  idFormatGroups: number | null;
+  idFormatCodes: number | null;
+}
+
+/**
+ * The printable code block's shape, resolved.
+ *
+ * A separate type because the interesting values of `idFormatGroups` and
+ * `idFormatCodes` are the ones that mean "not set", and every caller that draws
+ * or reads a block has to handle those without repeating the same four-way
+ * branch.
+ */
+export interface IdFormat {
+  groups: number;
+  perGroup: number;
+  /** How many bubbles the block carries, which is what bounds the class size. */
+  capacity: number;
+}
+
+/**
+ * Reads the block shape off an assessment, or null when it has none.
+ *
+ * The bounds are repeated here on purpose. They are also check constraints in
+ * the database, but the print route and the scan route must not trust a value
+ * they are about to turn into either millimetres of paper or a set of bubbles to
+ * look for.
+ */
+export function idFormatOf(assessment: Pick<AssessmentRecord, 'idFormatEnabled' | 'idFormatGroups' | 'idFormatCodes'>): IdFormat | null {
+  if (!assessment.idFormatEnabled) return null;
+  const groups = assessment.idFormatGroups;
+  const perGroup = assessment.idFormatCodes;
+  if (groups === null || perGroup === null) return null;
+  if (groups < 1 || groups > 3) return null;
+  if (perGroup < 2 || perGroup > 8) return null;
+  if (groups * perGroup > 24) return null;
+  return { groups, perGroup, capacity: groups * perGroup };
 }
 
 /**
@@ -460,6 +503,70 @@ export const ORG_PLAN_LABELS: Record<OrgPlan, string> = {
 
 export type MembershipStatus = 'active' | 'suspended';
 
+export const ORG_SECTORS = [
+  'k12',
+  'primary',
+  'secondary',
+  'higher_ed',
+  'training',
+  'nonprofit',
+  'other',
+] as const;
+export type OrgSector = (typeof ORG_SECTORS)[number];
+
+export const ORG_SECTOR_LABELS: Record<OrgSector, string> = {
+  k12: 'K to 12 school',
+  primary: 'Primary school',
+  secondary: 'Secondary school',
+  higher_ed: 'University or college',
+  training: 'Training provider',
+  nonprofit: 'Nonprofit',
+  other: 'Something else',
+};
+
+/**
+ * How far an institutional profile has been checked.
+ *
+ * `verified` is not something the product grants. There is no code path anywhere
+ * that writes it, and that is deliberate: a status the application can set for
+ * itself is a status nobody can rely on. It exists so that a review process run
+ * outside the database has somewhere to record its decision.
+ */
+export const ORG_VERIFICATION_STATUSES = ['unverified', 'pending', 'verified', 'rejected'] as const;
+export type OrgVerificationStatus = (typeof ORG_VERIFICATION_STATUSES)[number];
+
+export const ORG_VERIFICATION_LABELS: Record<OrgVerificationStatus, string> = {
+  unverified: 'Not checked yet',
+  pending: 'In review',
+  verified: 'Checked',
+  rejected: 'Not accepted',
+};
+
+/**
+ * What a school is asked to tell us about itself.
+ *
+ * Every field except `name` is nullable because every one of them has a truthful
+ * answer of "we would rather not say", and a required field that is filled with a
+ * placeholder is worse than an absent one. A solo teacher has no principal and no
+ * enrolment figure, and the form has to be finishable by one.
+ */
+export interface OrgProfile {
+  /** ISO 3166-1 alpha-2, uppercase. Null when not supplied. */
+  countryCode: string | null;
+  sector: OrgSector | null;
+  /** Lowest grade taught, where 0 is kindergarten and negatives are pre-K. */
+  gradeMin: number | null;
+  gradeMax: number | null;
+  /** Pupils or students at the institution, as an estimate. */
+  enrolment: number | null;
+  /** IANA zone such as `Asia/Manila`. Null when not supplied. */
+  timezone: string | null;
+  contactName: string | null;
+  contactRole: string | null;
+  verificationStatus: OrgVerificationStatus;
+  verifiedAt: string | null;
+}
+
 export interface OrgRecord {
   id: string;
   name: string;
@@ -468,13 +575,19 @@ export interface OrgRecord {
   seatLimit: number;
   billingEmail: string | null;
   createdAt: string;
+  profile: OrgProfile;
 }
+
+/** What an admin may change about the institution. */
+export type OrgProfileInput = Omit<OrgProfile, 'verificationStatus' | 'verifiedAt'>;
 
 export interface OrgInput {
   name: string;
   plan: OrgPlan;
   seatLimit: number;
   billingEmail: string | null;
+  /** Merged into the stored profile, so an admin can fill it in later. */
+  profile?: Partial<OrgProfileInput>;
 }
 
 /**
@@ -494,6 +607,72 @@ export interface MemberRecord {
   role: Role;
   status: MembershipStatus;
   joinedAt: string;
+}
+
+/**
+ * One invitation to join an organisation.
+ *
+ * The `code` IS the credential. There is no second factor and no emailed token
+ * beyond the code itself, so it is short, single use, and expires. `acceptedAt`
+ * is what makes it single use and `expiresAt` is what stops an abandoned code
+ * from being a permanent way into a school.
+ *
+ * The address is recorded so an administrator can see who was invited and to
+ * whom, not so it can be enforced: an invitation may be passed on, and the seat
+ * limit, not the address, is the control that decides how many people get in.
+ */
+export interface InviteRecord {
+  id: string;
+  orgId: string;
+  email: string;
+  role: Role;
+  code: string;
+  createdBy: string;
+  createdAt: string;
+  expiresAt: string;
+  acceptedAt: string | null;
+  acceptedBy: string | null;
+}
+
+/** What an administrator may choose when issuing an invitation. */
+export interface InviteInput {
+  email: string;
+  role: Role;
+}
+
+/** What redeeming an invitation resolved to. */
+export interface InviteRedemption {
+  orgId: string;
+  orgName: string;
+}
+
+export type InviteStatus = 'open' | 'accepted' | 'expired';
+
+/**
+ * How long an issued code stays usable.
+ *
+ * One number, stated here rather than in the copy, because the database column
+ * defaults to the same fourteen days and a page that promised a different
+ * window from the one the row carries would be lying in a way nobody could see.
+ */
+export const INVITE_TTL_DAYS = 14;
+
+/**
+ * An invitation's status, resolved from the two columns that decide it.
+ *
+ * A derived value rather than a stored one, for the same reason the console
+ * never invents a verification status: the row is the truth, and a status field
+ * beside it is a second thing to keep in step. Accepted beats expired because a
+ * code used before it lapsed was used.
+ */
+export function inviteStatus(
+  invite: Pick<InviteRecord, 'acceptedAt' | 'expiresAt'>,
+  now: Date = new Date(),
+): InviteStatus {
+  if (invite.acceptedAt) return 'accepted';
+  const expiry = new Date(invite.expiresAt);
+  if (Number.isNaN(expiry.getTime()) || expiry.getTime() <= now.getTime()) return 'expired';
+  return 'open';
 }
 
 /**

@@ -63,7 +63,22 @@ const BASELINE: Record<string, number> = Object.fromEntries(
   roster.map((student) => [student.id, student.grade]),
 );
 
-const ASSESSMENT_SEED = [
+const ASSESSMENT_SEED: {
+  id: string;
+  title: string;
+  type: 'quiz' | 'worksheet' | 'exam' | 'project' | 'lab';
+  weight: number;
+  maxScore: number;
+  dueDaysAgo: number;
+  standardCodes: string[];
+  questions?: number;
+  /**
+   * The printed code block. Off unless a seed asks for it, because a sheet that
+   * carries a block is read under different rules: a scan without one is
+   * refused rather than read.
+   */
+  idFormat?: { groups: number; codes: number };
+}[] = [
   {
     id: 'asm_demo_01',
     title: 'Unit 3 Quiz: Bonding',
@@ -106,6 +121,11 @@ const ASSESSMENT_SEED = [
     dueDaysAgo: -7,
     standardCodes: ['S2C1'],
     questions: 8,
+    // Two digits of six, so the block carries twelve codes against a roster of
+    // eight. It is the scannable quiz, which means the fixture adapter exercises
+    // the code path as well as the plain one, and a change that breaks only the
+    // code path fails here rather than on a real class.
+    idFormat: { groups: 2, codes: 6 },
   },
 ];
 
@@ -120,6 +140,9 @@ export const demoAssessments: AssessmentRecord[] = ASSESSMENT_SEED.map((seed) =>
   dueOn: dateOnly(seed.dueDaysAgo),
   standardCodes: seed.standardCodes,
   archivedAt: null,
+  idFormatEnabled: seed.idFormat !== undefined,
+  idFormatGroups: seed.idFormat?.groups ?? null,
+  idFormatCodes: seed.idFormat?.codes ?? null,
 }));
 
 /**
@@ -502,6 +525,15 @@ export const demoPolicies: GradingPolicyRecord[] = [
  * The five demo accounts are one school's staff, which is what makes the admin
  * page show something real: a principal, two teachers, a student and a parent
  * in the same tenant, each holding a different grant.
+ *
+ * The institutional profile is filled in on purpose. A form that only ever shows
+ * its own empty state is a form whose validation, its saved shape and its
+ * round-trip have never run, and this is the account every admin screen test
+ * signs in as.
+ *
+ * `verificationStatus` stays 'unverified'. Nothing in the product can set it, and
+ * a fixture that claimed otherwise would be asserting a capability that does not
+ * exist.
  */
 export const demoOrg: OrgRecord = {
   id: 'org_demo_northfield',
@@ -511,6 +543,18 @@ export const demoOrg: OrgRecord = {
   seatLimit: 25,
   billingEmail: 'office@northfield.test',
   createdAt: '2026-01-02T09:00:00.000Z',
+  profile: {
+    countryCode: 'GB',
+    sector: 'secondary',
+    gradeMin: 9,
+    gradeMax: 13,
+    enrolment: 1200,
+    timezone: 'Europe/London',
+    contactName: 'Dev Osei',
+    contactRole: 'Head of Science',
+    verificationStatus: 'unverified',
+    verifiedAt: null,
+  },
 };
 
 /**

@@ -17,7 +17,7 @@ Project: `https://ulrjitekiylgepdyijsw.supabase.co`
 | All seven workspace modules | Done, real CRUD through the seam, verified against the live database |
 | Offline write queue | Done |
 | Web push: routes, cron, service worker | Sweep proven against the live database; actual delivery still untested |
-| Migration SQL | Applied to `ulrjitekiylgepdyijsw`, idempotent, 18 tables |
+| Migration SQL | Applied to `ulrjitekiylgepdyijsw`, idempotent, 19 tables |
 | Seed script | Run. Five accounts, one school, three classes, 24 students, three "Bonding Quiz" assessments carrying 24 questions |
 | Quiz maker and sheet scanning | Done. An assessment carries its questions; a marked sheet is read against the answer key, confirmed by the teacher, assigned to a required student and scored on the server |
 | Two ways to deliver one quiz | Both live. `/quiz` is the student-facing quiz, and `/assess/sheet` prints the answer sheet the scanner reads |
@@ -237,6 +237,64 @@ Stated plainly so nobody is surprised later.
    because a refactor that returns `QuestionRecord` instead of the narrower
    student shape would still look correct on screen while handing over every
    answer in the class.
+8. **The student code block on real paper.** The code reader is proven the same
+   way the grid is: the real print route is screenshotted, bubbles are shaded the
+   way a pencil would shade them, and the real detector reads the code back
+   (`e2e/answer-sheet.spec.ts`). What that does not cover is a phone photograph at
+   an angle, in shadow, or with the gap between groups foreshortened. The gap is
+   set to 3.2x the inside gap against a detector threshold of 1.6x specifically so
+   there is margin, but margin is not proof. **Check this by hand**: print a code
+   sheet, photograph it on a phone, upload it.
+9. **The legal documents are drafts, not compliance.** Seven documents now ship:
+   terms, privacy, cookies, acceptable use, children's privacy, subprocessors and
+   a DPA template. They are honest about what LIKO does and about what stays with
+   the school as controller, and none of them claims LIKO is COPPA compliant,
+   FERPA compliant, certified, or reviewed by counsel, because none of that is
+   true. **They still need a lawyer.** The DPA in particular is a template the
+   parties sign; nothing on the site executes it. `docs/SECURITY.md` already
+   carried "legal text needs a lawyer" and that has not changed, only grown.
+10. **The institutional profile is not verified by anything.** The verification
+    status starts at `unverified` and **no code path in the product can set it
+    otherwise**. That is deliberate: a status an application can grant for itself
+    is a status nobody can rely on. It exists so that a review process run outside
+    the database has somewhere to record its decision. Until such a process
+    exists, every organisation in production is `unverified` and should be
+    presented that way.
+11. **KYC is collected in the admin console only, not in onboarding.** This was a
+    deliberate departure from the original plan. The `/welcome` wizard is a
+    four-step *teacher* flow, and three existing e2e specs pin its exact step
+    sequence. More importantly, the data belongs to the *organisation*, and a solo
+    teacher has no institution: no principal, no enrolment figure, no grade span.
+    Putting institutional questions into a first-run wizard that most users cannot
+    honestly answer would produce mostly nulls in the field meant to carry the
+    verification. The form is fully optional so a school can fill it in whenever.
+
+---
+
+## Things that were wrong and are now fixed
+
+Recorded because the pattern recurred and the next person should know it.
+
+- **`organizations.seat_limit` was a column nothing read.** The audit that found
+  it also found there was no member-add path at all: every signup made its own
+  personal workspace and school memberships came only from a seed script. A limit
+  with nothing behind it is a number in a column, so the invite flow was built
+  first and the limit enforced inside `redeem_org_invite`.
+- **A person could belong to two organisations and the code would pick one at
+  random.** `supabaseOrgFor` had `.limit(1)` with no `order`, so the same account
+  could resolve to two different tenants on two requests. Most recent membership
+  wins, and the index is partial on `status = 'active'`.
+- **A seat limit could be lowered below the people already on seats**, leaving the
+  organisation permanently in breach with no lever to pull. Refused in both
+  adapters, with the headcount named in the message.
+- **A code block of two groups of six did not fit the page.** It needed 183mm in a
+  182mm column and the codes that fell off the right edge were the ones a child
+  was told to shade. The geometry now lives in `src/lib/omr/code-block.ts` and the
+  server action asks it rather than a hand-typed ceiling.
+- **`src/app/error.tsx` was written as a global error boundary but lived at the
+  segment path**, so it rendered `<html>` and `<body>` inside a layout that had
+  already opened them. The document-rendering boundary now lives at
+  `src/app/global-error.tsx`, which is the only file allowed to do that.
 
 ---
 

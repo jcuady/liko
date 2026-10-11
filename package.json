@@ -18,6 +18,8 @@
     "db:apply": "node --env-file=.env.local scripts/apply-migration.mjs",
     "db:check": "node --env-file=.env.local scripts/check-remote-db.mjs",
     "db:settle": "node --env-file=.env.local scripts/rls-settling-test.mjs",
+    "probe:seats": "node --env-file=.env.local scripts/probe-seat-limit.mjs",
+    "probe:shape": "node --env-file=.env.local scripts/check-code-block-constraint.mjs",
     "verify:app": "node --env-file=.env.local scripts/verify-app-live.mjs"
   },
   "dependencies": {

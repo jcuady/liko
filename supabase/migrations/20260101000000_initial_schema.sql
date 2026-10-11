@@ -355,6 +355,65 @@ create trigger assessments_set_updated_at
   for each row execute function public.set_updated_at();
 
 -- ---------------------------------------------------------------------------
+-- The student's code block on a printed sheet
+--
+-- A bubble sheet carries a score and nothing that says whose it is, so until
+-- now the scan screen made the teacher pick a student from a dropdown for every
+-- sheet. The teacher can now print a code block on the sheet and each student
+-- shades their own code, and the scan pre-selects them.
+--
+-- THE FORMAT IS THE TEACHER'S, NOT THE PRODUCT'S. `id_format_groups` digits of
+-- `id_format_codes` each. One digit of eight fits a class of eight; two digits
+-- of eight fits sixty-four; three digits of eight fits five hundred and twelve,
+-- which is more bubbles than fit on one side of an A4 page beside the questions,
+-- so the ceiling is on the bubble count and not only on the arithmetic.
+--
+-- WHY THREE AND EIGHT. Three digits is what two marks can comfortably shade, and
+-- eight codes per digit is what a hand can address without reading a lookup
+-- table. Past that the sheet stops being a sheet.
+--
+-- WHY THESE ARE THREE COLUMNS AND NOT A JSONB DOCUMENT. The shape is queried:
+-- the print route has to know how many bubbles to draw, and the scan route has
+-- to be told the shape to expect so it can refuse a sheet that does not carry
+-- one. A check constraint is also the only place this can be enforced for a
+-- writer that is not the UI.
+--
+-- `id_format_*` are all-or-nothing. A shape with a digit count but no code
+-- count would print a block the detector cannot describe, and a detector that
+-- cannot describe it will read the wrong row, so the half-configured state is
+-- not representable.
+-- ---------------------------------------------------------------------------
+alter table public.assessments
+  add column if not exists id_format_enabled boolean not null default false,
+  add column if not exists id_format_groups   integer,
+  add column if not exists id_format_codes    integer;
+
+alter table public.assessments
+  drop constraint if exists assessments_id_format_shape;
+
+alter table public.assessments
+  add constraint assessments_id_format_shape
+  check (
+    (
+      not id_format_enabled
+      and id_format_groups is null
+      and id_format_codes is null
+    )
+    or
+    (
+      id_format_enabled
+      and id_format_groups between 1 and 3
+      and id_format_codes  between 2 and 8
+      -- Twelve is not an arbitrary round number: it is the widest shape the
+      -- printed geometry in `src/lib/omr/code-block.ts` can hold on a 182mm text
+      -- column, which is two groups of six or three of four. The database cannot
+      -- measure millimetres, so it holds the coarse ceiling and the application
+      -- holds the real one.
+      and id_format_groups * id_format_codes <= 12
+    )
+  );
+
+-- ---------------------------------------------------------------------------
 -- questions
 --
 -- An assessment was a title, a weight and a maximum. It had no content, so a
@@ -622,6 +681,74 @@ drop trigger if exists organizations_set_updated_at on public.organizations;
 create trigger organizations_set_updated_at
   before update on public.organizations
   for each row execute function public.set_updated_at();
+
+-- ---------------------------------------------------------------------------
+-- Institutional profile
+--
+-- WHY THIS IS ADDED HERE RATHER THAN AS A COLUMN ON `profiles`. The school is
+-- the tenant. A profile is a person who happens to log into it, and a teacher
+-- leaves a school without the school ceasing to exist. Knowing the grade span or
+-- the enrolment of a school is a fact about the tenant that has to outlive any
+-- individual membership, and about which every member of the tenant is equally
+-- entitled to an answer.
+--
+-- WHY `verification_status` EXISTS ON THE FIRST DAY RATHER THAN LATER. A system
+-- that collects institutional data and only later grows a review step has, in
+-- the meantime, been collecting it as though it were verified. Starting every
+-- account at 'unverified' means the unverified state is the one the code paths
+-- are written for and tested against, and promotion is something that happens
+-- deliberately. `verified_at` is nullable precisely so that null and 'unverified'
+-- cannot quietly disagree with each other.
+--
+-- Grades are a span and not a single level because a school has a whole range,
+-- and a grade level on the tenant describes nothing useful about a secondary
+-- school. Nulls are allowed throughout: a solo teacher has no principal and no
+-- enrolment figure, and pretending otherwise would force junk into the field.
+-- ---------------------------------------------------------------------------
+alter table public.organizations
+  add column if not exists country_code  text
+                            check (country_code is null or country_code ~ '^[A-Z]{2}$'),
+  add column if not exists sector        text
+                            check (sector is null
+                                   or sector in ('k12', 'primary', 'secondary',
+                                                 'higher_ed', 'training', 'nonprofit', 'other')),
+  add column if not exists grade_min     integer
+                            check (grade_min is null or grade_min between -2 and 16),
+  add column if not exists grade_max     integer
+                            check (grade_max is null or grade_max between -2 and 16),
+  add column if not exists enrolment     integer
+                            check (enrolment is null or enrolment >= 0),
+  add column if not exists timezone      text,
+  add column if not exists contact_name  text,
+  add column if not exists contact_role  text,
+  add column if not exists verification_status text not null default 'unverified'
+                            check (verification_status in ('unverified', 'pending', 'verified', 'rejected')),
+  add column if not exists verified_at         timestamptz;
+
+-- 'verified' with no timestamp is a claim nobody can date, and a timestamp with
+-- no 'verified' is a review that concluded in something other than approval.
+-- Neither half is representable.
+alter table public.organizations
+  drop constraint if exists organizations_verification_coherent;
+
+alter table public.organizations
+  add constraint organizations_verification_coherent
+  check (
+    (verification_status = 'verified') = (verified_at is not null)
+  );
+
+comment on column public.organizations.verification_status is
+  'Whether the institutional profile has been checked by a human. Nothing in the product sets this to verified; only a review process outside the database can.';
+
+-- A span with its ends the wrong way round is not a wider span, it is a
+-- half-typed form. Constrained here rather than only in the form so a second
+-- writer cannot produce one.
+alter table public.organizations
+  drop constraint if exists organizations_grade_span_sane;
+
+alter table public.organizations
+  add constraint organizations_grade_span_sane
+  check (grade_min is null or grade_max is null or grade_min <= grade_max);
 
 create table if not exists public.memberships (
   id         uuid primary key default gen_random_uuid(),
@@ -909,6 +1036,170 @@ create table if not exists public.consent_events (
 
 create index if not exists consent_events_user_idx
   on public.consent_events (user_id, accepted_at desc);
+
+-- ---------------------------------------------------------------------------
+-- Organisation invites
+--
+-- WHY THIS EXISTS. `seat_limit` was stored, displayed and enforced nowhere,
+-- because there was no path that added a person to an organisation at all: every
+-- signup created its own personal workspace, and a school membership came only
+-- from a seed script. A limit with nothing behind it is a number in a column.
+-- This table is that path, and the seat limit below is what makes it a limit.
+--
+-- WHY THE REDEMPTION IS A FUNCTION AND NOT A TABLE POLICY. Two rules have to
+-- hold at the same instant, and the second one is a count: a membership may only
+-- be created when the organisation is under its seat limit. RLS policies decide
+-- about rows and are evaluated per row, so they cannot read a count of the table
+-- they are protecting without a subquery that races. The whole decision,
+-- "is there room, and if so take it", is therefore one `security definer`
+-- statement, so the count and the insert cannot be separated by anything.
+--
+-- WHY AN INVITE IS SINGLE USE. The row records `accepted_at`, and the redemption
+-- function refuses an invite that has one. A reusable code is a shared password,
+-- and a leaked one would let anyone join a school.
+-- ---------------------------------------------------------------------------
+create table if not exists public.organization_invites (
+  id          uuid primary key default gen_random_uuid(),
+  org_id      uuid not null references public.organizations (id) on delete cascade,
+  email       text not null check (char_length(trim(email)) > 3),
+  role        text not null default 'instructor'
+                check (role in ('instructor', 'admin', 'student', 'guardian')),
+  -- Issued, not derived. A short random code the admin can read out or copy into
+  -- a message; never a predictable value such as a row counter.
+  code        text not null check (code ~ '^[A-Z0-9]{8}$'),
+  created_by  uuid not null references auth.users (id) on delete cascade,
+  created_at  timestamptz not null default now(),
+  expires_at  timestamptz not null default (now() + interval '14 days'),
+  accepted_at timestamptz,
+  accepted_by uuid references auth.users (id) on delete set null
+);
+
+comment on table public.organization_invites is
+  'Single-use codes that seat a person in an organisation. Redemption is enforced by redeem_org_invite().';
+
+create unique index if not exists organization_invites_code_key
+  on public.organization_invites (code);
+
+create index if not exists organization_invites_org_idx
+  on public.organization_invites (org_id, created_at desc);
+
+alter table public.organization_invites enable row level security;
+
+-- Nobody reads or writes these from the client. The admin console goes through
+-- the service role, and redemption goes through the function below.
+-- ---------------------------------------------------------------------------
+-- How many active seats an organisation has. Used by the redemption function and
+-- by the admin console, so both count the same thing.
+-- ---------------------------------------------------------------------------
+create or replace function public.active_seat_count(p_org_id uuid)
+returns integer
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select count(*)::integer
+  from public.memberships m
+  where m.org_id = p_org_id
+    and m.status = 'active';
+$$;
+
+revoke all on function public.active_seat_count(uuid) from public, anon, authenticated;
+
+-- ---------------------------------------------------------------------------
+-- Redeeming an invite is where the seat limit becomes real.
+--
+-- The refusal is raised with SQLSTATE 42501 and a message meant to be shown to
+-- the person standing in front of the screen, because that is the only place a
+-- school administrator can act on it: raise the limit, then try again. A
+-- constraint violation would arrive as a database error and read to a principal
+-- as "the software is broken".
+--
+-- The count and the insert are in one statement block under one snapshot, so two
+-- people redeeming the last seat at the same instant cannot both win. The loser
+-- gets the same sentence as anyone else who arrived too late.
+-- ---------------------------------------------------------------------------
+create or replace function public.redeem_org_invite(p_code text)
+returns table (org_id uuid, org_name text)
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_invite    public.organization_invites;
+  v_org       public.organizations;
+  v_user      uuid := auth.uid();
+  v_active    integer;
+  v_seats     integer;
+begin
+  if v_user is null then
+    raise exception 'Sign in before accepting an invitation.'
+      using errcode = '42501';
+  end if;
+
+  select * into v_invite
+  from public.organization_invites i
+  where i.code = upper(trim(p_code))
+    and i.accepted_at is null
+    and i.expires_at > now();
+
+  if not found then
+    raise exception 'That invitation code is not valid, has expired, or has already been used.'
+      using errcode = '42501';
+  end if;
+
+  select * into v_org from public.organizations where id = v_invite.org_id;
+  select public.active_seat_count(v_invite.org_id) into v_active;
+
+  if exists (select 1 from public.memberships m where m.org_id = v_invite.org_id and m.user_id = v_user) then
+    raise exception 'You are already part of that school.'
+      using errcode = '42501';
+  end if;
+
+  v_seats := v_org.seat_limit;
+
+  -- THE BLOCK. Not a warning, not a soft cap, and not something the UI is asked
+  -- to enforce: an enforcement the client is trusted to perform is not an
+  -- enforcement.
+  if v_active >= v_seats then
+    raise exception
+      'There is no room left: % has % active % of % seats. Ask an administrator to raise the seat limit, then use this code again.',
+      v_org.name, v_active,
+      case when v_seats = 1 then 'seat' else 'seats' end,
+      v_seats
+      using errcode = '42501';
+  end if;
+
+  insert into public.memberships (org_id, user_id, role, status)
+  values (v_invite.org_id, v_user, v_invite.role, 'active');
+
+  update public.organization_invites
+  set accepted_at = now(), accepted_by = v_user
+  where id = v_invite.id;
+
+  return query select v_org.id, v_org.name;
+end;
+$$;
+
+revoke all on function public.redeem_org_invite(text) from public, anon;
+grant execute on function public.redeem_org_invite(text) to authenticated;
+grant execute on function public.active_seat_count(uuid) to authenticated;
+
+-- ---------------------------------------------------------------------------
+-- Which organisation a person works in.
+--
+-- A person can hold more than one membership: they joined a school, and they
+-- still have the personal workspace they signed up into. `supabaseOrgFor` used
+-- to take an arbitrary one of them because the query had no order, which meant
+-- the same person could land in two different tenants on two requests.
+--
+-- Most recent membership wins. It is the rule a person expects after accepting an
+-- invitation, and it is stated here rather than left to whatever order the
+-- database happens to return.
+-- ---------------------------------------------------------------------------
+create index if not exists memberships_user_recent_idx
+  on public.memberships (user_id, created_at desc)
+  where status = 'active';
 
 -- ---------------------------------------------------------------------------
 -- RLS

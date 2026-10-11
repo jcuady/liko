@@ -60,6 +60,14 @@ export default async function AdminPage() {
     store.getProfile(session.userId),
   ]);
 
+  /*
+   * Invites are read here rather than in an effect inside the console, so the
+   * panel has its rows on first paint and the client does not set state merely
+   * because it mounted. A failed read is not fatal to this page: the console has
+   * members, the organisation and the matrix to show regardless.
+   */
+  const invites = org ? await store.listInvites(session.userId).catch(() => []) : [];
+
   return (
     <div className="pb-16">
       <PageHeader
@@ -72,6 +80,7 @@ export default async function AdminPage() {
           org={org}
           members={members}
           classes={classes}
+          initialInvites={invites}
           viewerId={session.userId}
           viewerName={profile?.fullName || session.email}
           roleLabels={ROLE_LABELS}

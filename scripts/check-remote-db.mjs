@@ -51,6 +51,7 @@ const TABLES = [
   'decks',
   'slides',
   'consent_events',
+  'organization_invites',
 ];
 
 /**

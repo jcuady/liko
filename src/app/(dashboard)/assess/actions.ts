@@ -15,6 +15,11 @@ import { data } from '@/lib/api/client';
 import { requirePermission } from '@/lib/auth/guards';
 import { scoreAnswers } from '@/lib/omr/omr';
 import {
+  codeBlockFits,
+  codeBlockWidthMm,
+  SHEET_CONTENT_MM,
+} from '@/lib/omr/code-block';
+import {
   questionInputSchema,
   type QuestionRecord,
   type ScannedAnswer,
@@ -26,6 +31,67 @@ import { isAssessmentType } from './options';
 export interface AssessmentResult {
   ok: boolean;
   message: string;
+}
+
+/**
+ * Turns the printed code block on or off for one assessment.
+ *
+ * Gated on `assess:write`, the same grant the questions and the scan need,
+ * because the block only affects a sheet that permission already lets you print.
+ *
+ * The shape is validated here as well as in the seam and the database, for the
+ * usual reason: three layers is not paranoia, it is that a rule enforced in one
+ * place is a rule the other two paths do not have.
+ */
+export async function setIdFormatAction(input: {
+  assessmentId: string;
+  groups: number | null;
+  codes: number | null;
+}): Promise<AssessmentResult> {
+  const session = await requirePermission('assess:write');
+  const { assessmentId, groups, codes } = input;
+
+  if (groups === null || codes === null) {
+    if (groups !== null || codes !== null) {
+      return { ok: false, message: 'Set both the number of groups and the bubbles per group.' };
+    }
+    const store = await data();
+    await store.setAssessmentIdFormat(session.userId, assessmentId, null);
+    revalidatePath('/assess');
+    revalidatePath(`/assess/sheet?assessment=${assessmentId}`);
+    return { ok: true, message: 'Code block removed from this sheet.' };
+  }
+
+  if (!Number.isInteger(groups) || groups < 1 || groups > 3) {
+    return { ok: false, message: 'Use between one and three groups.' };
+  }
+  if (!Number.isInteger(codes) || codes < 2 || codes > 8) {
+    return { ok: false, message: 'Use between two and eight bubbles per group.' };
+  }
+  /*
+   * The real ceiling is millimetres, not a bubble count, so it is asked of the
+   * geometry rather than of a constant. A block that does not fit does not print
+   * a smaller one: it runs off the right edge of the paper, and the last codes in
+   * it are the ones a child is told to shade.
+   */
+  if (!codeBlockFits(groups, codes)) {
+    return {
+      ok: false,
+      message:
+        `That block is ${Math.round(codeBlockWidthMm(groups, codes))}mm wide and the sheet has ` +
+        `${SHEET_CONTENT_MM}mm to print in. Use fewer bubbles in a group.`,
+    };
+  }
+
+  const store = await data();
+  await store.setAssessmentIdFormat(session.userId, assessmentId, {
+    groups,
+    perGroup: codes,
+    capacity: groups * codes,
+  });
+  revalidatePath('/assess');
+  revalidatePath(`/assess/sheet?assessment=${assessmentId}`);
+  return { ok: true, message: 'Code block saved. Print the sheet again to use it.' };
 }
 
 /** Upper bound on one save, so a runaway client cannot write an unbounded set. */

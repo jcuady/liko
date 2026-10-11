@@ -4,6 +4,24 @@ import { TERMS_VERSION } from '@/lib/auth/consent';
 
 const BASE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://liko.app';
 
+/*
+ * Every legal document, in one list.
+ *
+ * A school running a procurement checklist looks for these by URL and finds a
+ * missing one, and the ones missing last were the ones nobody indexes. Kept as
+ * an array rather than seven literals because the `lastModified` rule below only
+ * holds if all seven move together.
+ */
+const LEGAL_DOCUMENTS = [
+  '/terms',
+  '/privacy',
+  '/cookies',
+  '/acceptable-use',
+  '/children-privacy',
+  '/subprocessors',
+  '/dpa',
+] as const;
+
 /**
  * Only public routes appear here. The workspace requires a session, so
  * indexing it would advertise a product surface nobody can reach.
@@ -35,23 +53,11 @@ export default function sitemap(): MetadataRoute.Sitemap {
      * deployed" would make a change that touched no text look like a change to
      * the text.
      */
-    {
-      url: `${BASE}/terms`,
+    ...LEGAL_DOCUMENTS.map((path) => ({
+      url: `${BASE}${path}`,
       lastModified: new Date(`${TERMS_VERSION}T00:00:00Z`),
-      changeFrequency: 'yearly',
+      changeFrequency: 'yearly' as const,
       priority: 0.3,
-    },
-    {
-      url: `${BASE}/privacy`,
-      lastModified: new Date(`${TERMS_VERSION}T00:00:00Z`),
-      changeFrequency: 'yearly',
-      priority: 0.3,
-    },
-    {
-      url: `${BASE}/cookies`,
-      lastModified: new Date(`${TERMS_VERSION}T00:00:00Z`),
-      changeFrequency: 'yearly',
-      priority: 0.3,
-    },
+    })),
   ];
 }

@@ -61,41 +61,113 @@ async function signIn(page: Page) {
   await page.waitForURL(/\/overview/, { timeout: 30_000 });
 }
 
-/** Draws a bubble sheet with the marks in `given` and returns it as a PNG file. */
-async function drawSheet(page: Page, given: string[][]) {
-  const dataUrl = await page.evaluate((marks) => {
-    const rows = marks.length;
-    const cols = 4;
-    const cell = 90;
-    const radius = 26;
-    const mx = 110;
-    const my = 110;
-    const width = mx * 2 + cell * cols;
-    const height = my * 2 + cell * rows;
-    const canvas = document.createElement('canvas');
-    canvas.width = width;
-    canvas.height = height;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) throw new Error('no 2d context');
-    ctx.fillStyle = '#f5f5f5';
-    ctx.fillRect(0, 0, width, height);
-    ctx.strokeStyle = '#111111';
-    ctx.lineWidth = 3;
-    for (let r = 0; r < rows; r++) {
-      for (let c = 0; c < cols; c++) {
-        const cx = mx + cell * c + cell / 2;
-        const cy = my + cell * r + cell / 2;
+/**
+ * The code this student's sheet carries, zero-based per group.
+ *
+ * Two groups of six, which is what the demo quiz prints. `[0][3]` is student
+ * number 4, and the roster is sorted by name, so that is Dmitri Volkov.
+ */
+const CODE = [0, 3];
+const CODE_GROUPS = 2;
+const CODE_PER_GROUP = 6;
+
+/**
+ * Draws a bubble sheet with the marks in `given` and returns it as a PNG file.
+ *
+ * THE CODE BLOCK IS PART OF THE SHEET, NOT A SEPARATE CASE. The demo quiz prints
+ * one, so the scan screen expects one, and a sheet without it is refused rather
+ * than read. That refusal is correct behaviour, and it means a synthetic sheet
+ * that omitted the block would be testing a page state a teacher can no longer
+ * reach.
+ *
+ * The between-digit gap is 2.4 times the inside gap, which is what the printed
+ * sheet does and comfortably clear of the 1.6x the reader splits on.
+ */
+async function drawSheet(page: Page, given: string[][], code: number[] = CODE) {
+  const dataUrl = await page.evaluate(
+    ({ marks, code, codeGroups, codePerGroup }) => {
+      const rows = marks.length;
+      const cols = 4;
+      const cell = 90;
+      const radius = 26;
+      const mx = 110;
+      const my = 110;
+
+      /*
+       * The code block, sized as its own population.
+       *
+       * Answer bubbles are 53px across. The code bubbles are smaller, which the
+       * detector allows down to 45% of the dominant size, but they must stay
+       * ABOVE `minSide`, which on a canvas this wide is about 37px. A code bubble
+       * of 35px is rejected outright and the block vanishes rather than reading,
+       * which is why this is 19 rather than the 15 that would fit the canvas.
+       *
+       * The canvas is then widened to hold the block. It does not have to be the
+       * same width as the answer grid; leaving it narrower drew twelve bubbles
+       * into an area that only had room for five, which reads as a block the
+       * student partly filled in.
+       */
+      const codeRadius = 19;
+      const codeCell = 54;
+      const codeBetween = codeCell * 1.4;
+      const codeWidth =
+        codeGroups * codePerGroup * codeCell + (codeGroups - 1) * codeBetween;
+
+      const drawBubble = (cx: number, cy: number, r: number, filled: boolean) => {
         ctx.beginPath();
-        ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+        ctx.arc(cx, cy, r, 0, Math.PI * 2);
         ctx.stroke();
-        if (marks[r]!.includes(c)) {
+        if (filled) {
           ctx.fillStyle = '#000000';
           ctx.fill();
+          ctx.fillStyle = '#111111';
+        }
+      };
+
+      const codeCy = 70;
+      const idBand = 130;
+      const gridTop = my + idBand;
+
+      const width = Math.ceil(Math.max(mx * 2 + cell * cols, mx + codeWidth + codeCell + mx));
+      const height = gridTop + cell * rows + my;
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) throw new Error('no 2d context');
+      ctx.fillStyle = '#f5f5f5';
+      ctx.fillRect(0, 0, width, height);
+      ctx.strokeStyle = '#111111';
+      ctx.lineWidth = 3;
+
+      let cx = mx + codeRadius;
+      for (let g = 0; g < codeGroups; g++) {
+        for (let k = 0; k < codePerGroup; k++) {
+          if (g > 0 && k === 0) cx += codeBetween;
+          drawBubble(Math.round(cx), codeCy, codeRadius, code[g] === k);
+          cx += codeCell;
         }
       }
-    }
-    return canvas.toDataURL('image/png');
-  }, given.map((keys) => keys.map((k) => k.charCodeAt(0) - 65)));
+
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          drawBubble(
+            mx + cell * c + cell / 2,
+            gridTop + cell * r + cell / 2,
+            radius,
+            marks[r]!.includes(c),
+          );
+        }
+      }
+      return canvas.toDataURL('image/png');
+    },
+    {
+      marks: given.map((keys) => keys.map((k) => k.charCodeAt(0) - 65)),
+      code,
+      codeGroups: CODE_GROUPS,
+      codePerGroup: CODE_PER_GROUP,
+    },
+  );
 
   return Buffer.from(dataUrl.split(',')[1]!, 'base64');
 }
@@ -203,6 +275,17 @@ test.describe('reading a marked sheet', () => {
     await expect(page.getByText('What was read')).toBeVisible();
     await expect(page.getByText('Whose sheet is this?')).toBeVisible();
     await expect(page.getByTestId('scan-score')).toHaveText(`${score} / ${max}`);
+
+    /*
+     * THE CODE PICKED THE STUDENT. Code [0][3] of two groups of six is student
+     * number 4, and the roster is sorted by name, so this is Dmitri Volkov. This
+     * is the whole point of the block: nobody chose anything, the sheet said who
+     * it was, and the mark is still saved only after the teacher confirms it.
+     */
+    const preSelected = page.getByLabel('Whose sheet is this?');
+    await expect(preSelected).toHaveValue(/.+/);
+    await expect(preSelected.locator('option:checked')).toHaveText('Dmitri Volkov');
+    await expect(page.getByText(/Code 03 on the sheet picked this/)).toBeVisible();
 
     const student = await page.getByLabel('Whose sheet is this?').locator('option').nth(1);
     const studentName = (await student.innerText()).trim();

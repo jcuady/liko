@@ -9,6 +9,7 @@ import { Badge, Card, CardContent, CardHeader, CardTitle } from '@/components/ui
 import { NewAssessmentDialog } from '@/components/product/NewAssessmentDialog';
 import { queryKeys } from '@/lib/query/keys';
 import type { AssessmentRecord, QuestionRecord } from '@/lib/api/types';
+import { idFormatOf } from '@/lib/api/types';
 
 import { ASSESSMENT_TYPES } from './options';
 import { QuestionBuilder } from './QuestionBuilder';
@@ -174,6 +175,14 @@ export function AssessmentList({
             assessment={active}
             questions={activeQuestions}
             students={classRoster}
+            /*
+             * The shape the sheet was printed with, or null. Passing it is what
+             * makes a missing block a refusal rather than a sheet read with no
+             * student, and it has to come from the assessment rather than from
+             * anything the scan screen holds, because the screen has to know what
+             * to expect before it has an image.
+             */
+            idFormat={idFormatOf(active)}
           />
 
           {/*

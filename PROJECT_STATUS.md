@@ -31,7 +31,7 @@ Students cannot self-register. That was already structurally true; it is now exp
 - `web-push` for notifications, VAPID
 
 ### Database
-- Supabase Postgres, 18 tables, one migration: `supabase/migrations/20260101000000_initial_schema.sql`
+- Supabase Postgres, 19 tables, one migration: `supabase/migrations/20260101000000_initial_schema.sql`
 - `organizations` + `memberships` carry tenancy. There is no `owner` role; the four roles are `instructor`, `admin`, `student`, `guardian`, and `org:manage` means "can administer the organisation"
 
 ### Infrastructure
@@ -86,7 +86,11 @@ Authorisation is two independent layers. `proxy.ts` gates routes before render, 
 | PWA and offline | Done | Done | **Partial** | Passing (manifest, worker, fallback) | **Offline capture is fixed but not proven end to end.** The outbox was dead code: nothing called `enqueueWrite`, so the queue was permanently empty and offline taps were dropped. That is now wired through a real idempotent endpoint, and the online path, replay idempotency and class ownership are proven against the live database. A genuinely-offline capture replay has not been demonstrated in an automated test; see the handover for the manual check |
 | Responsive layout | Done | n/a | n/a | Passing | Complete |
 | Billing and payments | Not started | Not started | n/a | n/a | **NOT STARTED.** No Stripe, no checkout, no subscription state, no invoices |
-| Plan gating | Column exists, unused | Not started | n/a | n/a | **DEFERRED BY DECISION.** `organizations.plan` and `seat_limit` are stored and editable but no code reads them to limit anything. Deliberately not built yet, see below |
+| Plan gating | Done | Done | Verified | Passing (`probe:seats` 15/15) | **Seat limits now block.** `redeem_org_invite` counts active memberships and refuses in the database when an organisation is at its limit, and the refusal names the limit and says an administrator can raise it. `plan` still gates nothing beyond that, by decision: there is no billing |
+| Organisation invites | Done | Done | Verified | Passing (live probe) | **New.** An admin issues a single-use 8-character code from the console, the recipient redeems it at `/join`, and the membership is created only if there is room. Codes expire after 14 days and cannot be reused. The redemption is one `security definer` statement so the count and the insert cannot be separated |
+| Institutional profile (KYC) | Done | Done | Verified | Passing (constraints confirmed live) | **New.** Country, sector, grade span, enrolment estimate, timezone, contact name and role, plus a verification status that **nothing in the product can set**. Every field is optional and the form is submittable empty, because a solo teacher has no principal and no enrolment |
+| Legal documents | Done | Done | n/a | Passing (`e2e/legal.spec.ts`) | **Seven documents.** Terms, Privacy, Cookies, Acceptable Use, Children's Privacy, Subprocessors, and a DPA template. All prerendered static, all cross-linked, all in the sitemap. **These are drafts for a lawyer, not compliance.** No page claims LIKO is COPPA or FERPA compliant, certified, or reviewed by counsel |
+| Student codes on printed sheets | Done | Done | Verified | Passing (32 unit, 3 e2e) | **New.** The teacher picks a code block of one to three groups of two to eight bubbles. The student shades one bubble per group; the scan reads it and pre-selects the student, who the teacher confirms. A misread digit resolves to nobody rather than to the nearest student. The class roster is shown on screen and never printed |
 | Class list import | Done | Done | n/a | Passing | **CSV only.** File or paste, headings matched by alias, preview before writing. No LMS roster format |
 | Data export | Done | Done | n/a | Passing | **Partly complete.** Gradebook CSV per class at `/grades/export`. Attendance, history, plans and accounts are not in it; those go through us |
 
@@ -121,33 +125,46 @@ constraint (`solo | school | district`) on only one value, so two of the three
 ids could never have been stored and `district` had no card; and the vocabulary
 is now one list in three places.
 
-### Why plan gating is deferred rather than built
+### Seat limits are enforced; plan gating is still deferred
 
-`organizations.plan` and `organizations.seat_limit` exist, are settable in the
-admin console, and are read by nothing. That is the last place where the stored
-schema and the shipped behaviour disagree, and it was left alone on purpose.
+This section was written when `seat_limit` was a column nothing read. That is
+no longer true, and the reason it was true is the part worth keeping.
 
-Building it was designed and rejected, for two reasons that are about the
+**There was no member-add path at all.** Every signup created its own personal
+workspace, and a school membership came only from a seed script. A limit with
+nothing behind it is a number in a column, so enforcing it meant building the
+path first: `organization_invites`, single-use 8-character codes, and
+`/join` to redeem one. The limit is enforced inside `redeem_org_invite`, in one
+`security definer` statement, because a check the client is trusted to perform
+is not a check.
+
+That function had never been executed by anything. `start_quiz_attempt` in the
+same file passed 168 end-to-end tests, `check:sql`, and `db:check` while being
+broken, because fixtures never run SQL and the reference check parses rather than
+executes. So `scripts/probe-seat-limit.mjs` exists and calls the function against
+the live database as a real signed-in user, watching it **refuse** at the limit
+and then succeed once the limit is raised. That is the only reason the block can
+be called proven rather than written.
+
+**`organizations.plan` still gates nothing**, and that half is still deliberate.
+Feature gating was designed and rejected for two reasons that are about the
 product rather than the code:
 
-1. **It deadlocks the upgrade path.** The only place an organisation's plan can
-   be changed is the admin console, which is the page a plan gate would lock.
+1. **It would deadlock the upgrade path.** The only place an organisation's plan
+   can be changed is the admin console, which is the page a plan gate would lock.
    A School administrator who set their own organisation down to Solo would have
    no route back to the plan that unlocks the console.
 2. **Nothing is being charged.** Gating a free teacher out of a page they paid
    nothing for, before there is a subscription to gate behind, is a punishment
    rather than a business model.
 
-So the honest alternative was chosen: the comparison table no longer claims a
-plan gate that does not exist. The admin console row now reads `Included, for
-administrators` in all three columns, because `/admin` is gated on the
-`org:manage` permission in `rbac.ts` and follows a person's role rather than
-their organisation's plan. The console is likewise listed as a Solo feature,
-because a school can make any teacher's account an administrator.
+So the comparison table claims no plan gate that does not exist. The admin
+console row reads `Included, for administrators` in all three columns, because
+`/admin` follows a person's role rather than their organisation's plan.
 
-When billing opens, that row becomes a real gate in the same release that
-starts taking money, and the check belongs next to the RBAC matrix rather than
-in a pricing file.
+When billing opens, that becomes a real gate in the same release that starts
+taking money, and the check belongs next to the RBAC matrix rather than in a
+pricing file.
 
 ## Completed
 

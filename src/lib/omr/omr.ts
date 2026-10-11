@@ -41,10 +41,36 @@ export interface OmrSheet {
   threshold: number;
   rows: number;
   cols: number;
-  /** Indexed `[row][col]`. */
+  /** Indexed `[row][col]`, and it does NOT include the code block. */
   bubbles: DetectedBubble[][];
   /** Bubbles rejected before gridding, kept for the "could not read" message. */
   rejected: number;
+  /** What the student's code block said, when the sheet carried one. */
+  id: OmrIdBlock | null;
+  /** A block was expected and is not there. The sheet is refused, not guessed at. */
+  idMissing: boolean;
+}
+
+/**
+ * The shape of the printed code block, which the teacher chooses.
+ *
+ * `groups` is digits and `perGroup` is codes per digit, so a class of up to
+ * 64 is two digits of eight, and a class of thirty is one digit of thirty
+ * capped at eight. Small numbers on purpose: the whole point is that a student
+ * can shade one bubble per digit without reading a table of combinations.
+ */
+export interface IdBlockShape {
+  groups: number;
+  perGroup: number;
+}
+
+export interface OmrIdBlock {
+  groups: number;
+  perGroup: number;
+  /** Zero-based code per digit; null where nothing, or more than one thing, was shaded. */
+  digits: (number | null)[];
+  /** False when the image did not divide into the printed shape. */
+  wellFormed: boolean;
 }
 
 export interface OmrOptions {
@@ -55,6 +81,14 @@ export interface OmrOptions {
   /** Smallest and largest bounding-box side, in pixels, for a real bubble. */
   minSide?: number;
   maxSide?: number;
+  /**
+   * The code block this sheet is expected to carry, or nothing to look for.
+   *
+   * Passing it changes what "correct" means: the sheet is refused rather than
+   * read without a code. Leaving it out is right for a sheet the teacher did
+   * not print a block on, and wrong for one they did.
+   */
+  idBlock?: IdBlockShape;
 }
 
 export interface MarkedAnswer {
@@ -220,11 +254,15 @@ export function scanSheet(
     cols: 0,
     bubbles: [],
     rejected: 0,
+    id: null,
+    idMissing: false,
   };
   if (gray.length === 0 || width <= 0 || height <= 0) return empty;
 
   const threshold = options.threshold ?? otsuThreshold(gray);
   const markFill = options.markFill ?? 0.45;
+  // Renamed on the way in so the local below can be the result of reading one.
+  const { idBlock: expectedId } = options;
   const maxSide = options.maxSide ?? Math.max(12, Math.min(width, height) / 6);
   const minSide = options.minSide ?? Math.max(4, maxSide * 0.22);
 
@@ -279,15 +317,66 @@ export function scanSheet(
   }
   if (current.length > 0) rows.push(current);
 
+  /*
+   * The student code block, taken out BEFORE columns are inferred.
+   *
+   * This ordering is the whole reason it lives here and not in the caller.
+   * Columns come from the fullest row, and a code block has more bubbles than
+   * an answer row does (four digits of six is twenty-four against four). Left
+   * in, it would become the fullest row, define twenty-four columns, and every
+   * answer on the sheet would be assigned to a column that belongs to a digit.
+   * The grid would still look plausible and every mark would be wrong.
+   *
+   * When a block is expected and not found, the sheet is refused rather than
+   * read without it: a scan with no code would otherwise fall back to asking
+   * which student it is, having already been laid out as a code sheet.
+   *
+   * WHICH row is the block is decided by shape, never by position or by length
+   * alone. A two-digit code of two codes each is four bubbles wide, which is
+   * also a four-option answer row, and the first row of the right length would
+   * be taken at random from the two kinds. So a candidate has to read as the
+   * printed shape before it is allowed to count, and when nothing reads as the
+   * shape nothing is removed at all: guessing there would take out a row of
+   * answers and shift every question above it.
+   */
+  let idBlock: OmrIdBlock | null = null;
+  let answerRows = rows;
+
+  if (expectedId) {
+    const wanted = expectedId.groups * expectedId.perGroup;
+    let found = -1;
+    let read: OmrIdBlock | null = null;
+    for (let i = 0; i < rows.length; i++) {
+      if (rows[i]!.length !== wanted) continue;
+      const candidate = readIdRow(rows[i]!, expectedId, markFill);
+      if (candidate.wellFormed) {
+        found = i;
+        read = candidate;
+        break;
+      }
+    }
+    if (found === -1) {
+      return { ...empty, threshold, idMissing: true };
+    }
+    idBlock = read;
+    answerRows = rows.filter((_, at) => at !== found);
+    if (answerRows.length === 0) {
+      return { ...empty, threshold, idMissing: true };
+    }
+  }
+
   // Columns come from the fullest row, so a row where the detector missed one
   // bubble still lines up with the sheet instead of shifting left.
-  const fullest = rows.reduce((best, row) => (row.length > best.length ? row : best), rows[0]!);
+  const fullest = answerRows.reduce(
+    (best, row) => (row.length > best.length ? row : best),
+    answerRows[0]!,
+  );
   const centres = [...fullest].sort((a, b) => a.cx - b.cx).map((c) => c.cx);
   const cols = centres.length;
 
   const bubbles: DetectedBubble[][] = [];
 
-  for (const row of rows) {
+  for (const row of answerRows) {
     const cells: DetectedBubble[] = new Array(cols);
     for (const c of row) {
       let bestCol = 0;
@@ -344,7 +433,108 @@ export function scanSheet(
     cols,
     bubbles,
     rejected: components.length - candidates.length,
+    id: idBlock,
+    idMissing: false,
   };
+}
+
+/**
+ * Reads the shaded code out of the student's block.
+ *
+ * The digits are found by GAP, not by position. The teacher chooses how many
+ * digits and how many codes per digit, so the only thing the image can honestly
+ * be measured against is the space between bubbles: a wide gap starts a new
+ * digit. Requiring the split to come out at exactly the printed shape is what
+ * turns "I guessed where the digits are" into "the image says so, or this is
+ * not a code block".
+ *
+ * A digit with nothing shaded, or with two shaded, is `null`. Guessing here would
+ * attribute a sheet to whichever student happened to hold the nearest code.
+ */
+function readIdRow(row: Component[], expected: IdBlockShape, markFill: number): OmrIdBlock {
+  const sorted = [...row].sort((a, b) => a.cx - b.cx);
+
+  const gaps = sorted.slice(1).map((c, i) => c.cx - sorted[i]!.cx);
+  const within = median(gaps);
+  const boundary = within * 1.6;
+
+  const groups: Component[][] = [[sorted[0]!]];
+  for (let i = 1; i < sorted.length; i++) {
+    if (gaps[i - 1]! > boundary) groups.push([]);
+    groups[groups.length - 1]!.push(sorted[i]!);
+  }
+
+  const shaped =
+    groups.length === expected.groups &&
+    groups.every((group) => group.length === expected.perGroup);
+
+  if (!shaped) {
+    return { groups: expected.groups, perGroup: expected.perGroup, digits: [], wellFormed: false };
+  }
+
+  const digits = groups.map((group) => {
+    const filled = group.filter((c) => {
+      const w = c.maxX - c.minX + 1;
+      const h = c.maxY - c.minY + 1;
+      const box = w * h;
+      return box > 0 && c.area / box >= markFill;
+    });
+    // More than one shaded bubble in a digit is a misread, not a second value.
+    return filled.length === 1 ? group.indexOf(filled[0]!) : null;
+  });
+
+  return {
+    groups: expected.groups,
+    perGroup: expected.perGroup,
+    digits,
+    wellFormed: true,
+  };
+}
+
+/** The code as the teacher printed it, for display next to the matched student. */
+export function formatIdCode(id: OmrIdBlock | null): string | null {
+  if (!id || !id.wellFormed || id.digits.length !== id.groups) return null;
+  if (id.digits.some((digit) => digit === null)) return null;
+  return id.digits.join('');
+}
+
+/** The student number a code refers to, 1-based, or null when it is not readable. */
+export function idToStudentNumber(id: OmrIdBlock | null): number | null {
+  if (!id || !id.wellFormed || id.digits.length !== id.groups) return null;
+  let value = 0;
+  for (const digit of id.digits) {
+    if (digit === null || digit >= id.perGroup) return null;
+    value = value * id.perGroup + digit;
+  }
+  return value + 1;
+}
+
+/**
+ * The codes a student number is printed as, 1-based.
+ *
+ * The exact inverse of `idToStudentNumber`, and it lives beside it because the
+ * two drifting apart is the failure that puts one child's mark on another: the
+ * roster says a number means Ana and the reader says it means Ben, and both
+ * halves are individually correct.
+ *
+ * Null when the number is outside the printed shape. A roster longer than the
+ * block can carry is a real possibility, and the answer is to tell the teacher,
+ * not to wrap around and hand two children the same code.
+ */
+export function studentNumberToDigits(
+  number: number,
+  shape: IdBlockShape,
+): number[] | null {
+  if (!Number.isInteger(number) || number < 1) return null;
+  if (number > Math.pow(shape.perGroup, shape.groups)) return null;
+
+  const digits: number[] = new Array(shape.groups);
+  let remaining = number - 1;
+  for (let i = shape.groups - 1; i >= 0; i--) {
+    digits[i] = remaining % shape.perGroup;
+    remaining = Math.floor(remaining / shape.perGroup);
+  }
+  return digits;
 }
 
 export function answersFromSheet(sheet: OmrSheet, optionKeys: string[]): MarkedAnswer[] {

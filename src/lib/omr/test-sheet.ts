@@ -34,7 +34,31 @@ export interface SheetSpec {
   noiseBlobs?: { x: number; y: number; w: number; h: number }[];
   /** Deterministic speckle amplitude, 0 to disable. */
   grain?: number;
+  /**
+   * A printed code block above the answer grid, as the student fills it in.
+   *
+   * The extra gap between digits is not cosmetic. `readIdRow` decides where one
+   * digit ends and the next begins by measuring that gap, so the drawing has to
+   * carry the same distinction the reader looks for, or the test would only
+   * prove that the reader matches the drawing's own convention rather than a
+   * printed one.
+   */
+  idBlock?: {
+    groups: number;
+    perGroup: number;
+    /**
+     * The shaded code per digit. `null` leaves the digit blank and a number
+     * shades one bubble; an ARRAY shades several at once, which is what a
+     * misread looks like on paper and what the reader has to refuse.
+     */
+    digits: (number | number[] | null)[];
+  };
 }
+
+/** Extra spacing between the last code of one digit and the first of the next. */
+const ID_DIGIT_GAP = 1.4;
+/** Clear air above the code row and between it and the answer grid, in pixels. */
+const ID_ROW_CLEARANCE = 24;
 
 export interface RenderedSheet {
   gray: Uint8Array;
@@ -60,8 +84,27 @@ export function renderSheet(spec: SheetSpec): RenderedSheet {
   const marginY = spec.marginY ?? 80;
   const grain = spec.grain ?? 6;
 
-  const width = marginX * 2 + cell * spec.cols;
-  const height = marginY * 2 + cell * spec.rows;
+  const id = spec.idBlock;
+  // The code row sits on its own band at the top of the page, clear of the grid
+  // and clear of the paper edge. Putting it at a fixed distance above the grid
+  // instead would run a 20px bubble off the top of a 160px band and clip it into
+  // a shape the detector's aspect gate is entitled to reject.
+  const idCy = radius + ID_ROW_CLEARANCE;
+  const idWidth = id ? cell * (id.groups * id.perGroup + (id.groups - 1) * ID_DIGIT_GAP) : 0;
+  const idBand = id ? idCy + radius + ID_ROW_CLEARANCE : 0;
+  const gridTop = marginY + idBand;
+
+  /*
+   * Rounded, and that is load-bearing rather than tidy. A fractional length on
+   * `new Uint8Array(n)` is truncated, so the buffer is smaller than `width *
+   * height` and every `gray[y * width + x]` past the truncation point reads
+   * `undefined` instead of a pixel. Adding a code block made the arithmetic
+   * fractional on the default spec (1.4 * 64 is not whole), which turned a
+   * clean sheet into a field of `undefined` that the detector would have
+   * silently reported as blank paper.
+   */
+  const width = Math.round(marginX * 2 + Math.max(idWidth, cell * spec.cols));
+  const height = Math.round(gridTop + cell * spec.rows + marginY);
   const gray = new Uint8Array(width * height);
 
   for (let i = 0; i < gray.length; i++) {
@@ -96,7 +139,7 @@ export function renderSheet(spec: SheetSpec): RenderedSheet {
   for (let r = 0; r < spec.rows; r++) {
     for (let c = 0; c < spec.cols; c++) {
       const cx = marginX + cell * c + cell / 2;
-      const cy = marginY + cell * r + cell / 2;
+      const cy = gridTop + cell * r + cell / 2;
       strokeCircle(Math.round(cx), Math.round(cy));
       if (spec.marked[r]?.[c]) fillCircle(Math.round(cx), Math.round(cy));
     }
@@ -106,6 +149,23 @@ export function renderSheet(spec: SheetSpec): RenderedSheet {
     for (let y = b.y; y < Math.min(height, b.y + b.h); y++) {
       for (let x = b.x; x < Math.min(width, b.x + b.w); x++) {
         gray[y * width + x] = ink;
+      }
+    }
+  }
+
+  // The code block, drawn on its own band above the grid and in the same ink and
+  // the same bubble size, because a real sheet has exactly one of those.
+  if (id) {
+    let cx = marginX + cell / 2;
+    for (let g = 0; g < id.groups; g++) {
+      for (let k = 0; k < id.perGroup; k++) {
+        if (g > 0 && k === 0) cx += cell * ID_DIGIT_GAP;
+        const centre = Math.round(cx);
+        strokeCircle(centre, Math.round(idCy));
+        const shaded = id.digits[g];
+        const codes = Array.isArray(shaded) ? shaded : shaded === null || shaded === undefined ? [] : [shaded];
+        if (codes.includes(k)) fillCircle(centre, Math.round(idCy));
+        cx += cell;
       }
     }
   }

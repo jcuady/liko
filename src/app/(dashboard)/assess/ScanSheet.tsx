@@ -8,9 +8,9 @@ import { toast } from 'sonner';
 
 import { Badge, Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { scanSheet, scoreAnswers } from '@/lib/omr/omr';
+import { scanSheet, scoreAnswers, formatIdCode, idToStudentNumber } from '@/lib/omr/omr';
 import type { OmrSheet } from '@/lib/omr/omr';
-import type { QuestionRecord, ScannedAnswer } from '@/lib/api/types';
+import type { IdFormat, QuestionRecord, ScannedAnswer } from '@/lib/api/types';
 import { loadStudentsForClass, saveScannedGrade } from '@/app/(dashboard)/assess/actions';
 
 /**
@@ -50,15 +50,34 @@ export function ScanSheet({
   assessment,
   questions,
   students,
+  idFormat = null,
 }: {
   assessment: { id: string; title: string; classId: string };
   questions: QuestionRecord[];
   students: { id: string; name: string }[];
+  /**
+   * The code block this assessment prints, or null.
+   *
+   * Passing it changes what a scan means. With a shape, a sheet without a block
+   * is refused rather than read: it was laid out as a code sheet, and reading it
+   * anyway would ask the teacher to pick a student for a sheet that already
+   * carries one.
+   */
+  idFormat?: IdFormat | null;
 }) {
   const inputRef = React.useRef<HTMLInputElement>(null);
   const [detected, setDetected] = React.useState<Detected | null>(null);
   const [busy, setBusy] = React.useState(false);
   const [studentId, setStudentId] = React.useState('');
+  /**
+   * Whether the current selection came from the sheet's own code.
+   *
+   * Tracked so the confirmation can say what it is based on, and so the teacher
+   * can tell a pre-selected default from a choice they made. A pre-selected
+   * student is a default, not a decision, and it is one click from being a mark on
+   * the wrong child.
+   */
+  const [fromCode, setFromCode] = React.useState<string | null>(null);
 
   // The page already ships the roster, so the only thing worth holding is one
   // fetched on demand when a scan starts without it. Keeping a mirrored copy of
@@ -78,6 +97,7 @@ export function ScanSheet({
     setLastAssessmentId(assessment.id);
     setDetected(null);
     setStudentId('');
+    setFromCode(null);
     setLoadedRoster(null);
   }
 
@@ -123,8 +143,82 @@ export function ScanSheet({
         gray[p] = (frame[i]! * 299 + frame[i + 1]! * 587 + frame[i + 2]! * 114) / 1000;
       }
 
-      const sheet = scanSheet(gray, width, height);
+      const sheet = scanSheet(
+        gray,
+        width,
+        height,
+        idFormat ? { idBlock: { groups: idFormat.groups, perGroup: idFormat.perGroup } } : {},
+      );
       const preview = canvas.toDataURL('image/jpeg', 0.7);
+
+      /*
+       * The code is resolved against the roster BEFORE the sheet is shown, so the
+       * student is already chosen when the teacher looks at the grid. Nothing is
+       * saved here: the teacher still confirms, because a default is not a
+       * decision.
+       *
+       * The order of these checks is the whole point. A missing block on a code
+       * sheet is refused before anything else is believed, a misread digit
+       * leaves the choice with the teacher, and only a clean code against a real
+       * student pre-selects anyone.
+       */
+      if (sheet.idMissing) {
+        setDetected(null);
+        toast.error(
+          'This sheet should carry a code block and it could not be found. Print the sheet with ' +
+            'codes on it, and photograph the whole page.',
+        );
+        return;
+      }
+
+      /*
+       * The roster is resolved BEFORE the code is matched.
+       *
+       * The page normally ships the roster, but a scan can arrive before it has
+       * and matching against an empty list would report every code as being past
+       * the end of the roster, which is a message about the wrong thing. The
+       * fetch is awaited here rather than after the match.
+       */
+      let available = roster;
+      if (available.length === 0) {
+        const loaded = await loadStudentsForClass(assessment.classId);
+        setLoadedRoster(loaded);
+        available = loaded;
+      }
+
+      let matchedStudentId = '';
+      let matchedCode: string | null = null;
+      if (sheet.id) {
+        const code = formatIdCode(sheet.id);
+        if (code) {
+          matchedCode = code;
+          const number = idToStudentNumber(sheet.id);
+          /*
+           * The roster is the SAME ordering the print route used: sorted by name
+           * then id. A student's code is their position in that list, so the scan
+           * has to rebuild it the same way or the number on the paper means
+           * someone else. `studentNumberToDigits` is the inverse of the reader's
+           * own arithmetic, which is why both live in the same module.
+           */
+          const ordered = [...available].sort(
+            (a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id),
+          );
+          const student = number ? ordered[number - 1] : undefined;
+          if (student) {
+            matchedStudentId = student.id;
+          } else {
+            toast.error(
+              `This sheet carries code ${code}, which is past the end of the roster. Choose the ` +
+                `student by hand.`,
+            );
+          }
+        } else {
+          toast.error(
+            'The code on this sheet could not be read. Every group needs exactly one bubble ' +
+              'shaded, or none at all.',
+          );
+        }
+      }
 
       if (sheet.rows === 0) {
         setDetected(null);
@@ -138,9 +232,12 @@ export function ScanSheet({
         preview,
       });
 
-      if (roster.length === 0) {
-        const loaded = await loadStudentsForClass(assessment.classId);
-        setLoadedRoster(loaded);
+      if (matchedStudentId) {
+        setStudentId(matchedStudentId);
+        setFromCode(matchedCode);
+      } else {
+        setStudentId('');
+        setFromCode(null);
       }
     } catch {
       setDetected(null);
@@ -381,7 +478,13 @@ export function ScanSheet({
                 <select
                   id="scan-student"
                   value={studentId}
-                  onChange={(event) => setStudentId(event.target.value)}
+                  onChange={(event) => {
+                    setStudentId(event.target.value);
+                    // Any manual change clears the "this came off the sheet" claim,
+                    // so the note below never describes a choice the teacher
+                    // overrode.
+                    setFromCode(null);
+                  }}
                   className="flex h-11 max-w-[18rem] rounded-[12px] border border-border-strong bg-surface px-3.5 text-[0.9375rem] text-ink transition-colors duration-150 focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent-ring/25"
                 >
                   <option value="">Choose a student</option>
@@ -392,7 +495,11 @@ export function ScanSheet({
                   ))}
                 </select>
                 <p className="text-meta text-ink-muted">
-                  The sheet carries no name, so this has to be set before saving.
+                  {fromCode
+                    ? `Code ${fromCode} on the sheet picked this. Change it if the sheet is wrong.`
+                    : idFormat
+                      ? 'The code on the sheet did not resolve to anyone. Choose the student.'
+                      : 'The sheet carries no name, so this has to be set before saving.'}
                 </p>
               </div>
 

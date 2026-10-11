@@ -10,6 +10,7 @@ import {
   type GradingPolicy,
 } from '@/lib/grading/policy';
 import { createSupabaseAdmin, createSupabaseServerClient } from '@/lib/supabase/server';
+import { newInviteCode, inviteExpiry } from '@/lib/security/invite-code';
 import { scoreAnswers } from '@/lib/omr/omr';
 import { DataError, mapSupabaseError } from './errors';
 import type {
@@ -32,6 +33,10 @@ import type {
   HeatCell,
   HistoryEventType,
   HistoryRecord,
+  IdFormat,
+  InviteInput,
+  InviteRecord,
+  InviteRedemption,
   LessonPlanRecord,
   MemberRecord,
   MembershipStatus,
@@ -39,6 +44,8 @@ import type {
   OrgInput,
   OrgPlan,
   OrgRecord,
+  OrgSector,
+  OrgVerificationStatus,
   ProfileInput,
   ProfileRecord,
   QuestionRecord,
@@ -54,6 +61,15 @@ import type {
   StudentQuizSummary,
   StudentRecord,
 } from './types';
+
+/*
+ * Values, not types. These two lists are the allowlist `mapOrg` checks a row
+ * against, so an unrecognised value reads as unknown rather than being coerced
+ * to the nearest legal option. Importing them as types would compile and then
+ * fail at runtime, which is the shape of bug that only shows up against a real
+ * database.
+ */
+import { ORG_SECTORS, ORG_VERIFICATION_STATUSES } from './types';
 
 /**
  * The five scales that ship with the product, as records rather than code
@@ -179,8 +195,26 @@ export interface WorkspaceData {
   archiveStudent(userId: string, studentId: string): Promise<void>;
   createAssessment(
     userId: string,
-    input: Omit<AssessmentRecord, 'id' | 'ownerId' | 'archivedAt'>,
+    input: Omit<
+      AssessmentRecord,
+      'id' | 'ownerId' | 'archivedAt' | 'idFormatEnabled' | 'idFormatGroups' | 'idFormatCodes'
+    >,
   ): Promise<AssessmentRecord>;
+  /**
+   * Turns the printed code block on or off for one assessment.
+   *
+   * Separate from creation because a new assessment is never born with a block:
+   * the block depends on how many students are in the class, and the class is
+   * not settled at the moment an assessment is created. The shape is also
+   * re-read by the scan route, so turning it on while a class is mid-quiz would
+   * make previously printed sheets unreadable, which is the caller's problem to
+   * decide about and not this method's to allow silently.
+   */
+  setAssessmentIdFormat(
+    userId: string,
+    assessmentId: string,
+    shape: IdFormat | null,
+  ): Promise<void>;
   upsertGrade(
     userId: string,
     input: {
@@ -270,6 +304,39 @@ export interface WorkspaceData {
   /** Suspends or restores access without removing the person from the org. */
   setMemberStatus(userId: string, memberId: string, status: MembershipStatus): Promise<void>;
 
+  /**
+   * Every invitation issued by the caller's organisation, newest first, spent
+   * and lapsed ones included.
+   *
+   * Included because an administrator needs a used code to read as used. A list
+   * of open codes only is a list that keeps offering the same invitation to the
+   * twenty-sixth person at a twenty-five seat school.
+   */
+  listInvites(userId: string): Promise<InviteRecord[]>;
+
+  /**
+   * Mints one single-use code and returns it. The caller neither chooses the
+   * code nor sees it before it is issued.
+   *
+   * Issuing does NOT spend a seat. A code may sit unused until it expires, so
+   * counting at issue time would refuse people who never joined and would let a
+   * pile of unused codes sit against a limit they are not using. The seat is
+   * spent at redemption, where `redeem_org_invite` refuses a join that would
+   * cross `seat_limit`.
+   */
+  createInvite(userId: string, input: InviteInput): Promise<InviteRecord>;
+
+  /**
+   * Redeems a code for the signed-in account and joins them to its organisation.
+   *
+   * Throws a `DataError` carrying the refusal the database raised, unedited. The
+   * refusal is the control working, not a failure to report around: when
+   * `seat_limit` is reached the sentence that comes back names the school, the
+   * count and the way out, and paraphrasing it into "could not join" throws away
+   * the only thing the person reading it can act on.
+   */
+  redeemInvite(userId: string, code: string): Promise<InviteRedemption>;
+
   /*
    * Slide decks.
    *
@@ -315,7 +382,24 @@ type Row = Record<string, unknown>;
 const PROFILE_COLUMNS =
   'id, email, full_name, role, school_name, subjects, default_grade_level, grading_policy_id, org_id';
 
-const ORG_COLUMNS = 'id, name, slug, plan, seat_limit, billing_email, created_at';
+const ORG_COLUMNS =
+  'id, name, slug, plan, seat_limit, billing_email, created_at, ' +
+  // The institutional profile. Listed here rather than with a `select('*')`
+  // because a select star is what let this list fall a column behind the record
+  // it feeds in the first place.
+  'country_code, sector, grade_min, grade_max, enrolment, timezone, ' +
+  'contact_name, contact_role, verification_status, verified_at';
+
+const INVITE_COLUMNS =
+  'id, org_id, email, role, code, created_by, created_at, expires_at, accepted_at, accepted_by';
+
+/**
+ * PostgREST's unique violation, named locally because `errors.ts` keeps its
+ * codes private. Only the one caller that retries a collision needs it, and the
+ * retry is the entire reason: a duplicate code is a new code, not an error an
+ * administrator caused.
+ */
+const UNIQUE_VIOLATION = '23505';
 
 function iso(value: unknown): string {
   return typeof value === 'string' ? value : new Date().toISOString();
@@ -1040,6 +1124,29 @@ const supabaseAdapter: WorkspaceData = {
     return mapAssessment(data as Row);
   },
 
+  async setAssessmentIdFormat(userId, assessmentId, shape) {
+    const supabase = await requireClient();
+    /*
+     * All three columns are written together, always. The database check rejects
+     * a half-configured shape, so a partial write is a loud failure rather than
+     * a row the print route has to guess about. Nulls, not zeroes, when off.
+     */
+    const patch = shape
+      ? {
+          id_format_enabled: true,
+          id_format_groups: shape.groups,
+          id_format_codes: shape.perGroup,
+        }
+      : { id_format_enabled: false, id_format_groups: null, id_format_codes: null };
+
+    const { error } = await supabase
+      .from('assessments')
+      .update(patch)
+      .eq('id', assessmentId)
+      .eq('owner_id', userId);
+    throwIf(error);
+  },
+
   async upsertGrade(userId, input) {
     const supabase = await requireClient();
     const { data, error } = await supabase
@@ -1290,20 +1397,77 @@ const supabaseAdapter: WorkspaceData = {
     if (!org) throw new DataError('NOT_FOUND', 'This account has no organisation yet.');
 
     const supabase = await requireClient();
+
+    /*
+     * Read the headcount before writing the limit.
+     *
+     * A limit below the number of people already sitting on seats is not a
+     * stricter limit, it is an organisation already in breach, and the admin
+     * who just set it then has no lever left to pull. This is checked here as
+     * well as in the fixture adapter on purpose: a constraint that exists only
+     * in one of the two modes is a constraint that one mode does not have.
+     *
+     * It is a read-then-write and therefore not atomic. That is accepted, not
+     * overlooked: two admins lowering a limit at the same instant is not a race
+     * worth a database constraint that would arrive at the user as a constraint
+     * violation instead of a sentence about seats.
+     *
+     * The count comes from the `count` field, NOT from `data.length`. A PostgREST
+     * count query with `head: true` resolves `data` to null and carries the
+     * number separately, so `.length` here is always 0, the guard never fires,
+     * and the check below it looks like it is doing its job.
+     */
+    const { count: activeSeats, error: seatError } = await supabase
+      .from('memberships')
+      .select('id', { count: 'exact', head: true })
+      .eq('org_id', org.id)
+      .eq('status', 'active');
+    if (seatError) throw mapSupabaseError(seatError);
+
+    const seats = activeSeats ?? 0;
+    if (input.seatLimit < seats) {
+      throw new DataError(
+        'CONFLICT',
+        `This workspace already has ${seats} active ${seats === 1 ? 'person' : 'people'}. ` +
+          `A limit below that cannot be applied.`,
+      );
+    }
+
+    const patch: Record<string, unknown> = {
+      name: input.name,
+      plan: input.plan,
+      seat_limit: input.seatLimit,
+      billing_email: input.billingEmail,
+    };
+
+    /*
+     * The profile is merged onto what is stored, and the verification columns
+     * are never in the patch. The institution's own form may describe the
+     * institution; it may not vouch for it.
+     */
+    if (input.profile) {
+      const profile = input.profile;
+      if (profile.countryCode !== undefined) patch.country_code = profile.countryCode;
+      if (profile.sector !== undefined) patch.sector = profile.sector;
+      if (profile.gradeMin !== undefined) patch.grade_min = profile.gradeMin;
+      if (profile.gradeMax !== undefined) patch.grade_max = profile.gradeMax;
+      if (profile.enrolment !== undefined) patch.enrolment = profile.enrolment;
+      if (profile.timezone !== undefined) patch.timezone = profile.timezone;
+      if (profile.contactName !== undefined) patch.contact_name = profile.contactName;
+      if (profile.contactRole !== undefined) patch.contact_role = profile.contactRole;
+    }
+
     const { data, error } = await supabase
       .from('organizations')
-      .update({
-        name: input.name,
-        plan: input.plan,
-        seat_limit: input.seatLimit,
-        billing_email: input.billingEmail,
-      })
+      .update(patch)
       .eq('id', org.id)
       .select(ORG_COLUMNS)
       .single();
     if (error) throw mapSupabaseError(error);
 
-    return mapOrg(data as Row);
+    // Through `unknown` because the patch is a dynamic column map rather than a
+    // literal, so the client cannot infer the row shape it will select back.
+    return mapOrg(data as unknown as Row);
   },
 
   async listMembers(userId) {
@@ -1403,6 +1567,111 @@ const supabaseAdapter: WorkspaceData = {
       .eq('id', memberId)
       .eq('org_id', org.id);
     if (error) throw mapSupabaseError(error);
+  },
+
+  async listInvites(userId) {
+    const org = await supabaseOrgFor(userId);
+    if (!org) return [];
+
+    /*
+     * The service role client, not the session client. There is no
+     * `select policy` on `organization_invites` because an invite row is a
+     * credential: any member could read their school's codes and walk off with
+     * them. That leaves reading them an administrator action, which is what the
+     * calling action checks for, and this row filter is what keeps that check
+     * from being the only thing standing between two tenants.
+     */
+    const admin = await createSupabaseAdmin();
+    if (!admin) {
+      throw new DataError(
+        'FORBIDDEN',
+        'Reading invitations needs the service role key, which this server is not configured with.',
+      );
+    }
+
+    const { data, error } = await admin
+      .from('organization_invites')
+      .select(INVITE_COLUMNS)
+      .eq('org_id', org.id)
+      .order('created_at', { ascending: false });
+    if (error) throw mapSupabaseError(error);
+
+    return (data ?? []).map((row) => mapInvite(row as Row));
+  },
+
+  async createInvite(userId, input) {
+    const org = await supabaseOrgFor(userId);
+    if (!org) throw new DataError('NOT_FOUND', 'This account has no organisation yet.');
+
+    /*
+     * The service role client, not the session client. The insert is refused by
+     * RLS on purpose: an invite row is a credential, so writing one is an
+     * administrator action that the calling action has already checked, not a
+     * thing the browser may do for itself. `org_id` and `created_by` come from
+     * the resolved organisation and the session, never from the request.
+     */
+    const admin = await createSupabaseAdmin();
+    if (!admin) {
+      throw new DataError(
+        'FORBIDDEN',
+        'Issuing an invitation needs the service role key, which this server is not configured with.',
+      );
+    }
+
+    /*
+     * Minted here, inserted through the service role, returned to the caller.
+     *
+     * Three attempts, because the only thing that can fail here is a collision
+     * on a 1.1 trillion code space, and a collision is not a reason to tell an
+     * administrator their invitation could not be created.
+     */
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const { data, error } = await admin
+        .from('organization_invites')
+        .insert({
+          org_id: org.id,
+          email: input.email,
+          role: input.role,
+          code: newInviteCode(),
+          created_by: userId,
+          expires_at: inviteExpiry(),
+        })
+        .select(INVITE_COLUMNS)
+        .single();
+
+      if (error) {
+        if (error.code === UNIQUE_VIOLATION) continue;
+        throw mapSupabaseError(error);
+      }
+      return mapInvite(data as Row);
+    }
+
+    throw new DataError('CONFLICT', 'That invitation code collided three times. Try again.');
+  },
+
+  async redeemInvite(userId, code) {
+    /*
+     * `userId` goes unused here, and that is the design rather than an
+     * oversight. The function resolves who is redeeming from the session the RPC
+     * carries, so no caller can put somebody else in a seat by passing a
+     * different id. It stays in the signature so both adapters take the same
+     * argument and the seam never grows a rule that applies to one of them.
+     *
+     * The session client on purpose. Redemption is the one operation a
+     * non-admin performs on this table, and it has to run as the person
+     * redeeming so the function can write a membership for them. The seat limit
+     * is not checked here and could not be: the count and the limit are read and
+     * compared inside the same transaction as the insert, so two codes redeemed
+     * at the same moment cannot both see the last seat.
+     */
+    const supabase = await requireClient();
+    const normalised = code.trim().toUpperCase();
+
+    const { data, error } = await supabase.rpc('redeem_org_invite', { p_code: normalised });
+    if (error) throw inviteRefusal(error);
+
+    const row = ((data ?? []) as Row[])[0] ?? {};
+    return { orgId: str(row.org_id), orgName: str(row.org_name) };
   },
 
   async listDecks(userId) {
@@ -1635,6 +1904,23 @@ function mapOrg(row: Row): OrgRecord {
     seatLimit: num(row.seat_limit, 5),
     billingEmail: (row.billing_email as string | null) ?? null,
     createdAt: iso(row.created_at),
+    profile: {
+      countryCode: (row.country_code as string | null) ?? null,
+      // Anything the constraint list does not recognise reads as unknown rather
+      // than being coerced into the nearest match. A sector guessed for a school
+      // is a fact invented about that school.
+      sector: ORG_SECTORS.includes(row.sector as OrgSector) ? (row.sector as OrgSector) : null,
+      gradeMin: (row.grade_min as number | null) ?? null,
+      gradeMax: (row.grade_max as number | null) ?? null,
+      enrolment: (row.enrolment as number | null) ?? null,
+      timezone: (row.timezone as string | null) ?? null,
+      contactName: (row.contact_name as string | null) ?? null,
+      contactRole: (row.contact_role as string | null) ?? null,
+      verificationStatus: ORG_VERIFICATION_STATUSES.includes(row.verification_status as OrgVerificationStatus)
+        ? (row.verification_status as OrgVerificationStatus)
+        : 'unverified',
+      verifiedAt: (row.verified_at as string | null) ?? null,
+    },
   };
 }
 
@@ -1657,6 +1943,46 @@ function mapMember(row: Row): MemberRecord {
     status: str(row.status, 'active') as MembershipStatus,
     joinedAt: iso(row.created_at),
   };
+}
+
+function mapInvite(row: Row): InviteRecord {
+  return {
+    id: str(row.id),
+    orgId: str(row.org_id),
+    email: str(row.email),
+    role: str(row.role, 'instructor') as Role,
+    code: str(row.code),
+    createdBy: str(row.created_by),
+    createdAt: iso(row.created_at),
+    expiresAt: iso(row.expires_at),
+    acceptedAt: (row.accepted_at as string | null) ?? null,
+    acceptedBy: (row.accepted_by as string | null) ?? null,
+  };
+}
+
+/**
+ * Turns a failed `redeem_org_invite` call into the refusal the administrator
+ * needs to read.
+ *
+ * WHY NOT `mapSupabaseError`.
+ *
+ * The function signals every refusal by raising `42501`, and `mapSupabaseError`
+ * renders that code as "That record does not exist." That single line is the
+ * difference between a seat limit that explains itself and one that looks like a
+ * broken page. So the message from the function is passed through untouched, and
+ * only that code is passed through at all: any other failure is a transport or
+ * permissions problem whose text belongs to PostgREST, not to a person holding
+ * an invitation, and those still go through the generic mapping.
+ *
+ * `42501` reaching here means `redeem_org_invite` ran and said no. The function
+ * is granted to `authenticated` alone, so nothing else in the schema can raise
+ * with this code from this call path.
+ */
+function inviteRefusal(error: { code?: string; message?: string }): DataError {
+  if (error.code === '42501' && typeof error.message === 'string' && error.message.trim()) {
+    return new DataError('CONFLICT', error.message.trim());
+  }
+  return mapSupabaseError(error);
 }
 
 function mapProfile(row: Row): ProfileRecord {
@@ -1712,6 +2038,9 @@ function mapAssessment(row: Row): AssessmentRecord {
     dueOn: (row.due_on as string | null) ?? null,
     standardCodes: strArray(row.standard_codes),
     archivedAt: (row.archived_at as string | null) ?? null,
+    idFormatEnabled: row.id_format_enabled === true,
+    idFormatGroups: (row.id_format_groups as number | null) ?? null,
+    idFormatCodes: (row.id_format_codes as number | null) ?? null,
   };
 }
 
@@ -1884,6 +2213,12 @@ async function supabaseOrgFor(userId: string): Promise<OrgRecord | null> {
     .select('org_id, organizations(' + ORG_COLUMNS + ')')
     .eq('user_id', userId)
     .eq('status', 'active')
+    // Most recent first, and this is load-bearing rather than cosmetic. A person
+    // can hold two active memberships, and without an order PostgREST returns
+    // an arbitrary one, so the same account could resolve to two different
+    // tenants on two requests. Accepting an invitation is the thing that makes
+    // the newer one the right answer.
+    .order('created_at', { ascending: false })
     .limit(1)
     .maybeSingle();
   if (error) throw mapSupabaseError(error);

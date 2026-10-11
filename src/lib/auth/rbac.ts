@@ -177,6 +177,22 @@ export const PROTECTED_PREFIXES = [
   '/history',
   '/settings',
   '/admin',
+  /*
+   * Redeeming an invitation needs a session and nothing else, which is the same
+   * shape as `/welcome` above: the code is redeemed against an account, and the
+   * account has to exist first.
+   *
+   * No entry in `ROUTE_PERMISSIONS`, on purpose. A student is invited into a
+   * school by exactly the code an administrator issues to a colleague, so any
+   * permission here would refuse exactly the people this route exists for: staff
+   * hold `analytics:read` or nothing at all, and guardians hold neither. Listed
+   * here and nowhere else, `/join` is reachable by every signed-in role.
+   *
+   * Deliberately NOT in `AUTH_PATHS`. Those bounce a signed-in visitor away to
+   * their landing page, which would send somebody who has just redeemed an
+   * invitation straight past the screen that says so.
+   */
+  '/join',
 ];
 
 export function isProtectedPath(pathname: string): boolean {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { answersFromSheet, otsuThreshold, scanSheet, scoreAnswers } from './omr';
+import { answersFromSheet, formatIdCode, idToStudentNumber, otsuThreshold, scanSheet, scoreAnswers, studentNumberToDigits } from './omr';
 import { marksFromChoices, renderSheet } from './test-sheet';
 
 /**
@@ -227,5 +227,213 @@ describe('scoreAnswers', () => {
     expect(result.perQuestion).toHaveLength(2);
     expect(result.perQuestion[1].blank).toBe(true);
     expect(result.maxScore).toBe(2);
+  });
+});
+
+/**
+ * The student's code block.
+ *
+ * These tests draw the block, shade it, and then hold the detector against what
+ * was drawn. The failure that matters here is not a crash: it is a code read off
+ * the sheet that belongs to a different child, or an answer grid quietly shifted
+ * by a row that was not an answer row. Every expectation below is a literal.
+ */
+describe('the printed code block', () => {
+  const ANSWERS = {
+    rows: 8,
+    cols: 4,
+    marked: marksFromChoices(8, 4, { 0: [1], 1: [3], 2: [0, 2], 3: [2], 4: [], 5: [1, 2, 3], 6: [0], 7: [3] }),
+  };
+
+  it('reads the shaded code and leaves every answer exactly where it was', () => {
+    const { gray, width, height } = renderSheet({
+      ...ANSWERS,
+      idBlock: { groups: 2, perGroup: 6, digits: [3, 1] },
+    });
+
+    const sheet = scanSheet(gray, width, height, { idBlock: { groups: 2, perGroup: 6 } });
+
+    expect(sheet.idMissing).toBe(false);
+    expect(sheet.id?.wellFormed).toBe(true);
+    expect(sheet.id?.digits).toEqual([3, 1]);
+    expect(formatIdCode(sheet.id)).toBe('31');
+    // 3 * 6 + 1 + 1: codes are zero-based, student numbers are not.
+    expect(idToStudentNumber(sheet.id)).toBe(20);
+
+    // The point of taking the block out before columns are inferred.
+    expect(sheet.rows).toBe(8);
+    expect(sheet.cols).toBe(4);
+    expect(sheet.bubbles.map((row) => row.map((b) => b.marked))).toEqual(ANSWERS.marked);
+  });
+
+  it('refuses a sheet that was printed without the block it was promised', () => {
+    const { gray, width, height } = renderSheet(ANSWERS);
+
+    const sheet = scanSheet(gray, width, height, { idBlock: { groups: 2, perGroup: 6 } });
+
+    expect(sheet.idMissing).toBe(true);
+    expect(sheet.rows).toBe(0);
+    expect(formatIdCode(sheet.id)).toBeNull();
+  });
+
+  it('refuses rather than reading the answers when the block is the wrong size', () => {
+    const { gray, width, height } = renderSheet({
+      ...ANSWERS,
+      idBlock: { groups: 2, perGroup: 6, digits: [3, 1] },
+    });
+
+    // Printed 2 x 6, told to look for 3 x 6. Nothing reads as that shape.
+    const sheet = scanSheet(gray, width, height, { idBlock: { groups: 3, perGroup: 6 } });
+
+    expect(sheet.idMissing).toBe(true);
+    expect(sheet.rows).toBe(0);
+  });
+
+  it('takes the code row and not an answer row when the two are the same width', () => {
+    // Two digits of two is four bubbles, and so is a four-option answer row.
+    const shape = { groups: 2, perGroup: 2 };
+    const { gray, width, height } = renderSheet({
+      ...ANSWERS,
+      idBlock: { ...shape, digits: [1, 0] },
+    });
+
+    const sheet = scanSheet(gray, width, height, { idBlock: shape });
+
+    expect(sheet.id?.digits).toEqual([1, 0]);
+    expect(sheet.rows).toBe(8);
+    expect(sheet.cols).toBe(4);
+    expect(sheet.bubbles.map((row) => row.map((b) => b.marked))).toEqual(ANSWERS.marked);
+  });
+
+  it('leaves the answers alone when a same-width block cannot be read', () => {
+    // Same collision as above, but the block is unreadable. Nothing may be
+    // removed on a guess: taking a row out here would shift every answer.
+    const shape = { groups: 2, perGroup: 2 };
+    const { gray, width, height } = renderSheet({
+      ...ANSWERS,
+      idBlock: { ...shape, digits: [0, 1] },
+      noiseBlobs: [],
+    });
+
+    // Asked for a shape that no row reads as, while answer rows are 4 wide.
+    const sheet = scanSheet(gray, width, height, { idBlock: { groups: 4, perGroup: 1 } });
+
+    expect(sheet.idMissing).toBe(true);
+    expect(sheet.rows).toBe(0);
+  });
+
+  it('reads a digit with two bubbles shaded as nothing rather than as one of them', () => {
+    const { gray, width, height } = renderSheet({
+      ...ANSWERS,
+      idBlock: { groups: 2, perGroup: 6, digits: [[2, 4], 1] },
+    });
+
+    const sheet = scanSheet(gray, width, height, { idBlock: { groups: 2, perGroup: 6 } });
+
+    // The block itself was read; the student behind it is not known.
+    expect(sheet.id?.wellFormed).toBe(true);
+    expect(sheet.id?.digits).toEqual([null, 1]);
+    expect(formatIdCode(sheet.id)).toBeNull();
+    expect(idToStudentNumber(sheet.id)).toBeNull();
+  });
+
+  it('reads a digit with nothing shaded as nothing rather than as the first code', () => {
+    const { gray, width, height } = renderSheet({
+      ...ANSWERS,
+      idBlock: { groups: 2, perGroup: 6, digits: [null, 1] },
+    });
+
+    const sheet = scanSheet(gray, width, height, { idBlock: { groups: 2, perGroup: 6 } });
+
+    expect(sheet.id?.digits).toEqual([null, 1]);
+    expect(idToStudentNumber(sheet.id)).toBeNull();
+  });
+
+  it('carries a three-digit code without borrowing a digit', () => {
+    const { gray, width, height } = renderSheet({
+      rows: 4,
+      cols: 4,
+      marked: marksFromChoices(4, 4, { 0: [0] }),
+      idBlock: { groups: 3, perGroup: 4, digits: [2, 3, 1] },
+    });
+
+    const sheet = scanSheet(gray, width, height, { idBlock: { groups: 3, perGroup: 4 } });
+
+    expect(sheet.id?.digits).toEqual([2, 3, 1]);
+    expect(formatIdCode(sheet.id)).toBe('231');
+    expect(idToStudentNumber(sheet.id)).toBe(2 * 16 + 3 * 4 + 1 + 1);
+  });
+
+  it('reports no block at all for a sheet the teacher never printed one on', () => {
+    const { gray, width, height } = renderSheet(ANSWERS);
+
+    const sheet = scanSheet(gray, width, height);
+
+    expect(sheet.id).toBeNull();
+    expect(sheet.idMissing).toBe(false);
+    expect(sheet.rows).toBe(8);
+  });
+
+  /*
+   * The round trip is the part that puts a mark on a child, so it is asserted
+   * both ways. `idToStudentNumber` reading a drawn code to N and
+   * `studentNumberToDigits` turning N back into that same code are only correct
+   * together, and a change to one that leaves the other alone would still pass a
+   * test that only checked a single direction.
+   */
+  it('round-trips every student number the printed shape can carry', () => {
+    const shape = { groups: 2, perGroup: 6 };
+
+    for (let number = 1; number <= shape.groups * shape.perGroup; number++) {
+      const digits = studentNumberToDigits(number, shape);
+      expect(digits).not.toBeNull();
+      expect(digits).toHaveLength(shape.groups);
+
+      // Straight back through the reader's own arithmetic.
+      const value =
+        digits!.reduce((total, digit) => total * shape.perGroup + digit, 0) + 1;
+      expect(value).toBe(number);
+    }
+  });
+
+  it('reads back exactly the codes it printed, one digit at a time', () => {
+    const shape = { groups: 2, perGroup: 8 };
+
+    // Student 1 is the all-zeros corner, which is the case most likely to be
+    // confused with an empty digit and silently read as nothing.
+    expect(studentNumberToDigits(1, shape)).toEqual([0, 0]);
+    expect(studentNumberToDigits(2, shape)).toEqual([0, 1]);
+    expect(studentNumberToDigits(9, shape)).toEqual([1, 0]);
+    expect(studentNumberToDigits(64, shape)).toEqual([7, 7]);
+  });
+
+  it('refuses a student number the printed shape cannot carry', () => {
+    const shape = { groups: 2, perGroup: 8 };
+
+    // 65 is one past the end. Wrapping around would give two children the same
+    // code, which is the failure this function exists to make impossible.
+    expect(studentNumberToDigits(65, shape)).toBeNull();
+    expect(studentNumberToDigits(0, shape)).toBeNull();
+    expect(studentNumberToDigits(-3, shape)).toBeNull();
+  });
+
+  it('survives the real printed geometry end to end for a one-digit block', () => {
+    // One digit of eight: the simplest shape, and the one a small class uses.
+    const choices = { 0: [2], 1: [0], 2: [3], 3: [1] };
+    const { gray, width, height } = renderSheet({
+      rows: 4,
+      cols: 4,
+      marked: marksFromChoices(4, 4, choices),
+      idBlock: { groups: 1, perGroup: 8, digits: [5] },
+    });
+
+    const sheet = scanSheet(gray, width, height, { idBlock: { groups: 1, perGroup: 8 } });
+
+    expect(sheet.id?.digits).toEqual([5]);
+    expect(idToStudentNumber(sheet.id)).toBe(6);
+    expect(sheet.rows).toBe(4);
+    expect(sheet.bubbles.map((row) => row.map((b) => b.marked))).toEqual(
+      marksFromChoices(4, 4, choices),
+    );
   });
 });
