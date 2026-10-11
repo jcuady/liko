@@ -20,6 +20,7 @@ const Input = React.forwardRef<HTMLInputElement, InputProps>(
     return (
       <input
         ref={ref}
+        data-slot="input"
         type={type}
         className={cn(
           'flex h-11 w-full rounded-[12px] border border-border-strong bg-surface px-3.5 py-2',
@@ -47,6 +48,7 @@ const Textarea = React.forwardRef<
   return (
     <textarea
       ref={ref}
+      data-slot="textarea"
       rows={rows}
       className={cn(
         'flex w-full resize-y rounded-[12px] border border-border-strong bg-surface px-3.5 py-2.5',
@@ -78,6 +80,7 @@ const Select = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <select
     ref={ref}
+    data-slot="select"
     className={cn(
       'flex h-11 w-full rounded-[12px] border border-border-strong bg-surface px-3.5',
       'text-base lg:text-[0.9375rem] text-ink',

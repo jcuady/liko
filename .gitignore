@@ -73,6 +73,13 @@ sohne-font-family/
 # be read in full rather than in the last screenful of a terminal.
 .e2e-run.txt
 .e2e-final.txt
+.e2e-slot.txt
+.e2e-slot2.txt
+
+# One-shot verification scripts used while porting the UI kit, not standing
+# gates. They are written against the tree at the moment they run.
+.class-check.mjs
+.fix-displayname.mjs
 
 # Commit message written to a file and piped in with `git commit -F`. PowerShell
 # mangles backticks and quotes inside a double-quoted argument, and this

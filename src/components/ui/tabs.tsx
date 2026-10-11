@@ -5,7 +5,25 @@ import * as TabsPrimitive from '@radix-ui/react-tabs';
 
 import { cn } from '@/lib/utils';
 
-const Tabs = TabsPrimitive.Root;
+// The Root carries no styles of its own, so `className` is only passed through.
+/*
+ * `data-slot="tabs"` on the Root is a contract marker, not a styling hook.
+ * `TabsPrimitive.Root` is a context provider and renders no DOM node, so the
+ * attribute never reaches the HTML. `tabs-list`, `tabs-trigger` and
+ * `tabs-content` are real elements and their slots do render.
+ */
+const Tabs = React.forwardRef<
+  React.ComponentRef<typeof TabsPrimitive.Root>,
+  React.ComponentPropsWithoutRef<typeof TabsPrimitive.Root>
+>(({ className, ...props }, ref) => (
+  <TabsPrimitive.Root
+    ref={ref}
+    data-slot="tabs"
+    className={cn(className)}
+    {...props}
+  />
+));
+Tabs.displayName = 'Tabs';
 
 const TabsList = React.forwardRef<
   React.ComponentRef<typeof TabsPrimitive.List>,
@@ -13,6 +31,7 @@ const TabsList = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <TabsPrimitive.List
     ref={ref}
+    data-slot="tabs-list"
     /*
      * Wraps rather than scrolls. Four tabs are about 356px of triggers plus the
      * container padding, which does not fit a 375px screen, and an
@@ -28,7 +47,7 @@ const TabsList = React.forwardRef<
     {...props}
   />
 ));
-TabsList.displayName = TabsPrimitive.List.displayName;
+TabsList.displayName = 'TabsList';
 
 const TabsTrigger = React.forwardRef<
   React.ComponentRef<typeof TabsPrimitive.Trigger>,
@@ -36,6 +55,7 @@ const TabsTrigger = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <TabsPrimitive.Trigger
     ref={ref}
+    data-slot="tabs-trigger"
     className={cn(
       // `min-h-11` below `lg`, compact above. A 36px tab is a comfortable
       // pointer target and an awkward thumb one.
@@ -49,7 +69,7 @@ const TabsTrigger = React.forwardRef<
     {...props}
   />
 ));
-TabsTrigger.displayName = TabsPrimitive.Trigger.displayName;
+TabsTrigger.displayName = 'TabsTrigger';
 
 const TabsContent = React.forwardRef<
   React.ComponentRef<typeof TabsPrimitive.Content>,
@@ -57,10 +77,11 @@ const TabsContent = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <TabsPrimitive.Content
     ref={ref}
+    data-slot="tabs-content"
     className={cn('focus-visible:outline-none', className)}
     {...props}
   />
 ));
-TabsContent.displayName = TabsPrimitive.Content.displayName;
+TabsContent.displayName = 'TabsContent';
 
 export { Tabs, TabsList, TabsTrigger, TabsContent };

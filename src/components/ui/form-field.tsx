@@ -25,21 +25,28 @@ export interface FormFieldProps {
   }) => React.ReactNode;
 }
 
-function FormField({
-  id,
-  label,
-  hint,
-  error,
-  required,
-  className,
-  children,
-}: FormFieldProps) {
+const FormField = React.forwardRef<HTMLDivElement, FormFieldProps>(function FormField(
+  {
+    id,
+    label,
+    hint,
+    error,
+    required,
+    className,
+    children,
+  },
+  ref,
+) {
   const hintId = hint ? `${id}-hint` : undefined;
   const errorId = error ? `${id}-error` : undefined;
   const describedBy = [hintId, errorId].filter(Boolean).join(' ') || undefined;
 
   return (
-    <div className={cn('flex flex-col gap-1.5', className)}>
+    <div
+      ref={ref}
+      data-slot="form-field"
+      className={cn('flex flex-col gap-1.5', className)}
+    >
       <label htmlFor={id} className="text-[0.875rem] font-medium text-ink">
         {label}
         {required ? (
@@ -86,27 +93,27 @@ function FormField({
       ) : null}
     </div>
   );
-}
+});
+FormField.displayName = 'FormField';
 
 /**
  * Error summary. After a failed submit with more than one invalid field, focus
  * moves here so screen reader users hear the full list before tabbing into
  * individual fields. Each item links to its field.
  */
-function ErrorSummary({
-  errors,
-  title = 'Check the highlighted fields',
-  ref,
-}: {
-  errors: { id: string; label: string; message: string }[];
-  title?: string;
-  ref?: React.Ref<HTMLDivElement>;
-}) {
+const ErrorSummary = React.forwardRef<
+  HTMLDivElement,
+  {
+    errors: { id: string; label: string; message: string }[];
+    title?: string;
+  }
+>(function ErrorSummary({ errors, title = 'Check the highlighted fields' }, ref) {
   if (errors.length === 0) return null;
 
   return (
     <div
       ref={ref}
+      data-slot="error-summary"
       tabIndex={-1}
       role="alert"
       aria-labelledby="form-error-summary-title"
@@ -138,18 +145,25 @@ function ErrorSummary({
       </div>
     </div>
   );
-}
+});
+ErrorSummary.displayName = 'ErrorSummary';
 
-function FormSuccess({ children }: { children: React.ReactNode }) {
+const FormSuccess = React.forwardRef<
+  HTMLParagraphElement,
+  { children: React.ReactNode }
+>(function FormSuccess({ children }, ref) {
   return (
     <p
+      ref={ref}
       role="status"
+      data-slot="form-success"
       className="flex items-start gap-2 rounded-[12px] border border-success bg-success-subtle p-3.5 text-meta font-medium text-success"
     >
       <CircleCheck size={16} strokeWidth={2.5} aria-hidden="true" className="mt-0.5 shrink-0" />
       {children}
     </p>
   );
-}
+});
+FormSuccess.displayName = 'FormSuccess';
 
 export { FormField, ErrorSummary, FormSuccess };

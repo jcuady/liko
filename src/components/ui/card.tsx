@@ -34,6 +34,7 @@ const Card = React.forwardRef<
 >(({ className, elevation, interactive, ...props }, ref) => (
   <div
     ref={ref}
+    data-slot="card"
     className={cn(cardVariants({ elevation, interactive }), className)}
     {...props}
   />
@@ -44,7 +45,12 @@ const CardHeader = React.forwardRef<
   HTMLDivElement,
   React.HTMLAttributes<HTMLDivElement>
 >(({ className, ...props }, ref) => (
-  <div ref={ref} className={cn('flex flex-col gap-1.5 p-5', className)} {...props} />
+  <div
+    ref={ref}
+    data-slot="card-header"
+    className={cn('flex flex-col gap-1.5 p-5', className)}
+    {...props}
+  />
 ));
 CardHeader.displayName = 'CardHeader';
 
@@ -66,7 +72,12 @@ const CardTitle = React.forwardRef<
    * the case that would want a deeper level, and none exists; if one does,
    * render a heading element directly there rather than nesting a `Card`.
    */
-  <h2 ref={ref} className={cn('text-h4 text-ink', className)} {...props} />
+  <h2
+    ref={ref}
+    data-slot="card-title"
+    className={cn('text-h4 text-ink', className)}
+    {...props}
+  />
 ));
 CardTitle.displayName = 'CardTitle';
 
@@ -74,7 +85,12 @@ const CardDescription = React.forwardRef<
   HTMLParagraphElement,
   React.HTMLAttributes<HTMLParagraphElement>
 >(({ className, ...props }, ref) => (
-  <p ref={ref} className={cn('text-meta text-ink-muted', className)} {...props} />
+  <p
+    ref={ref}
+    data-slot="card-description"
+    className={cn('text-meta text-ink-muted', className)}
+    {...props}
+  />
 ));
 CardDescription.displayName = 'CardDescription';
 
@@ -82,7 +98,12 @@ const CardContent = React.forwardRef<
   HTMLDivElement,
   React.HTMLAttributes<HTMLDivElement>
 >(({ className, ...props }, ref) => (
-  <div ref={ref} className={cn('p-5 pt-0', className)} {...props} />
+  <div
+    ref={ref}
+    data-slot="card-content"
+    className={cn('p-5 pt-0', className)}
+    {...props}
+  />
 ));
 CardContent.displayName = 'CardContent';
 
@@ -92,6 +113,7 @@ const CardFooter = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <div
     ref={ref}
+    data-slot="card-footer"
     className={cn('flex items-center gap-3 p-5 pt-0', className)}
     {...props}
   />
@@ -122,7 +144,12 @@ const Badge = React.forwardRef<
   HTMLSpanElement,
   React.HTMLAttributes<HTMLSpanElement> & VariantProps<typeof badgeVariants>
 >(({ className, tone, size, ...props }, ref) => (
-  <span ref={ref} className={cn(badgeVariants({ tone, size }), className)} {...props} />
+  <span
+    ref={ref}
+    data-slot="badge"
+    className={cn(badgeVariants({ tone, size }), className)}
+    {...props}
+  />
 ));
 Badge.displayName = 'Badge';
 
@@ -136,3 +163,20 @@ export {
   Badge,
   badgeVariants,
 };
+
+/*
+ * NO `CardAction`, AND THAT IS DELIBERATE.
+ *
+ * shadcn's card has one and this kit does not. Its version positions the action
+ * with `col-start-2 row-span-2 row-start-1`, which only does anything because
+ * shadcn's `CardHeader` is a two column grid. This `CardHeader` is
+ * `flex flex-col gap-1.5 p-5`, so those grid properties are silently ignored
+ * and the action would stack underneath the title as an ordinary flex child.
+ *
+ * Making it work means converting every `CardHeader` in the product to a grid,
+ * which restyles every card on every screen during a rebrand that has already
+ * been verified end to end. That is a worse trade than an absent part, so the
+ * part stays absent until it is needed and the layout change can be made on its
+ * own. If a card ever needs a header action, it gets a wrapper div and that is
+ * noted here so the next person does not rediscover it.
+ */

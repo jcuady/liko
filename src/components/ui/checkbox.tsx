@@ -27,6 +27,7 @@ const Checkbox = React.forwardRef<
   <span className="relative flex size-11 shrink-0 items-center justify-center">
     <input
       ref={ref}
+      data-slot="checkbox"
       type="checkbox"
       aria-invalid={invalid || undefined}
       className={cn(

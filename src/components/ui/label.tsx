@@ -11,6 +11,7 @@ const Label = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <LabelPrimitive.Root
     ref={ref}
+    data-slot="label"
     className={cn(
       'text-[0.875rem] font-medium leading-none text-ink',
       'peer-disabled:cursor-not-allowed peer-disabled:opacity-60',
@@ -19,6 +20,6 @@ const Label = React.forwardRef<
     {...props}
   />
 ));
-Label.displayName = LabelPrimitive.Root.displayName;
+Label.displayName = 'Label';
 
 export { Label };

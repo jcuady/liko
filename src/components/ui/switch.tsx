@@ -25,6 +25,7 @@ const Switch = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <SwitchPrimitive.Root
     ref={ref}
+    data-slot="switch"
     className={cn(
       'group peer inline-flex size-11 shrink-0 cursor-pointer items-center justify-center',
       'rounded-full lg:h-6 lg:w-11',
@@ -52,6 +53,16 @@ const Switch = React.forwardRef<
     </span>
   </SwitchPrimitive.Root>
 ));
-Switch.displayName = SwitchPrimitive.Root.displayName;
+/*
+ * "Switch", not `SwitchPrimitive.Root.displayName`.
+ *
+ * That was an older shadcn idiom and it is a trap. A Radix primitive has no
+ * `displayName` of its own unless it happens to set one, so this assigned
+ * `undefined`, and React fell back to naming the component "ForwardRef" in the
+ * devtools tree and in every React error message that mentions it. Naming the
+ * component after what it is called here costs nothing and makes the stack
+ * trace readable.
+ */
+Switch.displayName = 'Switch';
 
 export { Switch };

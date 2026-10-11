@@ -88,6 +88,7 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
     return (
       <Comp
         ref={ref}
+        data-slot="button"
         // Default to "button" so a button inside a form never submits by accident.
         type={asChild ? undefined : (type ?? 'button')}
         className={cn(buttonVariants({ variant, size, block }), className)}

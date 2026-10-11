@@ -43,7 +43,7 @@ Students cannot self-register. That was already structurally true; it is now exp
 ### Frontend
 - Next.js 16.4.0 App Router, React 19.3.0, Tailwind v4
 - `--webpack` for dev and build: Serwist cannot hook Turbopack
-- Radix primitives + CVA, vendored in `src/components/ui`, with `components.json` marking shadcn/ui `new-york` as the standard for anything new
+- Radix primitives + CVA, vendored in `src/components/ui`, with `components.json` marking shadcn/ui `new-york` as the standard for anything new. Every rendered part carries a `data-slot`; the class strings are LIKO tokens rather than shadcn's, so a newly added part arrives looking wrong and has to be retokenised
 - lucide-react icons, imported from the package root by server and client alike. Phosphor's plain entry pulled a React context into the server bundle and needed `@phosphor-icons/react/dist/ssr` in server components; lucide has no context, so that split is gone
 - `motion` is the only animation runtime
 - TanStack Query v5, React Hook Form + Zod 4, `sonner`, `next-themes`, `vaul`

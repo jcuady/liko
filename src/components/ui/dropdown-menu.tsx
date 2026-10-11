@@ -5,9 +5,44 @@ import * as DropdownMenuPrimitive from '@radix-ui/react-dropdown-menu';
 
 import { cn } from '@/lib/utils';
 
-const DropdownMenu = DropdownMenuPrimitive.Root;
-const DropdownMenuTrigger = DropdownMenuPrimitive.Trigger;
-const DropdownMenuGroup = DropdownMenuPrimitive.Group;
+/*
+ * `Root` renders no DOM node of its own, so it has no ref and no `className` to
+ * forward. It still needs a wrapper so it can carry `data-slot`.
+ *
+ * That slot is a contract marker and never reaches the HTML, because there is
+ * no element to put it on. Styling for this menu targets `dropdown-menu-content`
+ * and the parts inside it, which are real elements. `Tooltip` has the same
+ * arrangement and says so in its own file.
+ */
+function DropdownMenu(props: React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Root>) {
+  return <DropdownMenuPrimitive.Root data-slot="dropdown-menu" {...props} />;
+}
+
+const DropdownMenuTrigger = React.forwardRef<
+  React.ComponentRef<typeof DropdownMenuPrimitive.Trigger>,
+  React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Trigger>
+>(({ className, ...props }, ref) => (
+  <DropdownMenuPrimitive.Trigger
+    ref={ref}
+    data-slot="dropdown-menu-trigger"
+    className={cn(className)}
+    {...props}
+  />
+));
+DropdownMenuTrigger.displayName = 'DropdownMenuTrigger';
+
+const DropdownMenuGroup = React.forwardRef<
+  React.ComponentRef<typeof DropdownMenuPrimitive.Group>,
+  React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Group>
+>(({ className, ...props }, ref) => (
+  <DropdownMenuPrimitive.Group
+    ref={ref}
+    data-slot="dropdown-menu-group"
+    className={cn(className)}
+    {...props}
+  />
+));
+DropdownMenuGroup.displayName = 'DropdownMenuGroup';
 
 const DropdownMenuContent = React.forwardRef<
   React.ComponentRef<typeof DropdownMenuPrimitive.Content>,
@@ -16,6 +51,7 @@ const DropdownMenuContent = React.forwardRef<
   <DropdownMenuPrimitive.Portal>
     <DropdownMenuPrimitive.Content
       ref={ref}
+      data-slot="dropdown-menu-content"
       sideOffset={sideOffset}
       align={align}
       className={cn(
@@ -31,7 +67,7 @@ const DropdownMenuContent = React.forwardRef<
     />
   </DropdownMenuPrimitive.Portal>
 ));
-DropdownMenuContent.displayName = DropdownMenuPrimitive.Content.displayName;
+DropdownMenuContent.displayName = 'DropdownMenuContent';
 
 const DropdownMenuItem = React.forwardRef<
   React.ComponentRef<typeof DropdownMenuPrimitive.Item>,
@@ -41,6 +77,7 @@ const DropdownMenuItem = React.forwardRef<
 >(({ className, destructive, ...props }, ref) => (
   <DropdownMenuPrimitive.Item
     ref={ref}
+    data-slot="dropdown-menu-item"
     className={cn(
       'relative flex cursor-pointer select-none items-center gap-2.5 rounded-[8px]',
       'px-2.5 py-2 text-[0.9375rem] outline-none',
@@ -55,7 +92,7 @@ const DropdownMenuItem = React.forwardRef<
     {...props}
   />
 ));
-DropdownMenuItem.displayName = DropdownMenuPrimitive.Item.displayName;
+DropdownMenuItem.displayName = 'DropdownMenuItem';
 
 const DropdownMenuLabel = React.forwardRef<
   React.ComponentRef<typeof DropdownMenuPrimitive.Label>,
@@ -63,11 +100,12 @@ const DropdownMenuLabel = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <DropdownMenuPrimitive.Label
     ref={ref}
+    data-slot="dropdown-menu-label"
     className={cn('px-2.5 py-1.5 text-label', className)}
     {...props}
   />
 ));
-DropdownMenuLabel.displayName = DropdownMenuPrimitive.Label.displayName;
+DropdownMenuLabel.displayName = 'DropdownMenuLabel';
 
 const DropdownMenuSeparator = React.forwardRef<
   React.ComponentRef<typeof DropdownMenuPrimitive.Separator>,
@@ -75,11 +113,12 @@ const DropdownMenuSeparator = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <DropdownMenuPrimitive.Separator
     ref={ref}
+    data-slot="dropdown-menu-separator"
     className={cn('-mx-1 my-1 h-px bg-border', className)}
     {...props}
   />
 ));
-DropdownMenuSeparator.displayName = DropdownMenuPrimitive.Separator.displayName;
+DropdownMenuSeparator.displayName = 'DropdownMenuSeparator';
 
 export {
   DropdownMenu,

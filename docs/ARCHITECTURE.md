@@ -24,6 +24,37 @@ The flag is confined to the `dev` and `build` scripts in `package.json` and to
 one comment in `next.config.ts`, so removing it when Serwist ships Turbopack
 support is a one-line change.
 
+### The UI kit is shadcn, vendored
+
+`src/components/ui` is shadcn/ui's `new-york` style, vendored the way shadcn
+intends: you own the file and edit it. `components.json` records the standard so
+`npx shadcn add <part>` produces something that matches what is already here.
+
+The class strings are **ours**, not shadcn's. They carry LIKO tokens
+(`bg-accent`, `text-on-accent`, `bg-forest`, `border-hero-border`) and the 44px
+touch targets the responsive rules require, neither of which is in the upstream
+component. A new shadcn part therefore arrives looking wrong and has to be
+retokenised. That is expected, not a bug, and it is why nobody should
+"restore" a part to its upstream appearance.
+
+Three conventions the kit holds to, all of which were added in one pass and all
+of which are easy to break again:
+
+- **Every rendered part carries `data-slot`.** That is shadcn's targeting
+  contract and what makes `data-[slot=x]` styling possible. Four of them are
+  contract markers only: `accordion`, `tabs`, `tooltip`, `tooltip-provider` and
+  `dropdown-menu` sit on Radix context primitives that render no DOM, so they
+  never reach the HTML. Styling targets the real parts. Each file says so.
+- **`displayName` is the component's own name.** An older shadcn idiom assigns
+  `X.displayName = RadixPrimitive.Y.displayName`, which is `undefined`, because
+  no Radix primitive defines one. React then calls the component "ForwardRef"
+  in devtools and in every stack that mentions it.
+- **One exception to the part set.** shadcn's card has a `CardAction` and this
+  kit does not. It positions itself with grid properties that only work because
+  shadcn's `CardHeader` is a two column grid; ours is `flex flex-col`, so they
+  are silently ignored. Adding it means converting every card in the product,
+  which is its own change.
+
 ## Routing
 
 Route groups share layouts without affecting URLs. `app/layout.tsx` is the only
