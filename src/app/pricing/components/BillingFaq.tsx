@@ -6,8 +6,8 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from '@/components/ui/accordion';
-import { SectionHeader } from '@/app/(marketing)/components/SectionHeader';
-import { Reveal } from '@/app/(marketing)/components/Reveal';
+import { Reveal } from '@/components/marketing/Reveal';
+import { SectionHeading } from '@/components/marketing/SectionHeading';
 
 /**
  * Pricing questions only.
@@ -68,10 +68,10 @@ export function BillingFaq() {
         <div className="grid gap-12 lg:grid-cols-12 lg:gap-16">
           <div className="lg:col-span-4">
             <div className="lg:sticky lg:top-24">
-              <SectionHeader
-                label="Pricing"
-                id="billing-title"
-                title="What you pay, and when."
+              <SectionHeading
+                align="start"
+                eyebrow="Pricing"
+                title={<span id="billing-title">What you pay, and when.</span>}
               />
             </div>
           </div>

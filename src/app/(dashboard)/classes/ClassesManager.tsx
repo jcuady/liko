@@ -4,7 +4,7 @@ import * as React from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
-import { ArchiveIcon, PlusIcon, UploadSimpleIcon, UsersIcon } from '@phosphor-icons/react';
+import { Archive, Plus, Upload, Users } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Input, Select } from '@/components/ui/input';
@@ -89,7 +89,7 @@ export function ClassesManager({ classes }: { classes: ClassSummary[] }) {
 
       {classes.length === 0 ? (
         <EmptyState
-          icon={UsersIcon}
+          icon={Users}
           title="No classes yet"
           description="A class holds the roster, the register, the gradebook, and the plan. Create one and everything else attaches to it."
         />
@@ -199,7 +199,7 @@ function RosterPanel({ classRecord }: { classRecord: ClassSummary }) {
             onClick={() => archiveClassMutation.mutate(classRecord.id)}
             disabled={archiveClassMutation.isPending}
           >
-            <ArchiveIcon size={15} weight="bold" aria-hidden="true" />
+            <Archive size={15} aria-hidden="true" />
             Archive class
           </Button>
         </div>
@@ -286,7 +286,7 @@ function RosterPanel({ classRecord }: { classRecord: ClassSummary }) {
                         disabled={archive.isPending}
                       >
                         <span className="sr-only">Archive {student.fullName}</span>
-                        <ArchiveIcon size={15} weight="bold" aria-hidden="true" />
+                        <Archive size={15} aria-hidden="true" />
                         <span aria-hidden="true">Archive</span>
                       </Button>
                     </td>
@@ -354,7 +354,7 @@ function NewClassDialog() {
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
         <Button size="sm">
-          <PlusIcon size={15} weight="bold" aria-hidden="true" />
+          <Plus size={15} aria-hidden="true" />
           New class
         </Button>
       </DialogTrigger>
@@ -479,7 +479,7 @@ function ImportRosterDialog({ classId }: { classId: string }) {
     <Dialog open={open} onOpenChange={(next) => (next ? setOpen(true) : reset())}>
       <DialogTrigger asChild>
         <Button variant="ghost" size="sm">
-          <UploadSimpleIcon size={15} weight="bold" aria-hidden="true" />
+          <Upload size={15} aria-hidden="true" />
           Import CSV
         </Button>
       </DialogTrigger>
@@ -694,7 +694,7 @@ function NewStudentDialog({ classId }: { classId: string }) {
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
         <Button variant="secondary" size="sm">
-          <PlusIcon size={15} weight="bold" aria-hidden="true" />
+          <Plus size={15} aria-hidden="true" />
           Add student
         </Button>
       </DialogTrigger>

@@ -36,17 +36,38 @@ export type Cell = boolean | string;
  * Mirrors the check constraint on `organizations.plan`.
  *
  * The database is the durable vocabulary, so the page uses its words rather than
- * inventing a second set. This was previously `'starter' | 'teacher' | 'school'`
- * here against `'solo' | 'school' | 'district'` in SQL, with only `school`
- * overlapping, which meant two of the three ids on this page could not have been
- * written to the column they refer to and one legal value had no card.
+ * inventing a second set. This file previously sold `starter | teacher | school`
+ * while SQL allowed `solo | school | district`, with only `school` overlapping,
+ * so two of the three ids here could not have been written to the column they
+ * refer to and one legal value had no card. All three now say the same thing and
+ * `scripts/check-migration.mjs` fails the build if they drift apart again.
  */
-export type PlanId = 'solo' | 'teacher' | 'school';
+export type PlanId = 'starter' | 'teacher-pro' | 'school';
 
-export const PLAN_IDS: readonly PlanId[] = ['solo', 'teacher', 'school'];
+export const PLAN_IDS: readonly PlanId[] = ['starter', 'teacher-pro', 'school'];
 
 export function isPlanId(value: unknown): value is PlanId {
   return typeof value === 'string' && (PLAN_IDS as readonly string[]).includes(value);
+}
+
+/**
+ * Philippine pesos, because that is where the product is sold.
+ *
+ * The old page quoted dollars for a product whose users are teachers in the
+ * Philippines, which meant the cheapest paid tier cost less than a school
+ * canteen. `Intl.NumberFormat` does the grouping rather than a string, so a
+ * four thousand peso plan reads as "4,199" and not "4199".
+ */
+export const CURRENCY = 'PHP';
+
+const peso = new Intl.NumberFormat('en-PH', {
+  style: 'currency',
+  currency: CURRENCY,
+  maximumFractionDigits: 0,
+});
+
+export function formatPrice(amount: number): string {
+  return peso.format(amount);
 }
 
 export type Plan = {
@@ -70,13 +91,13 @@ export type Plan = {
 
 export const PLANS: Plan[] = [
   {
-    id: 'solo',
-    name: 'Solo',
+    id: 'starter',
+    name: 'Starter',
     audience: 'One teacher, one class',
     monthly: 0,
     annual: 0,
     unit: 'forever',
-    blurb: 'The whole workspace, for a teacher running a single class.',
+    blurb: 'A fresh start for your classroom. The whole workspace, free.',
     features: [
       'Classes at preschool, K-12 or university level',
       'Roster with guardian names, emails and phone numbers',
@@ -92,45 +113,46 @@ export const PLANS: Plan[] = [
       */
       'The admin console, for anyone a school makes an administrator',
     ],
-    cta: 'Create a free account',
+    cta: 'Start for free',
   },
   {
-    id: 'teacher',
-    name: 'Teacher',
+    id: 'teacher-pro',
+    name: 'Teacher Pro',
     audience: 'A teacher running several classes',
-    monthly: 12,
-    annual: 9,
+    monthly: 299,
+    annual: 239,
     unit: 'per month',
-    blurb: 'Everything in Solo, for a teacher whose timetable filled up.',
+    blurb: 'More possibility, less busywork. Everything in Starter, for a full timetable.',
     features: [
-      'Everything in Solo, without a per-class ceiling',
+      'Everything in Starter, without a per-class ceiling',
       'Assessments, quizzes and exams with weighted marks',
+      'Scanned paper quizzes scored against the answer key',
       'Milestone grading alongside letter and point scales',
       'Every change to a mark is kept, with who made it',
       'Push notifications when a student is flagged at risk',
       'Works offline and syncs when the connection returns',
     ],
-    cta: 'Create a free account',
+    cta: 'Try Teacher Pro',
     recommended: true,
   },
   {
     id: 'school',
     name: 'School',
     audience: 'A department head or administrator',
-    monthly: 24,
-    annual: 18,
+    monthly: 1499,
+    annual: 1199,
     unit: 'per teacher, per month',
     perTeacher: true,
-    blurb: 'One place to administer every class in a department.',
+    blurb: 'Better together, across your school. One place to administer every class.',
     features: [
-      'Everything in Teacher, across every class you administer',
+      'Everything in Teacher Pro, across every class you administer',
       'A staff account for each teacher you onboard',
       'The admin console: people, classes, organisation and access',
       'Role separation between instructor and administrator',
       'Tenant isolation, so one school cannot read another',
       'Append-only consent records that an account cannot edit',
     ],
-    cta: 'Create a free account',
+    cta: 'Explore School',
   },
 ];
 
@@ -163,7 +185,7 @@ export function savingPercent(plan: Plan): number {
 export function priceNote(plan: Plan, cycle: Cycle): string {
   if (plan.monthly === 0) return 'Free, and no card is taken.';
   const per = plan.perTeacher ? ' per teacher' : '';
-  return `Will be $${priceFor(plan, cycle)}${per} a month when billing opens.`;
+  return `Will be ${formatPrice(priceFor(plan, cycle))}${per} a month when billing opens.`;
 }
 
 export type ComparisonGroup = {
@@ -267,7 +289,7 @@ export const COMPARISON: ComparisonGroup[] = [
       },
       {
         label: 'What it will cost',
-        cells: ['Nothing', '$9 to $12 a month', '$18 to $24 per teacher a month'],
+        cells: ['Nothing', '₱239 to ₱299 a month', '₱1,199 to ₱1,499 per teacher a month'],
       },
       { label: 'Card details needed to sign up', cells: [false, false, false] },
     ],

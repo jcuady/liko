@@ -5,20 +5,20 @@ import { useRouter } from 'next/navigation';
 import { useMutation } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
-  ArrowDownIcon,
-  ArrowLeftIcon,
-  ArrowRightIcon,
-  ArrowUpIcon,
-  CopyIcon,
+  ArrowDown,
+  ArrowLeft,
+  ArrowRight,
+  ArrowUp,
+  Copy,
+  Heading1,
   ImageIcon,
-  ListBulletsIcon,
-  PaperPlaneTiltIcon,
-  PlusIcon,
-  TextAlignLeftIcon,
-  TextHOneIcon,
-  TrashIcon,
-  XIcon,
-} from '@phosphor-icons/react';
+  List,
+  Maximize,
+  Plus,
+  TextAlignStart,
+  Trash2,
+  X,
+} from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Badge, Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -162,7 +162,7 @@ function Thumbnail({
           aria-label={`Move slide ${index + 1} up`}
           className="grid size-11 place-items-center rounded-[8px] text-ink-muted transition-colors duration-150 hover:bg-surface-sunken hover:text-ink disabled:pointer-events-none disabled:opacity-35 lg:size-8 lg:rounded-[6px]"
         >
-          <ArrowUpIcon size={14} weight="bold" aria-hidden="true" />
+          <ArrowUp size={14} aria-hidden="true" />
         </button>
         <button
           type="button"
@@ -171,7 +171,7 @@ function Thumbnail({
           aria-label={`Move slide ${index + 1} down`}
           className="grid size-11 place-items-center rounded-[8px] text-ink-muted transition-colors duration-150 hover:bg-surface-sunken hover:text-ink disabled:pointer-events-none disabled:opacity-35 lg:size-8 lg:rounded-[6px]"
         >
-          <ArrowDownIcon size={14} weight="bold" aria-hidden="true" />
+          <ArrowDown size={14} aria-hidden="true" />
         </button>
         <button
           type="button"
@@ -180,7 +180,7 @@ function Thumbnail({
           aria-label={`Duplicate slide ${index + 1}`}
           className="grid size-11 place-items-center rounded-[8px] text-ink-muted transition-colors duration-150 hover:bg-surface-sunken hover:text-ink disabled:pointer-events-none disabled:opacity-35 lg:size-8 lg:rounded-[6px]"
         >
-          <CopyIcon size={14} weight="bold" aria-hidden="true" />
+          <Copy size={14} aria-hidden="true" />
         </button>
         <button
           type="button"
@@ -189,7 +189,7 @@ function Thumbnail({
           aria-label={`Delete slide ${index + 1}`}
           className="grid size-11 place-items-center rounded-[8px] text-ink-muted transition-colors duration-150 hover:bg-danger-subtle hover:text-danger disabled:pointer-events-none disabled:opacity-35 lg:size-8 lg:rounded-[6px]"
         >
-          <TrashIcon size={14} weight="bold" aria-hidden="true" />
+          <Trash2 size={14} aria-hidden="true" />
         </button>
       </div>
     </div>
@@ -731,7 +731,7 @@ export function SlideEditor({
               className="text-surface hover:bg-white/10"
               onClick={() => setPresenting(false)}
             >
-              <XIcon size={16} weight="bold" aria-hidden="true" />
+              <X size={16} aria-hidden="true" />
               Exit
             </Button>
           </div>
@@ -761,7 +761,7 @@ export function SlideEditor({
             disabled={presentIndex === 0}
             onClick={() => setPresentIndex((current) => Math.max(current - 1, 0))}
           >
-            <ArrowLeftIcon size={16} weight="bold" aria-hidden="true" />
+            <ArrowLeft size={16} aria-hidden="true" />
             Previous
           </Button>
           <Button
@@ -770,7 +770,7 @@ export function SlideEditor({
             onClick={() => setPresentIndex((current) => Math.min(current + 1, slides.length - 1))}
           >
             Next
-            <ArrowRightIcon size={16} weight="bold" aria-hidden="true" />
+            <ArrowRight size={16} aria-hidden="true" />
           </Button>
         </div>
       </div>
@@ -788,7 +788,7 @@ export function SlideEditor({
         </div>
 
         <Button onClick={() => void enterPresent()} disabled={slides.length === 0}>
-          <PaperPlaneTiltIcon size={18} weight="fill" aria-hidden="true" />
+          <Maximize size={18} aria-hidden="true" />
           Present
         </Button>
       </div>
@@ -827,7 +827,7 @@ export function SlideEditor({
               disabled={addSlide.isPending}
               onClick={() => addSlide.mutate()}
             >
-              <PlusIcon size={15} weight="bold" aria-hidden="true" />
+              <Plus size={15} aria-hidden="true" />
               Add slide
             </Button>
           </CardContent>
@@ -912,15 +912,15 @@ export function SlideEditor({
                         variant="secondary"
                         onClick={() => addElement('heading')}
                       >
-                        <TextHOneIcon size={15} weight="bold" aria-hidden="true" />
+                        <Heading1 size={15} aria-hidden="true" />
                         Heading
                       </Button>
                       <Button size="sm" variant="secondary" onClick={() => addElement('text')}>
-                        <TextAlignLeftIcon size={15} weight="bold" aria-hidden="true" />
+                        <TextAlignStart size={15} aria-hidden="true" />
                         Text
                       </Button>
                       <Button size="sm" variant="secondary" onClick={() => addElement('bullets')}>
-                        <ListBulletsIcon size={15} weight="bold" aria-hidden="true" />
+                        <List size={15} aria-hidden="true" />
                         Bullet list
                       </Button>
                       <Button
@@ -929,7 +929,7 @@ export function SlideEditor({
                         disabled={imageSources.length === 0}
                         onClick={() => addElement('image')}
                       >
-                        <ImageIcon size={15} weight="bold" aria-hidden="true" />
+                        <ImageIcon size={15} aria-hidden="true" />
                         Image
                       </Button>
                     </div>

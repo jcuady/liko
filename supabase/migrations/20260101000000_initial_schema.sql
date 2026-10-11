@@ -666,13 +666,44 @@ create table if not exists public.organizations (
   name          text not null check (char_length(name) between 2 and 160),
   slug          text not null unique
                 check (slug ~ '^[a-z0-9][a-z0-9-]{1,62}$'),
-  plan          text not null default 'solo'
-                check (plan in ('solo', 'teacher', 'school')),
+  plan          text not null default 'starter'
+                check (plan in ('starter', 'teacher-pro', 'school')),
   seat_limit    integer not null default 5 check (seat_limit > 0),
   billing_email text,
   created_at    timestamptz not null default now(),
   updated_at    timestamptz not null default now()
 );
+
+-- The tiers were renamed from solo / teacher to starter / teacher-pro when the
+-- brand changed. The rows are moved BEFORE the constraint above is enforced on
+-- a database that already exists, so re-running this migration against a live
+-- project cannot fail on a value the new check does not allow.
+--
+-- Order matters and it is the whole of this block: the update comes first, then
+-- the old constraint is dropped, then the new one is attached. Doing it the
+-- other way round turns a rename into a dropped table.
+update public.organizations set plan = 'starter' where plan = 'solo';
+update public.organizations set plan = 'teacher-pro' where plan = 'teacher';
+
+alter table public.organizations
+  drop constraint if exists organizations_plan_check;
+alter table public.organizations
+  add constraint organizations_plan_check check (plan in ('starter', 'teacher-pro', 'school'));
+
+-- The COLUMN DEFAULT is the other half of this rename, and it was missed the
+-- first time.
+--
+-- `create table if not exists` is a no-op against a table that already exists,
+-- so the `default 'starter'` written in the create statement above never
+-- reaches a live database. Only the constraint below was ever replaced, which
+-- left `organizations.plan` defaulting to `'solo'` and rejecting every insert
+-- that omitted the column. `pnpm db:settle` found it: it seeds an org without a
+-- plan and came back 23514 with `solo` in the failing row.
+--
+-- A column default is not covered by the constraint, so it has to be set
+-- explicitly, and it has to be set on every run rather than once.
+alter table public.organizations
+  alter column plan set default 'starter';
 
 comment on table public.organizations is
   'The tenant. One per school or district; every other table hangs off it.';

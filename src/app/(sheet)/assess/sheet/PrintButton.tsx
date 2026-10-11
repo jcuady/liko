@@ -1,6 +1,6 @@
 'use client';
 
-import { PrinterIcon } from '@phosphor-icons/react';
+import { Printer } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 
@@ -15,7 +15,7 @@ import { Button } from '@/components/ui/button';
 export function PrintButton() {
   return (
     <Button type="button" variant="primary" onClick={() => window.print()}>
-      <PrinterIcon size={18} aria-hidden="true" />
+      <Printer size={18} aria-hidden="true" />
       Print the sheet
     </Button>
   );

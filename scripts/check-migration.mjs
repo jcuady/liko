@@ -249,7 +249,53 @@ async function main() {
       }
     }
 
-    // ---- 5. informational -------------------------------------------------
+    // ---- 5. the plan vocabulary is one list, not three --------------------
+    // The `organizations.plan` check constraint, `ORG_PLANS` in the API types
+    // and `PLAN_IDS` on the pricing page have to name the same three plans. They
+    // did not, twice: the SQL once said `solo | school | district` while the
+    // page sold `starter | teacher | school`, so two of the three ids a person
+    // could click could not have been written to the column they referred to,
+    // and one legal value had no card at all.
+    //
+    // `e2e/legal.spec.ts` checks the page against a hardcoded list, which is a
+    // third copy that has to be edited by hand and can go stale silently. This
+    // check reads the constraint out of the SQL and both lists out of their
+    // TypeScript, so a rename that touches only one of the three fails here
+    // with the actual disagreement printed.
+    const constraint = sql.match(
+      /constraint\s+organizations_plan_check\s+check\s*\(\s*plan\s+in\s*\(([^)]*)\)/i,
+    );
+    if (!constraint) {
+      fail('could not find the organizations_plan_check constraint, so its values cannot be verified');
+    } else {
+      const sqlPlans = [...constraint[1].matchAll(/'([^']+)'/g)].map((m) => m[1]).sort();
+      const source = (label, file, pattern) => {
+        const found = readFileSync(join('src', file), 'utf8').match(pattern);
+        if (!found) {
+          fail(`could not find the plan list in src/${file}, so it cannot be verified against SQL`);
+          return null;
+        }
+        return { label, values: [...found[1].matchAll(/'([^']+)'/g)].map((m) => m[1]).sort() };
+      };
+      const api = source('the API types', 'lib/api/types.ts', /ORG_PLANS\s*=\s*\[([^\]]*)\]/);
+      const page = source('the pricing page', 'app/pricing/plans.ts', /PLAN_IDS[^=]*=\s*\[([^\]]*)\]/);
+
+      const drifted = [api, page].filter((entry) => entry && entry.values.join() !== sqlPlans.join());
+      if (sqlPlans.length > 0 && api && page) {
+        if (drifted.length === 0) {
+          ok(`plan vocabulary: SQL, the API types and the pricing page all allow ${sqlPlans.length} (${sqlPlans.join(', ')})`);
+        } else {
+          for (const entry of drifted) {
+            fail(
+              `${entry.label} allow (${entry.values.join(', ')}) but the constraint allows ` +
+                `(${sqlPlans.join(', ')}). The constraint is the durable vocabulary, so move the rest to it.`,
+            );
+          }
+        }
+      }
+    }
+
+    // ---- 6. informational -------------------------------------------------
     const empty = creates.filter((m) =>
       /create\s+policy[^;]*?;\s*\n\s*\n\s*--/i.test(''),
     );

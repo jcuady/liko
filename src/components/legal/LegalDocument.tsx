@@ -1,6 +1,6 @@
 import * as React from 'react';
 import Link from 'next/link';
-import { ClockIcon } from '@phosphor-icons/react/dist/ssr';
+import { Clock } from 'lucide-react';
 
 import { MarketingNav } from '@/components/layout/MarketingNav';
 import { Footer } from '@/components/layout/Footer';
@@ -77,7 +77,7 @@ export function LegalDocument({ title, summary, version, sections }: LegalMeta) 
           <p className="measure mt-6 text-lead">{summary}</p>
 
           <p className="mt-6 flex items-center gap-1.5 text-meta text-ink-subtle">
-            <ClockIcon size={15} aria-hidden="true" />
+            <Clock size={15} aria-hidden="true" />
             Version {formatVersion(version)}
           </p>
 

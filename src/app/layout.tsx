@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from 'next';
-import { Geist, Geist_Mono } from 'next/font/google';
+import { DM_Sans, Geist_Mono, Manrope } from 'next/font/google';
 
 import { ThemeProvider } from '@/components/providers/ThemeProvider';
 import { QueryProvider } from '@/components/providers/QueryProvider';
@@ -9,15 +9,26 @@ import { CookieConsentBanner } from '@/components/legal/CookieConsentBanner';
 import './globals.css';
 
 /**
- * Geist is the shipping typeface. Söhne is a paid Klim licence and cannot be
- * fetched from npm, so Geist stands in as the closest open neo-grotesk. To
- * switch to a licensed Söhne, replace these two imports and the two
- * `--font-geist-*` variables. Every component reads `--font-sans`, so no
- * component changes.
+ * The shipping typefaces, and why there are two of them plus a mono.
+ *
+ * The supplied brand design sets DM Sans for interface text and Manrope for
+ * display, and the split is the design's own: the hero and section headings are
+ * cut in a geometric face with a taller x-height while running copy stays in the
+ * neutral sans. `--font-display` is wired to headings in `globals.css`, so a
+ * component picks a voice by reading a token rather than by naming a font.
+ *
+ * Geist Mono stays. Numbers never reflow in the gradebook, the heatmap or the
+ * stat tiles, and that is tabular figures rather than a typeface decision.
  */
-const geistSans = Geist({
+const dmSans = DM_Sans({
   subsets: ['latin'],
-  variable: '--font-geist-sans',
+  variable: '--font-dm-sans',
+  display: 'swap',
+});
+
+const manrope = Manrope({
+  subsets: ['latin'],
+  variable: '--font-manrope',
   display: 'swap',
 });
 
@@ -77,8 +88,8 @@ export const viewport: Viewport = {
      values the token layer uses: the viridian in light, the dark page in dark.
   */
   themeColor: [
-    { media: '(prefers-color-scheme: light)', color: '#29813d' },
-    { media: '(prefers-color-scheme: dark)', color: '#12130f' },
+    { media: '(prefers-color-scheme: light)', color: '#007134' },
+    { media: '(prefers-color-scheme: dark)', color: '#090f0c' },
   ],
   colorScheme: 'light dark',
 };
@@ -90,7 +101,7 @@ export default function RootLayout({
     <html
       lang="en"
       suppressHydrationWarning
-      className={`${geistSans.variable} ${geistMono.variable} no-js`}
+      className={`${dmSans.variable} ${manrope.variable} ${geistMono.variable} no-js`}
     >
       <head>
         {/*

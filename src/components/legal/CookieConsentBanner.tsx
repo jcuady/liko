@@ -3,7 +3,7 @@
 import * as React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { CookieIcon } from '@phosphor-icons/react';
+import { Cookie } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { isProtectedPath } from '@/lib/auth/rbac';
@@ -75,7 +75,7 @@ export function CookieConsentBanner() {
       <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 rounded-[14px] border border-border bg-surface-raised p-5 shadow-[var(--shadow-lg)] md:flex-row md:items-center md:gap-6">
         <div className="min-w-0 flex-1">
           <p className="flex items-center gap-2 text-[0.9375rem] font-semibold text-ink">
-            <CookieIcon size={17} aria-hidden="true" className="shrink-0 text-accent" />
+            <Cookie size={17} aria-hidden="true" className="shrink-0 text-accent" />
             One question about your browser
           </p>
           <p className="mt-1.5 text-[0.875rem] leading-relaxed text-ink-muted">

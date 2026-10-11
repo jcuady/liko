@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { CheckCircleIcon, WarningCircleIcon, WarningIcon } from '@phosphor-icons/react';
+import { CircleAlert, CircleCheck, TriangleAlert } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
 
@@ -75,9 +75,9 @@ function FormField({
           role="alert"
           className="flex items-start gap-1.5 text-meta font-medium text-danger"
         >
-          <WarningCircleIcon
+          <CircleAlert
             size={15}
-            weight="fill"
+            strokeWidth={2.5}
             aria-hidden="true"
             className="mt-0.5 shrink-0"
           />
@@ -113,7 +113,7 @@ function ErrorSummary({
       className="rounded-[12px] border border-danger bg-danger-subtle p-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-danger"
     >
       <div className="flex items-start gap-2.5">
-        <WarningIcon size={18} weight="fill" aria-hidden="true" className="mt-0.5 shrink-0 text-danger" />
+        <TriangleAlert size={18} strokeWidth={2.5} aria-hidden="true" className="mt-0.5 shrink-0 text-danger" />
         <div className="min-w-0 flex-1">
           <h3 id="form-error-summary-title" className="text-[0.9375rem] font-semibold text-danger">
             {title}
@@ -146,7 +146,7 @@ function FormSuccess({ children }: { children: React.ReactNode }) {
       role="status"
       className="flex items-start gap-2 rounded-[12px] border border-success bg-success-subtle p-3.5 text-meta font-medium text-success"
     >
-      <CheckCircleIcon size={16} weight="fill" aria-hidden="true" className="mt-0.5 shrink-0" />
+      <CircleCheck size={16} strokeWidth={2.5} aria-hidden="true" className="mt-0.5 shrink-0" />
       {children}
     </p>
   );

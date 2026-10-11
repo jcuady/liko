@@ -4,21 +4,23 @@ import * as React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
-  BellIcon,
-  BooksIcon,
-  ChartLineUpIcon,
-  ClipboardTextIcon,
-  ClockCounterClockwiseIcon,
-  GridFourIcon,
-  ListChecksIcon,
-  PaintBrushIcon,
-  PencilSimpleLineIcon,
-  PresentationChartIcon,
-  ShieldCheckIcon,
-  StackIcon,
-  UserCircleIcon,
-  XIcon,
-} from '@phosphor-icons/react';
+  Bell,
+  CircleUser,
+  ClipboardList,
+  History,
+  Layers,
+  LayoutDashboard,
+  LayoutGrid,
+  Library,
+  ListChecks,
+  Paintbrush,
+  PencilLine,
+  Presentation,
+  ShieldCheck,
+  TrendingUp,
+  X,
+  type LucideIcon,
+} from 'lucide-react';
 
 import { cn } from '@/lib/utils';
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet';
@@ -45,22 +47,17 @@ import { navFor, type Role } from '@/lib/auth/rbac';
 export interface NavItem {
   href: string;
   label: string;
-  icon: React.ComponentType<{
-    size?: number;
-    weight?: 'regular' | 'bold' | 'fill' | 'duotone';
-    className?: string;
-    'aria-hidden'?: boolean | 'true' | 'false';
-  }>;
+  icon: LucideIcon;
 }
 
 export const PRIMARY_NAV: NavItem[] = [
-  { href: '/overview', label: 'Overview', icon: GridFourIcon },
-  { href: '/classes', label: 'Classes', icon: BooksIcon },
-  { href: '/attendance', label: 'Attendance', icon: ListChecksIcon },
-  { href: '/plan', label: 'Planner', icon: ClipboardTextIcon },
-  { href: '/slides', label: 'Slides', icon: PresentationChartIcon },
-  { href: '/grades', label: 'Gradebook', icon: ChartLineUpIcon },
-  { href: '/assess', label: 'Assess', icon: StackIcon },
+  { href: '/overview', label: 'Overview', icon: LayoutDashboard },
+  { href: '/classes', label: 'Classes', icon: Library },
+  { href: '/attendance', label: 'Attendance', icon: ListChecks },
+  { href: '/plan', label: 'Planner', icon: ClipboardList },
+  { href: '/slides', label: 'Slides', icon: Presentation },
+  { href: '/grades', label: 'Gradebook', icon: TrendingUp },
+  { href: '/assess', label: 'Assess', icon: Layers },
 ];
 
 /**
@@ -70,7 +67,7 @@ export const PRIMARY_NAV: NavItem[] = [
  * roles by hand.
  */
 export const ADMIN_NAV: NavItem[] = [
-  { href: '/admin', label: 'Administration', icon: ShieldCheckIcon },
+  { href: '/admin', label: 'Administration', icon: ShieldCheck },
 ];
 
 export const SECONDARY_NAV: NavItem[] = [
@@ -80,11 +77,11 @@ export const SECONDARY_NAV: NavItem[] = [
    * so this line changes the student navigation and leaves every teacher's
    * sidebar, tab bar and overflow sheet exactly as it was.
    */
-  { href: '/quiz', label: 'Quizzes', icon: PencilSimpleLineIcon },
-  { href: '/history', label: 'History', icon: ClockCounterClockwiseIcon },
-  { href: '/settings/notifications', label: 'Notifications', icon: BellIcon },
-  { href: '/settings/profile', label: 'Profile', icon: UserCircleIcon },
-  { href: '/settings/appearance', label: 'Appearance', icon: PaintBrushIcon },
+  { href: '/quiz', label: 'Quizzes', icon: PencilLine },
+  { href: '/history', label: 'History', icon: History },
+  { href: '/settings/notifications', label: 'Notifications', icon: Bell },
+  { href: '/settings/profile', label: 'Profile', icon: CircleUser },
+  { href: '/settings/appearance', label: 'Appearance', icon: Paintbrush },
 ];
 
 /** How many destinations fit across a 375px viewport without shrinking labels. */
@@ -149,9 +146,15 @@ export function Sidebar({ role }: { role: Role | undefined }) {
                 title={item.label}
                 className={linkClasses(active, false)}
               >
+                {/*
+                  Phosphor marked the current destination by switching the icon
+                  to a filled weight. Lucide has no weight axis, so the same
+                  emphasis is drawn with a heavier stroke; the accent colour and
+                  the tinted ground come from `linkClasses`.
+                */}
                 <item.icon
                   size={20}
-                  weight={active ? 'fill' : 'regular'}
+                  strokeWidth={active ? 2.25 : 1.75}
                   aria-hidden="true"
                   className="shrink-0 xl:size-[18px]"
                 />
@@ -178,7 +181,7 @@ export function Sidebar({ role }: { role: Role | undefined }) {
               >
                 <item.icon
                   size={20}
-                  weight={active ? 'fill' : 'regular'}
+                  strokeWidth={active ? 2.25 : 1.75}
                   aria-hidden="true"
                   className="shrink-0 xl:size-[18px]"
                 />
@@ -224,7 +227,7 @@ export function MobileTabBar({ role }: { role: Role | undefined }) {
                 >
                   <item.icon
                     size={20}
-                    weight={active ? 'fill' : 'regular'}
+                    strokeWidth={active ? 2.25 : 1.75}
                     aria-hidden="true"
                   />
                   <span className="truncate">{item.label}</span>
@@ -241,7 +244,7 @@ export function MobileTabBar({ role }: { role: Role | undefined }) {
               aria-haspopup="dialog"
               className="flex min-h-[56px] w-full flex-col items-center justify-center gap-1 px-1 text-[0.6875rem] text-ink-subtle"
             >
-              <GridFourIcon size={20} weight="regular" aria-hidden="true" />
+              <LayoutGrid size={20} aria-hidden="true" />
               <span>More</span>
             </button>
           </li>
@@ -259,7 +262,7 @@ export function MobileTabBar({ role }: { role: Role | undefined }) {
                   onClick={() => setMoreOpen(false)}
                   className="flex min-h-[52px] items-center gap-3 border-b border-border text-[1.0625rem] text-ink last:border-0"
                 >
-                  <item.icon size={18} weight="regular" aria-hidden="true" />
+                  <item.icon size={18} aria-hidden="true" />
                   {item.label}
                 </Link>
               </li>
@@ -270,7 +273,7 @@ export function MobileTabBar({ role }: { role: Role | undefined }) {
             onClick={() => setMoreOpen(false)}
             className="pressable mt-4 flex min-h-[44px] w-full items-center justify-center gap-2 rounded-[12px] text-[0.9375rem] text-ink-muted"
           >
-            <XIcon size={16} weight="bold" aria-hidden="true" />
+            <X size={16} aria-hidden="true" />
             Close
           </button>
         </SheetContent>

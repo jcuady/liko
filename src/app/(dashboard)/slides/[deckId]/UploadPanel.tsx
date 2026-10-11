@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import { useMutation } from '@tanstack/react-query';
-import { ArrowUpIcon, PaperclipIcon, WarningCircleIcon } from '@phosphor-icons/react';
+import { ArrowUp, CircleAlert, Paperclip } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -153,7 +153,7 @@ export function UploadPanel({
 
           <div className="flex flex-wrap items-center gap-3">
             <Button type="submit" disabled={!file || busy}>
-              <ArrowUpIcon size={17} weight="bold" aria-hidden="true" />
+              <ArrowUp size={17} aria-hidden="true" />
               {busy ? 'Importing' : 'Import'}
             </Button>
 
@@ -180,7 +180,7 @@ export function UploadPanel({
         */}
         {result?.ok ? (
           <FormSuccess>
-            <PaperclipIcon size={16} weight="fill" aria-hidden="true" className="mt-0.5" />
+            <Paperclip size={16} aria-hidden="true" className="mt-0.5" />
             <span>{result.message}</span>
           </FormSuccess>
         ) : null}
@@ -190,9 +190,8 @@ export function UploadPanel({
             role="alert"
             className="flex items-start gap-1.5 rounded-[12px] border border-danger bg-danger-subtle p-3.5 text-meta font-medium text-danger"
           >
-            <WarningCircleIcon
+            <CircleAlert
               size={15}
-              weight="fill"
               aria-hidden="true"
               className="mt-0.5 shrink-0"
             />

@@ -291,24 +291,49 @@ test.describe('marketing claims match the product', () => {
     await expect(page.getByText(/no card is taken/i).first()).toBeVisible();
   });
 
-  test('the testimonials say they are written, not collected', async ({ page }) => {
+  test('the page claims no customer evidence it does not have', async ({ page }) => {
     /*
      * Three quotes attributed to named teachers with job titles, presented as
-     * testimonials, when LIKO has no customers and the names are the demo
-     * accounts. The section works as a statement of intent; it must not read as
-     * evidence.
+     * testimonials, when LIKO has no customers and the names were the demo
+     * accounts. That section is now gone entirely rather than relabelled, which
+     * is a stronger answer than a disclaimer and the reason the assertion moved
+     * from "the section says it is not evidence" to "the page has no such
+     * section".
+     *
+     * The old version of this test would have passed against a page with three
+     * invented testimonials in it, as long as one disclaimer sat somewhere
+     * below. What it guards now is the stronger property: no quote from a named
+     * person is presented as a customer at all.
      */
-    await page.goto('/#proof');
-    await expect(
-      page.getByText(/written examples|not testimonials|no customers yet/i).first(),
-    ).toBeVisible();
+    for (const route of ['/', '/pricing']) {
+      await page.goto(route);
+      const body = await page.locator('body').innerText();
+
+      expect(body, `${route} presents a named quote as evidence`).not.toMatch(
+        /what (our )?(teachers|users|customers) say|testimonial|join \d+[,\d]* teachers|trusted by \d+/i,
+      );
+    }
   });
 
   test('the plan carried from a pricing card reaches the signup form', async ({
     page,
   }) => {
+    /*
+     * The card CTA, not a nav link. `Start free` is also the marketing nav's
+     * label, so an unscoped `getByRole('link', { name })` matched the nav and
+     * proved nothing about the pricing cards. Scoping to the tiers section is
+     * what makes this a test of the plan hand-off.
+     *
+     * The label this used to look for, "Create a free account", does not exist
+     * anywhere in the product. It was copy from before the page was rebuilt
+     * around `PLANS`, and the test had been quietly matching nothing.
+     */
     await page.goto('/pricing');
-    await page.getByRole('link', { name: /Create a free account/i }).first().click();
+    await page
+      .locator('#tiers')
+      .getByRole('link', { name: /Start for free/i })
+      .click();
+    await expect(page).toHaveURL(/\/register\?plan=starter$/);
     await expect(page.getByText(/You picked/)).toBeVisible();
   });
 
@@ -328,8 +353,15 @@ test.describe('marketing claims match the product', () => {
      * The pricing page used to sell `starter | teacher | school` while the
      * `organizations.plan` check constraint allowed `solo | school | district`.
      * Only `school` was in both, so two of the three ids on the page could not
-     * have been written to the column they referred to. This asserts the page
-     * only links with ids the database accepts.
+     * have been written to the column they referred to. The tiers have since
+     * been renamed to `starter | teacher-pro | school` in both places.
+     *
+     * This list is deliberately spelled out rather than imported from
+     * `src/app/pricing/plans.ts`. The gap being guarded here is a card whose
+     * `href` disagrees with its own id, and importing the constant would make
+     * the assertion agree with that mistake by construction.
+     * `scripts/check-migration.mjs` separately checks this list, `ORG_PLANS`
+     * and the SQL constraint against each other, so the copy cannot rot alone.
      */
     await page.goto('/pricing');
     const hrefs = await page.locator('a[href*="/register?plan="]').evaluateAll((links) =>
@@ -338,8 +370,12 @@ test.describe('marketing claims match the product', () => {
 
     expect(hrefs.length).toBeGreaterThan(0);
     for (const plan of hrefs) {
-      expect(['solo', 'teacher', 'school']).toContain(plan);
+      expect(['starter', 'teacher-pro', 'school']).toContain(plan);
     }
+
+    // Every plan is actually purchasable, not merely legal: a card that lost
+    // its link would still leave `hrefs.length > 0` true through the other two.
+    expect([...new Set(hrefs)].sort()).toEqual(['school', 'starter', 'teacher-pro']);
   });
 
   test('the admin console is not sold as a plan gate nothing enforces', async ({ page }) => {

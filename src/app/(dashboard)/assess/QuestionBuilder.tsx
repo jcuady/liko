@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { PlusIcon, TrashIcon, ArrowUpIcon, ArrowDownIcon } from '@phosphor-icons/react';
+import { ArrowDown, ArrowUp, Plus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { Badge, Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -224,7 +224,7 @@ export function QuestionBuilder({
               size="sm"
               onClick={() => setDrafts([...rows, blankQuestion()])}
             >
-              <PlusIcon size={15} weight="bold" aria-hidden="true" />
+              <Plus size={15} aria-hidden="true" />
               Add question
             </Button>
             {dirty ? (
@@ -321,7 +321,7 @@ export function QuestionBuilder({
                           disabled={index === 0}
                           onClick={() => move(index, -1)}
                         >
-                          <ArrowUpIcon size={16} aria-hidden="true" />
+                          <ArrowUp size={16} aria-hidden="true" />
                         </Button>
                         <Button
                           variant="ghost"
@@ -330,7 +330,7 @@ export function QuestionBuilder({
                           disabled={index === rows.length - 1}
                           onClick={() => move(index, 1)}
                         >
-                          <ArrowDownIcon size={16} aria-hidden="true" />
+                          <ArrowDown size={16} aria-hidden="true" />
                         </Button>
                         <Button
                           variant="ghost"
@@ -338,7 +338,7 @@ export function QuestionBuilder({
                           aria-label={`Delete question ${index + 1}`}
                           onClick={() => remove(index)}
                         >
-                          <TrashIcon size={16} aria-hidden="true" />
+                          <Trash2 size={16} aria-hidden="true" />
                         </Button>
                       </div>
 
@@ -403,7 +403,7 @@ export function QuestionBuilder({
                                 aria-label={`Remove option ${option.key} from question ${index + 1}`}
                                 onClick={() => removeOption(index, optionIndex)}
                               >
-                                <TrashIcon size={15} aria-hidden="true" />
+                                <Trash2 size={15} aria-hidden="true" />
                               </Button>
                             ) : null}
                           </li>
@@ -418,7 +418,7 @@ export function QuestionBuilder({
                         className="self-start"
                         onClick={() => addOption(index)}
                       >
-                        <PlusIcon size={14} weight="bold" aria-hidden="true" />
+                        <Plus size={14} aria-hidden="true" />
                         Add option
                       </Button>
                     ) : null}

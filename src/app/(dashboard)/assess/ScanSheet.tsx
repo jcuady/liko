@@ -3,7 +3,7 @@
 import * as React from 'react';
 import Image from 'next/image';
 import { useMutation } from '@tanstack/react-query';
-import { CameraIcon, ScanIcon } from '@phosphor-icons/react';
+import { Camera, ScanLine } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { Badge, Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -312,7 +312,7 @@ export function ScanSheet({
           </p>
         </div>
         <Badge tone="neutral">
-          <ScanIcon size={13} aria-hidden="true" />
+          <ScanLine size={13} aria-hidden="true" />
           {questions.length} questions
         </Badge>
       </CardHeader>
@@ -335,7 +335,7 @@ export function ScanSheet({
             }}
           />
           <Button onClick={() => inputRef.current?.click()} disabled={busy}>
-            <CameraIcon size={16} aria-hidden="true" />
+            <Camera size={16} aria-hidden="true" />
             {busy ? 'Reading' : 'Choose sheet image'}
           </Button>
           {detected ? (

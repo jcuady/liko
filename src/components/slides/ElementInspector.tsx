@@ -1,6 +1,6 @@
 'use client';
 
-import { TrashIcon } from '@phosphor-icons/react';
+import { Trash2 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -277,7 +277,7 @@ export function ElementInspector({
         )}
 
         <Button variant="danger" disabled={busy} onClick={onDelete}>
-          <TrashIcon size={16} weight="bold" aria-hidden="true" />
+          <Trash2 size={16} aria-hidden="true" />
           Delete {label.toLowerCase()}
         </Button>
       </CardContent>

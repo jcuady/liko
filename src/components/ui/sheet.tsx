@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import * as DialogPrimitive from '@radix-ui/react-dialog';
-import { XIcon } from '@phosphor-icons/react';
+import { X } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
 
@@ -70,7 +70,7 @@ const SheetContent = React.forwardRef<
             'text-ink-subtle hover:bg-surface-sunken hover:text-ink',
           )}
         >
-          <XIcon size={16} weight="bold" aria-hidden="true" />
+          <X size={16} strokeWidth={2.5} aria-hidden="true" />
           <span className="sr-only">Close</span>
         </DialogPrimitive.Close>
       )}

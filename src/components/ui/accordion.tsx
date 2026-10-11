@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import * as AccordionPrimitive from '@radix-ui/react-accordion';
-import { PlusIcon } from '@phosphor-icons/react';
+import { Plus } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
 
@@ -33,9 +33,9 @@ const AccordionTrigger = React.forwardRef<
       {...props}
     >
       {children}
-      <PlusIcon
+      <Plus
         size={18}
-        weight="bold"
+        strokeWidth={2.5}
         aria-hidden="true"
         className="mt-0.5 shrink-0 text-ink-subtle transition-transform duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] group-data-[state=open]:rotate-45"
       />

@@ -15,8 +15,43 @@ test.describe('manifest', () => {
     expect(manifest.short_name).toBe('LIKO');
     expect(manifest.display).toBe('standalone');
     expect(manifest.start_url).toBe('/overview');
-    expect(manifest.theme_color).toBe('#29813d');
+    /*
+     * Pinned, not read from a token. A manifest cannot read a CSS custom
+     * property, so `src/app/manifest.ts` writes the brand as hex, and hex is
+     * exactly the kind of value that gets "regenerated" from a default without
+     * anyone noticing. `#007134` is `--accent` at `oklch(0.48 0.13 151)` under
+     * the current brand; it was `#29813d` before the rebrand, which is how an
+     * installed app kept showing the old green in its address bar.
+     */
+    expect(manifest.theme_color).toBe('#007134');
     expect(manifest.icons.length).toBeGreaterThanOrEqual(2);
+
+    // The installed icon's long press menu, which replaced the App Store
+    // buttons the supplied design carried.
+    const shortcuts = (manifest.shortcuts ?? []) as { url: string }[];
+    expect(shortcuts.length).toBeGreaterThanOrEqual(3);
+
+    /*
+     * A shortcut pointing at a route that does not exist installs an app whose
+     * home screen opens a 404, and nothing else in the suite would notice: the
+     * manifest test only checked that the array was non-empty.
+     *
+     * These requests are anonymous, so each one comes back 307 to /login, which
+     * is the proof the route exists and is auth gated. 404 means the shortcut is
+     * a lie. The earlier version of this asserted `toBeTruthy()` on the
+     * Response, which is true for every value including a 404 and so proved
+     * nothing at all.
+     */
+    for (const shortcut of shortcuts) {
+      const response = await request.get(shortcut.url, { maxRedirects: 0 });
+      expect(
+        [200, 307],
+        `${shortcut.url} is a route that exists, not a 404`,
+      ).toContain(response.status());
+      if (response.status() === 307) {
+        expect(response.headers()['location']).toContain('/login');
+      }
+    }
 
     const purposes = manifest.icons.map((icon: { purpose?: string }) => icon.purpose);
     expect(purposes).toContain('any');

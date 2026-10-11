@@ -24,13 +24,19 @@ export default function AuthLayout({
       </div>
 
       <aside className="relative hidden overflow-hidden bg-accent lg:block">
+        {/*
+          Both blooms are decorative and both sit on the accent fill, so they use
+          `--on-accent` for the same reason the panel text below does: in dark
+          mode the accent lifts to a light green, and anything painted white on
+          it drops under the contrast floor.
+        */}
         <div
           aria-hidden="true"
           className="bloom"
           style={{
             width: '30rem',
             height: '30rem',
-            background: '#ffffff',
+            background: 'var(--on-accent)',
             top: '-6rem',
             right: '-8rem',
             opacity: 0.14,
@@ -42,7 +48,14 @@ export default function AuthLayout({
           style={{
             width: '22rem',
             height: '22rem',
-            background: '#b7cfa8',
+            /*
+             * `--highlight`, the brand's one bright green, rather than the
+             * hardcoded `#b7cfa8` sage this carried before the rebrand. That
+             * value belonged to the old palette: it sat next to the old accent
+             * as a tint of it, and against `oklch(0.48 0.13 151)` it reads as a
+             * different brand rather than as a lighter one.
+             */
+            background: 'var(--highlight)',
             bottom: '-6rem',
             left: '-6rem',
             opacity: 0.22,
@@ -50,13 +63,13 @@ export default function AuthLayout({
         />
 
         <div className="relative flex h-full flex-col justify-end p-14">
-          <p className="text-label text-white/70">Plan, create, assess, grade, analyze</p>
-          <p className="mt-4 max-w-[18ch] text-[2.25rem] font-semibold leading-[1.1] tracking-[-0.03em] text-white">
-            One thread through the whole term.
+          <p className="text-label text-on-accent/70">Lessons, grades, quizzes, insights</p>
+          <p className="mt-4 max-w-[18ch] text-[2.25rem] font-semibold leading-[1.1] tracking-[-0.03em] text-on-accent">
+            Less admin. More teaching.
           </p>
-          <p className="mt-5 max-w-[34ch] text-[1.0625rem] leading-relaxed text-white/80">
-            Your plans, assessments, gradebook, and student history stay attached
-            to each other, so nothing gets rebuilt twice.
+          <p className="mt-5 max-w-[34ch] text-[1.0625rem] leading-relaxed text-on-accent/80">
+            Your plans, assessments, gradebook, and student history stay attached to
+            each other, so nothing gets rebuilt twice.
           </p>
         </div>
       </aside>

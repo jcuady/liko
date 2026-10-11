@@ -24,6 +24,22 @@ const buttonVariants = cva(
         link: 'text-accent underline-offset-4 hover:underline p-0 h-auto',
         danger:
           'bg-danger text-on-danger hover:opacity-90 shadow-sm',
+
+        /*
+         * The two variants that exist only on the dark forest panel: the hero,
+         * the mobile band and the lesson preview.
+
+         * They are named for the panel rather than for a colour, because the
+         * panel's ink is the one thing they may never be used on. `hero` fills
+         * with the highlight green and sets forest text, which is the reverse of
+         * every other button here and the reason it is not a `primary` with
+         * different classes: forest-on-highlight measures about 11:1, while the
+         * highlight on a light surface is close to invisible.
+         */
+        hero:
+          'rounded-full bg-highlight text-forest hover:bg-highlight/85 shadow-sm',
+        'hero-outline':
+          'rounded-full border border-hero-border text-hero-foreground hover:bg-hero-foreground/10',
       },
       size: {
         /*
@@ -33,10 +49,14 @@ const buttonVariants = cva(
          * 36px is under the 44px comfortable target on every device that has
          * fingers.
          */
-        sm: 'h-11 px-3.5 text-sm rounded-[10px] lg:h-9 lg:rounded-[8px]',
-        md: 'h-11 px-5 text-[0.9375rem] rounded-[12px]',
-        lg: 'h-12 px-7 text-base rounded-[12px]',
-        icon: 'size-11 rounded-[12px]',
+        sm: 'h-11 px-3.5 text-sm rounded-[8px] lg:h-9 lg:rounded-[6px]',
+        md: 'h-11 px-5 text-[0.9375rem] rounded-[8px]',
+        lg: 'h-12 px-7 text-base rounded-[8px]',
+        /* The pill CTA from the hero and the closing band. Pill is the only
+           shape in the system that is not one of the four radii, and it is
+           reserved for the two moments the design gives it. */
+        cta: 'h-12 px-6 text-sm rounded-pill',
+        icon: 'size-11 rounded-[8px]',
       },
       block: {
         true: 'w-full',

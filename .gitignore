@@ -69,5 +69,21 @@ sohne-font-family/
 .eprobe.cjs
 .brandkit-args.json
 
+# Captured Playwright output from a full-suite run, written when a failure has to
+# be read in full rather than in the last screenful of a terminal.
+.e2e-run.txt
+.e2e-final.txt
+
+# Commit message written to a file and piped in with `git commit -F`. PowerShell
+# mangles backticks and quotes inside a double-quoted argument, and this
+# repository's messages are full of both.
+.commit-msg.txt
+
 # Vercel CLI link state. Holds the project and org id for this directory.
 .vercel
+
+# The supplied brand prototype. A separate Vite and TanStack Router project that
+# happens to sit inside this repo; it is the reference the design was ported
+# from, not part of the application. Excluded from TypeScript and lint for
+# the same reason.
+Liko new landing design and branding/

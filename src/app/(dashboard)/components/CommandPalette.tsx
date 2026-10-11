@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
-import { MagnifyingGlassIcon } from '@phosphor-icons/react';
+import { Search } from 'lucide-react';
 
 import {
   Dialog,
@@ -65,7 +65,7 @@ export function CommandPalette() {
         onClick={() => setOpen(true)}
         className="pressable flex h-10 w-full max-w-[22rem] items-center gap-2.5 rounded-[12px] border border-border bg-surface-sunken px-3.5 text-left text-[0.9375rem] text-ink-subtle hover:border-border-strong focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
       >
-        <MagnifyingGlassIcon size={16} weight="regular" aria-hidden="true" />
+        <Search size={16} aria-hidden="true" />
         <span className="flex-1">Jump to</span>
         <kbd className="tabular rounded-[6px] border border-border bg-surface px-1.5 py-0.5 text-[0.6875rem]">
           Ctrl K
@@ -122,7 +122,7 @@ export function CommandPalette() {
                         : 'text-ink-muted'
                     }`}
                   >
-                    <item.icon size={17} weight="regular" aria-hidden="true" />
+                    <item.icon size={17} aria-hidden="true" />
                     {item.label}
                   </button>
                 </li>

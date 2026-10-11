@@ -35,29 +35,33 @@
    ========================================================================== */
 
 @theme {
-  /* --- Core brand triad (pinned by masterplan.md.txt) ---
-     The accent is the green measured off the supplied logo artwork rather than
-     the masterplan's nominal #228b22. It is bluer and slightly darker, it
-     carries the mark, and it also scores better against the warm canvas:
-     4.63:1 on #fdf8f5 against 4.15:1 for #228b22.
-
-     These two are fixed brand marks, not themeable surface colours, so they stay
-     literal. They are used for the scrim behind a modal and the logo artwork,
-     and neither should invert when the theme does. */
+  /* --- Core brand triad ---
+     The accent is the green of the supplied brand artwork. The old value was
+     `#29813d`, chosen for contrast against a warm cream canvas; the new brand
+     moves to an OKLCH green at the same hue family, expressed perceptually so
+     the dark theme can lift it without drifting in hue. Both are the same
+     family: hue 151 against 150. */
   --color-charcoal: #1a1a1a;
-  --color-viridian: #29813d;
+  --color-viridian: oklch(0.48 0.13 151);
 
-  /* --- Shape (single radius system) --- */
-  --radius-sm: 8px;
-  --radius-md: 12px;
-  --radius-lg: 16px;
-  --radius-xl: 24px;
+  /* --- Shape (single radius system) ---
+     The brand draws smaller and squarer than the old kit: cards are 8px, inputs
+     6px, and the hero is the only large radius in the system. A 24px card
+     reads as a different product from the one in the artwork. */
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
   --radius-pill: 999px;
 
   /* --- Type --- */
   --font-sans:
-    var(--font-geist-sans), ui-sans-serif, system-ui, -apple-system,
-    'Segoe UI', sans-serif;
+    var(--font-dm-sans), ui-sans-serif, system-ui, -apple-system, 'Segoe UI',
+    sans-serif;
+  /* The display face. Headings read this through `h1` to `h4`, never by name. */
+  --font-display:
+    var(--font-manrope), var(--font-dm-sans), ui-sans-serif, system-ui,
+    sans-serif;
   --font-mono:
     var(--font-geist-mono), ui-monospace, SFMono-Regular, 'SF Mono', Menlo,
     monospace;
@@ -140,6 +144,23 @@
   --color-border: var(--border);
   --color-border-strong: var(--border-strong);
   --color-ring-track: var(--ring-track);
+
+  /*
+     --- The dark bands ---
+
+     The brand design is built around a near-black green panel: the hero, the
+     mobile band and the lesson preview all sit on `--forest` with a faint
+     `--hero-border` grid over it and `--highlight` as the only bright accent.
+
+     These are roles rather than utilities because they invert. The highlight is
+     the one colour that stays saturated on the forest panel and is deliberately
+     not available on a light surface, where the same value would sit at roughly
+     1.5:1 and read as a smudge.
+  */
+  --color-forest: var(--forest);
+  --color-hero-foreground: var(--hero-foreground);
+  --color-hero-border: var(--hero-border);
+  --color-highlight: var(--highlight);
 }
 
 /* ==========================================================================
@@ -150,101 +171,122 @@
    ========================================================================== */
 @layer base {
   :root {
-    --surface: #fdf8f5;
-    --surface-raised: #ffffff;
-    --surface-sunken: #f7f3ee;
-    --ink: #1a1a1a;
-    --ink-muted: #5c5a54;
-    --ink-subtle: #837f76;
-    --accent: #29813d;
-    --accent-hover: #216b34;
-    --accent-subtle: #e7f1e9;
-    --accent-ring: #29813d;
-    --on-accent: #ffffff;
-    --border: #e5e0d9;
-    --border-strong: #d5cec4;
-    --ring-track: #e5e0d9;
-    --danger: #b3261e;
-    --danger-subtle: #fbeae9;
-    --on-danger: #ffffff;
-    --warning: #8a5a00;
-    --warning-subtle: #fdf3e2;
-    --success: #1b731b;
-    --success-subtle: #e8f4e8;
-    --glass-tint: rgb(255 255 255 / 0.72);
-    --glass-border: rgb(255 255 255 / 0.5);
-    --shadow-sm: 0 1px 2px rgb(26 26 26 / 0.04), 0 1px 1px rgb(26 26 26 / 0.03);
-    --shadow-md: 0 4px 16px rgb(26 26 26 / 0.06), 0 2px 4px rgb(26 26 26 / 0.04);
-    --shadow-lg: 0 12px 40px rgb(26 26 26 / 0.1), 0 4px 8px rgb(26 26 26 / 0.04);
+    /*
+       THE BRAND PALETTE, IN OKLCH.
+
+       Every colour the product can reach is written once here and read through a
+       role everywhere else. OKLCH because the brand is a single hue family that
+       has to lift in the dark theme: a hex value cannot be lightened without
+       drifting toward a different green, and a drifted accent reads as two
+       brands.
+
+       The canvas is a very slightly green off-white rather than the old warm
+       cream. That is the design's: the whole system is hue 150ish, so a warm
+       paper tone fought it.
+    */
+    --surface: oklch(0.989 0.003 130);
+    --surface-raised: oklch(1 0 0);
+    --surface-sunken: oklch(0.965 0.006 150);
+    --ink: oklch(0.23 0.018 165);
+    --ink-muted: oklch(0.53 0.016 165);
+    --ink-subtle: oklch(0.62 0.014 165);
+    --accent: oklch(0.48 0.13 151);
+    --accent-hover: oklch(0.42 0.12 151);
+    --accent-subtle: oklch(0.955 0.025 151);
+    --accent-ring: oklch(0.48 0.13 151);
+    --on-accent: oklch(1 0 0);
+    --border: oklch(0.9 0.01 150);
+    --border-strong: oklch(0.82 0.014 150);
+    --ring-track: oklch(0.9 0.01 150);
+
+    /* The dark panel and the colours that exist only on it. */
+    --forest: oklch(0.22 0.05 163);
+    --hero-foreground: oklch(0.99 0.005 145);
+    --hero-border: oklch(0.62 0.07 161);
+    --highlight: oklch(0.88 0.17 158);
+    /* The glow rising from below the panel. It is a gradient rather than a
+       colour because a flat fill on `--forest` is a rectangle, and the brand
+       reads as lit from beneath rather than painted. */
+    --hero-glow: radial-gradient(
+      ellipse at 50% 115%,
+      oklch(0.41 0.12 162),
+      transparent 63%
+    );
+
+    --danger: oklch(0.53 0.19 27);
+    --danger-subtle: oklch(0.96 0.02 27);
+    --on-danger: oklch(1 0 0);
+    --warning: oklch(0.55 0.13 65);
+    --warning-subtle: oklch(0.96 0.04 80);
+    --success: oklch(0.48 0.13 151);
+    --success-subtle: oklch(0.955 0.025 151);
+
+    --glass-tint: oklch(1 0 0 / 0.72);
+    --glass-border: oklch(1 0 0 / 0.5);
+    --shadow-sm: 0 1px 2px oklch(0.15 0.04 160 / 0.06), 0 1px 1px oklch(0.15 0.04 160 / 0.04);
+    --shadow-md: 0 4px 16px oklch(0.15 0.04 160 / 0.08), 0 2px 4px oklch(0.15 0.04 160 / 0.05);
+    --shadow-lg: 0 24px 70px oklch(0.15 0.04 160 / 0.12);
   }
 
   .dark {
-    --surface: #12130f;
-    --surface-raised: #1a1c17;
-    --surface-sunken: #0d0e0b;
-    --ink: #f4f2ee;
-    --ink-muted: #a8a69e;
-    --ink-subtle: #86847c;
-    --accent: #46a05a;
-    --accent-hover: #56b46a;
-    --accent-subtle: #1b2a1f;
-    --accent-ring: #46a05a;
+    /*
+       Dark is a paired system, not an inversion, and the accent lifts in
+       lightness while holding its hue at 151. The same reasoning as light mode
+       applies to every role: each is written down once, here and above.
+    */
+    --surface: oklch(0.16 0.012 165);
+    --surface-raised: oklch(0.21 0.014 165);
+    --surface-sunken: oklch(0.13 0.01 165);
+    --ink: oklch(0.96 0.004 150);
+    --ink-muted: oklch(0.74 0.012 160);
+    --ink-subtle: oklch(0.63 0.012 160);
+    --accent: oklch(0.72 0.15 152);
+    --accent-hover: oklch(0.78 0.16 152);
+    --accent-subtle: oklch(0.26 0.03 160);
+    --accent-ring: oklch(0.72 0.15 152);
 
     /*
-       The label that sits ON the accent fill. It has to be its own role, and it
-       has to invert, because the fill lifts in dark mode while the light fill
-       does not.
-
-       Measured, not guessed:
-         white on #46a05a        3.26:1   FAIL, and 2.58:1 on hover
-         white on #29813d (light) 4.88:1  PASS, 6.53:1 on hover
-
-       Hover gets LIGHTER here, which is the correct direction for a dark theme,
-       so it is also the direction that destroys a white label. Carrying the page
-       near-black onto the fill instead scores 5.72:1 at rest and 7.22:1 on hover,
-       and it keeps the button reading as the same green the logo is.
+       The label that sits ON the accent fill is its own role and it inverts,
+       because the fill lifts in dark mode while the light fill does not. A dark
+       near-black on the lifted green scores about 7:1, where white drops under
+       3:1 and stops being a label.
     */
-    --on-accent: #12130f;
+    --on-accent: oklch(0.16 0.012 165);
 
-    /*
-       Borders. The dark theme started at 1.41:1 against the page and 1.30:1
-       against a card, so an input outline was effectively invisible and a card
-       edge did not exist.
+    --border: oklch(0.34 0.012 160);
+    --border-strong: oklch(0.48 0.014 160);
+    --ring-track: oklch(0.34 0.012 160);
 
-       The two roles are deliberately not the same value. `--border` draws
-       container edges and dividers, which only have to be locatable, so it stays
-       quiet. `--border-strong` draws the edge of something you can interact
-       with, and WCAG 1.4.11 requires 3:1 for exactly that. At #6b7160 it clears
-       3.40:1 on the card fill the inputs actually sit on.
-    */
-    --border: #4a4f43;
-    --border-strong: #6b7160;
-    --ring-track: #4a4f43;
-    --danger: #f2b8b5;
-    --danger-subtle: #2e1a19;
+    /* The dark panel barely moves between themes: it is already the deepest
+       surface in the system, so darkening it again would flatten it. */
+    --forest: oklch(0.19 0.045 163);
+    --hero-foreground: oklch(0.98 0.005 145);
+    --hero-border: oklch(0.5 0.07 161);
+    --highlight: oklch(0.85 0.16 158);
+    /* Dimmer than the light value because the panel is already darker: at the
+       light-mode strength the glow stops reading as light and starts reading as
+       a different green wash over the whole panel. */
+    --hero-glow: radial-gradient(
+      ellipse at 50% 115%,
+      oklch(0.36 0.1 162),
+      transparent 63%
+    );
 
-    /*
-       Same inversion as `--on-accent`, and for the same reason: `--danger` lifts
-       to a pale red in dark mode, so a white label stops being a label.
+    --danger: oklch(0.78 0.14 22);
+    --danger-subtle: oklch(0.27 0.06 22);
+    /* Same inversion as `--on-accent`: the danger fill lifts, so a white label
+       stops being one. */
+    --on-danger: oklch(0.16 0.012 165);
+    --warning: oklch(0.8 0.13 75);
+    --warning-subtle: oklch(0.28 0.05 75);
+    --success: oklch(0.72 0.15 152);
+    --success-subtle: oklch(0.26 0.03 160);
 
-         white on #b3261e (light) 6.54:1   keep white here
-         white on #f2b8b5 (dark)  1.71:1   the destructive button, unreadable
-         #12130f on #f2b8b5       10.92:1  therefore carry the page near-black
-
-       There is one filled destructive control, so there is one role here. No
-       `on-success` or `on-warning` is invented for a component that does not
-       exist.
-    */
-    --on-danger: #12130f;
-    --warning: #e8b84b;
-    --warning-subtle: #2c2314;
-    --success: #4fbc4f;
-    --success-subtle: #1a281a;
-    --glass-tint: rgb(26 28 23 / 0.72);
-    --glass-border: rgb(255 255 255 / 0.08);
-    --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.3), 0 1px 1px rgb(0 0 0 / 0.2);
-    --shadow-md: 0 4px 16px rgb(0 0 0 / 0.4), 0 2px 4px rgb(0 0 0 / 0.3);
-    --shadow-lg: 0 12px 40px rgb(0 0 0 / 0.5), 0 4px 8px rgb(0 0 0 / 0.35);
+    --glass-tint: oklch(0.21 0.014 165 / 0.72);
+    --glass-border: oklch(1 0 0 / 0.08);
+    --shadow-sm: 0 1px 2px oklch(0 0 0 / 0.3), 0 1px 1px oklch(0 0 0 / 0.2);
+    --shadow-md: 0 4px 16px oklch(0 0 0 / 0.4), 0 2px 4px oklch(0 0 0 / 0.3);
+    --shadow-lg: 0 24px 70px oklch(0 0 0 / 0.5);
   }
 }
 
@@ -254,6 +296,24 @@
 @layer base {
   * {
     border-color: var(--border);
+  }
+
+  /*
+     Headings take the display face, once, here, rather than at every call site.
+
+     The brand draws its hero and section titles in Manrope and everything else in
+     DM Sans. Writing that per component would mean a dozen chances to forget it,
+     and a page whose heading is set in the interface face reads as a different
+     product from the one in the artwork.
+  */
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    font-family: var(--font-display);
+    letter-spacing: -0.02em;
   }
 
   html {
@@ -689,6 +749,68 @@
   [data-reveal] {
     opacity: 1 !important;
     transform: none !important;
+  }
+}
+
+/* ==========================================================================
+   THE FOREST PANELS
+   The one treatment that cannot be expressed as a colour.
+
+   The brand design puts three surfaces on a near-black green panel: the landing
+   hero, the mobile band and the lesson preview. All three carry the same two
+   effects, and neither is reachable from a colour token because both are
+   geometry: a radial glow rising from below the panel, and a faint square grid
+   that fades out toward the top.
+
+   They live here as three classes rather than as a repeated pile of arbitrary
+   Tailwind values at each call site, for the same reason `--forest` is a role
+   and not three hex values. The mask matters most: without it the grid is a
+   flat plaid across the whole panel and reads as a texture bug rather than as
+   depth.
+   ========================================================================== */
+@layer components {
+  .forest-panel {
+    position: relative;
+    background-color: var(--forest);
+    background-image: var(--hero-glow);
+    color: var(--hero-foreground);
+  }
+
+  .forest-grid::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    opacity: 0.18;
+    background-image:
+      linear-gradient(var(--hero-border) 1px, transparent 1px),
+      linear-gradient(90deg, var(--hero-border) 1px, transparent 1px);
+    background-size: 85px 85px;
+    -webkit-mask-image: linear-gradient(transparent 20%, var(--forest));
+    mask-image: linear-gradient(transparent 20%, var(--forest));
+    pointer-events: none;
+  }
+
+  /*
+     The tilt is on the wrapper rather than on the workspace inside it, so the
+     perspective origin is the panel and the mock appears to lean away from the
+     viewer. Suppressed at the width where the mock sits flush against the panel
+     edge, because a rotated element clipped by its parent loses its far corner.
+  */
+  .product-tilt {
+    transform: perspective(1600px) rotateX(5deg);
+    transform-origin: top center;
+  }
+
+  @media (max-width: 700px) {
+    .product-tilt {
+      transform: none;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .product-tilt {
+      transform: none;
+    }
   }
 }
 

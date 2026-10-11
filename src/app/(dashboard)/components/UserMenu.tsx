@@ -3,7 +3,7 @@
 import * as React from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { MoonIcon, SunIcon, SignOutIcon } from '@phosphor-icons/react';
+import { LogOut, Moon, Sun } from 'lucide-react';
 import { useTheme } from 'next-themes';
 
 import {
@@ -62,9 +62,9 @@ export function UserMenu({ email }: { email: string }) {
             }
           >
             {resolvedTheme === 'dark' ? (
-              <SunIcon weight="regular" aria-hidden="true" />
+              <Sun aria-hidden="true" />
             ) : (
-              <MoonIcon weight="regular" aria-hidden="true" />
+              <Moon aria-hidden="true" />
             )}
             {resolvedTheme === 'dark' ? 'Light theme' : 'Dark theme'}
           </DropdownMenuItem>
@@ -73,7 +73,7 @@ export function UserMenu({ email }: { email: string }) {
         <DropdownMenuSeparator />
 
         <DropdownMenuItem destructive onSelect={signOut}>
-          <SignOutIcon weight="regular" aria-hidden="true" />
+          <LogOut aria-hidden="true" />
           Sign out
         </DropdownMenuItem>
       </DropdownMenuContent>

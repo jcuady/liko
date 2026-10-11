@@ -3,51 +3,51 @@
 import * as React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { ListIcon, XIcon } from '@phosphor-icons/react';
+import { ArrowUpRight, List, X } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 import { LikoLogo } from '@/components/brand/LikoLogo';
 
 /**
- * Marketing nav. One line at desktop, full-screen menu below.
+ * Marketing nav, on the brand design's proportions.
  *
- * The CTA label is "Start free" here, in the hero, and in the footer.
- * One label per intent, repeated verbatim, so nobody has to wonder whether
- * "Sign up" and "Get started" go to the same place.
+ * THE LINKS ARE THE LANDING PAGE'S SECTIONS. The design's header points at
+ * Features, Classrooms, Mobile and Pricing, which are the four anchors a
+ * visitor needs to move around the page it is sitting at the top of.
  *
- * Shared by every marketing route, so the section links have to resolve off the
- * landing page too. `#flow` only means "this page" on `/`; anywhere else it is
- * `/#flow`, because a bare hash on `/pricing` would jump to an anchor that page
- * does not have.
+ * Section links are rewritten to `/#anchor` anywhere other than `/`, because a
+ * bare hash on `/pricing` jumps to an anchor that page does not have. A header
+ * link that silently does nothing on every page but one is worse than no link.
  */
 
-const LINKS = [
-  { href: '#flow', label: 'Flow' },
-  { href: '#modules', label: 'Modules' },
-  { href: '/pricing', label: 'Pricing' },
-  { href: '#proof', label: 'Why teachers switch' },
-  { href: '#faq', label: 'Questions' },
-];
+/** `null` means this route has no such section, and the link is hidden. */
+const LINKS: readonly { href: string; label: string }[] = [
+  { href: '#features', label: 'Features' },
+  { href: '#classrooms', label: 'For every teacher' },
+  { href: '#mobile', label: 'On the go' },
+  { href: '#pricing', label: 'Pricing' },
+] as const;
+
+const QUICK_LINKS: readonly { href: string; label: string }[] = [
+  { href: '/login', label: 'Log in' },
+  { href: '/terms', label: 'Terms' },
+  { href: '/privacy', label: 'Privacy' },
+  { href: '/cookies', label: 'Cookies' },
+] as const;
 
 function NavLink({
   href,
   label,
-  current,
   className,
   onClick,
 }: {
   href: string;
   label: string;
-  current: boolean;
-  className: string;
+  className?: string;
   onClick?: () => void;
 }) {
-  const shared = {
-    'aria-current': current ? ('page' as const) : undefined,
-    className,
-    onClick,
-  };
+  const shared = { className, onClick };
 
   // A route link goes through the router; a section link must stay a plain
   // anchor so the browser can jump to the section without a client transition.
@@ -69,37 +69,43 @@ function NavLink({
 export function MarketingNav() {
   const [open, setOpen] = React.useState(false);
   const pathname = usePathname();
-
   const isLanding = pathname === '/';
 
   return (
     <header className="sticky top-0 z-40 border-b border-border bg-[var(--surface)]/85 backdrop-blur-lg">
       <nav
         aria-label="Main"
-        className="container-marketing flex h-[68px] items-center justify-between gap-6"
+        className="container-marketing flex h-[74px] items-center justify-between gap-6 md:h-[88px]"
       >
-        <Link href="/" className="shrink-0" aria-label="LIKO home">
+        <Link href="/" className="shrink-0" aria-label="Liko home">
           <LikoLogo showWordmark />
         </Link>
 
-        <ul className="hidden items-center gap-8 md:flex">
+        <ul className="hidden items-center gap-6 md:flex lg:gap-8">
           {LINKS.map((link) => (
             <li key={link.href}>
               <NavLink
-                href={isLanding || link.href.startsWith('/') ? link.href : `/${link.href}`}
+                href={isLanding ? link.href : `/${link.href}`}
                 label={link.label}
-                current={pathname === link.href}
-                className={`rounded-[8px] text-[0.9375rem] transition-colors duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-accent ${
-                  pathname === link.href ? 'text-ink' : 'text-ink-muted hover:text-ink'
-                }`}
+                className="inline-flex min-h-11 items-center rounded-[8px] text-[13px] font-medium text-ink-muted transition-colors duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] hover:text-accent"
               />
             </li>
           ))}
         </ul>
 
         <div className="flex items-center gap-2">
-          <Button asChild size="sm" className="hidden sm:inline-flex">
-            <Link href="/register">Start free</Link>
+          <Button asChild variant="ghost" size="sm" className="hidden sm:inline-flex">
+            <Link href="/login">
+              Log in
+              <ArrowUpRight size={13} aria-hidden="true" />
+            </Link>
+          </Button>
+
+          <Button asChild size="sm" className="rounded-pill">
+            <Link href="/register">
+              Start free
+              <ArrowUpRight aria-hidden="true" />
+            </Link>
           </Button>
 
           <Sheet open={open} onOpenChange={setOpen}>
@@ -110,11 +116,7 @@ export function MarketingNav() {
                 className="md:hidden"
                 aria-label={open ? 'Close menu' : 'Open menu'}
               >
-                {open ? (
-                  <XIcon size={20} weight="bold" aria-hidden="true" />
-                ) : (
-                  <ListIcon size={20} weight="bold" aria-hidden="true" />
-                )}
+                {open ? <X size={20} aria-hidden="true" /> : <List size={20} aria-hidden="true" />}
               </Button>
             </SheetTrigger>
             <SheetContent side="bottom" className="rounded-t-[20px] pb-8">
@@ -123,13 +125,20 @@ export function MarketingNav() {
                 {LINKS.map((link) => (
                   <li key={link.href}>
                     <NavLink
-                      href={isLanding || link.href.startsWith('/') ? link.href : `/${link.href}`}
+                      href={isLanding ? link.href : `/${link.href}`}
                       label={link.label}
-                      current={pathname === link.href}
                       onClick={() => setOpen(false)}
-                      className={`flex min-h-[52px] items-center border-b border-border text-[1.0625rem] last:border-0 ${
-                        pathname === link.href ? 'text-accent' : 'text-ink'
-                      }`}
+                      className="flex min-h-[52px] items-center border-b border-border text-[1.0625rem] text-ink last:border-0"
+                    />
+                  </li>
+                ))}
+                {QUICK_LINKS.map((link) => (
+                  <li key={link.href}>
+                    <NavLink
+                      href={link.href}
+                      label={link.label}
+                      onClick={() => setOpen(false)}
+                      className="flex min-h-[52px] items-center border-b border-border text-[1.0625rem] text-ink last:border-0"
                     />
                   </li>
                 ))}

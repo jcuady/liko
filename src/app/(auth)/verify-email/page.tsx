@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { EnvelopeOpenIcon } from '@phosphor-icons/react/dist/ssr';
+import { MailOpen } from 'lucide-react';
 
 import { LikoLogo } from '@/components/brand/LikoLogo';
 import { ResendVerificationForm } from './ResendVerificationForm';
@@ -43,7 +43,7 @@ export default async function VerifyEmailPage({
         aria-hidden="true"
         className="grid size-14 place-items-center rounded-full bg-accent-subtle text-accent"
       >
-        <EnvelopeOpenIcon size={26} weight="duotone" />
+        <MailOpen size={26} />
       </span>
 
       <h1 className="text-h3 mt-6">

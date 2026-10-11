@@ -1,11 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import {
-  ArrowDownRightIcon,
-  ArrowUpRightIcon,
-  ClockIcon,
-} from '@phosphor-icons/react';
+import { ArrowDownRight, ArrowUpRight, Clock } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
 import { AttendanceGrid } from './AttendanceGrid';
@@ -60,7 +56,7 @@ export function OverviewDashboard({
           </p>
         </div>
         <span className="inline-flex items-center gap-1.5 rounded-[8px] bg-accent-subtle px-2 py-1 text-[0.6875rem] font-medium text-accent">
-          <ClockIcon size={12} weight="fill" aria-hidden="true" />
+          <Clock size={12} aria-hidden="true" />
           Period 2
         </span>
       </div>
@@ -89,9 +85,9 @@ export function OverviewDashboard({
                     )}
                   >
                     {up ? (
-                      <ArrowUpRightIcon size={11} weight="bold" aria-hidden="true" />
+                      <ArrowUpRight size={11} aria-hidden="true" />
                     ) : (
-                      <ArrowDownRightIcon size={11} weight="bold" aria-hidden="true" />
+                      <ArrowDownRight size={11} aria-hidden="true" />
                     )}
                     {Math.abs(stat.delta)}
                   </span>

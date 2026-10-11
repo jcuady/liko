@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import { useTheme } from 'next-themes';
-import { MoonIcon, SunIcon } from '@phosphor-icons/react';
+import { Moon, Sun } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { useIsHydrated } from '@/lib/hooks/use-media-query';
@@ -40,7 +40,7 @@ export function ThemeToggle() {
         disabled
         title="Choosing a theme stores that choice in this browser. Accept optional storage on the cookie banner to change it."
       >
-        <MoonIcon size={16} weight="regular" aria-hidden="true" />
+        <Moon size={16} aria-hidden="true" />
         Following system
       </Button>
     );
@@ -54,9 +54,9 @@ export function ThemeToggle() {
       aria-label={mounted ? `Switch to ${isDark ? 'light' : 'dark'} theme` : 'Switch theme'}
     >
       {mounted && isDark ? (
-        <SunIcon size={16} weight="regular" aria-hidden="true" />
+        <Sun size={16} aria-hidden="true" />
       ) : (
-        <MoonIcon size={16} weight="regular" aria-hidden="true" />
+        <Moon size={16} aria-hidden="true" />
       )}
       {mounted ? (isDark ? 'Light' : 'Dark') : 'Theme'}
     </Button>

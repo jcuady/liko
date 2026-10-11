@@ -87,7 +87,22 @@ try {
   // ------------------------------------------------------------------- register
   await fillRegisterForm(page);
 
-  await page.waitForURL(/\/(verify-email|welcome|overview|plan|classes)/, { timeout: 60_000 });
+  await page.waitForURL(/\/(verify-email|welcome|overview|plan|classes)/, { timeout: 60_000 }).catch(
+    async () => {
+      /*
+       * A timeout with no diagnosis teaches nobody anything, and this has timed
+       * out before. The form reports refusals in words, and the one that matters
+       * most here is the provider's own quota error, which is a long sentence.
+       */
+      const problems = await page
+        .locator('[role="alert"], [role="status"]')
+        .allInnerTexts()
+        .catch(() => []);
+      const clean = problems.map((t) => t.trim()).filter((t) => t.length > 0);
+      console.log(`      url ${page.url().replace(BASE, '')}`);
+      console.log(`      said ${clean.join(' | ') || '(nothing with a role of alert or status)'}`);
+    },
+  );
   const landed = new URL(page.url()).pathname;
   check(
     'a new account is not parked on the confirmation page',

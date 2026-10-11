@@ -89,7 +89,22 @@ async function changeWeight(page: Page): Promise<string> {
   await weight.selectOption(target);
   return target;
 }
-test.describe('the slide editor', () => {
+/*
+ * SERIAL, AND NOT ONLY BECAUSE ORDER MATTERS.
+ *
+ * These tests share one demo deck and three of them write the same element's
+ * weight through `changeWeight`. The suite runs `fullyParallel: true` on four
+ * workers, so without `.serial` those three run at the same time against the
+ * same stored record: each reads the current weight, each flips it, and the last
+ * writer wins. The test that reloads then asserts against a value another test
+ * has already put back, and fails with "the bold weight survived the reload.
+ * Expected 700, received 500" while saving is working perfectly.
+ *
+ * It is a genuine race rather than flakiness, it reproduced only in a full-suite
+ * run, and every one of these tests passed in isolation. `.serial` is the fix:
+ * the tests need a deck to themselves, not a worker each.
+ */
+test.describe.serial('the slide editor', () => {
   test.beforeEach(async ({ page }) => {
     await signIn(page);
     await openFirstDeck(page);

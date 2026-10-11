@@ -3,7 +3,7 @@
 import * as React from 'react';
 import Link from 'next/link';
 import { useFormStatus } from 'react-dom';
-import { CircleNotchIcon } from '@phosphor-icons/react';
+import { LoaderCircle } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -32,7 +32,7 @@ export function SubmitButton({
     <Button type="submit" size="lg" block disabled={pending} className={className}>
       {pending ? (
         <>
-          <CircleNotchIcon size={16} weight="bold" aria-hidden="true" className="animate-spin" />
+          <LoaderCircle size={16} aria-hidden="true" className="animate-spin" />
           {pendingLabel}
         </>
       ) : (

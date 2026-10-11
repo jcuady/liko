@@ -3,7 +3,7 @@
 import * as React from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { NotePencilIcon, PlusIcon } from '@phosphor-icons/react';
+import { NotebookPen, Plus } from 'lucide-react';
 
 import { Badge, Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -155,7 +155,7 @@ export function LessonPlanner({
                     onClick={() => setEditing(toDraft(plan))}
                     className="shrink-0"
                   >
-                    <NotePencilIcon size={15} weight="bold" aria-hidden="true" />
+                    <NotebookPen size={15} aria-hidden="true" />
                     Edit
                     <span className="sr-only"> {plan.title}</span>
                   </Button>
@@ -225,7 +225,7 @@ function PlanDialog({
       {onOpenChange ? null : (
         <DialogTrigger asChild>
           <Button size="sm">
-            <PlusIcon size={15} weight="bold" aria-hidden="true" />
+            <Plus size={15} aria-hidden="true" />
             New lesson plan
           </Button>
         </DialogTrigger>

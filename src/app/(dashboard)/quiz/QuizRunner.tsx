@@ -4,7 +4,7 @@ import * as React from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useMutation } from '@tanstack/react-query';
-import { ArrowLeftIcon, CheckIcon } from '@phosphor-icons/react';
+import { ArrowLeft, Check } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { Badge, Card, CardContent } from '@/components/ui/card';
@@ -106,7 +106,7 @@ export function QuizRunner({ quiz }: { quiz: StudentQuiz }) {
         <Card>
           <CardContent className="flex flex-col items-start gap-4">
             <span className="flex h-11 w-11 items-center justify-center rounded-full bg-success-subtle text-success">
-              <CheckIcon size={22} weight="bold" aria-hidden="true" />
+              <Check size={22} aria-hidden="true" />
             </span>
             <div>
               <h1 className="text-h3">Submitted</h1>
@@ -183,7 +183,7 @@ export function QuizRunner({ quiz }: { quiz: StudentQuiz }) {
             {submit.isPending ? 'Submitting' : 'Submit quiz'}
           </Button>
           <Button type="button" variant="ghost" onClick={() => setPhase('answer')}>
-            <ArrowLeftIcon size={16} aria-hidden="true" />
+            <ArrowLeft size={16} aria-hidden="true" />
             Back to the questions
           </Button>
         </div>
@@ -262,7 +262,7 @@ export function QuizRunner({ quiz }: { quiz: StudentQuiz }) {
           disabled={index === 0}
           onClick={() => setIndex((at) => Math.max(0, at - 1))}
         >
-          <ArrowLeftIcon size={16} aria-hidden="true" />
+          <ArrowLeft size={16} aria-hidden="true" />
           Previous
         </Button>
 

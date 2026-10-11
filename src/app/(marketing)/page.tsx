@@ -3,25 +3,39 @@ import { redirect } from 'next/navigation';
 
 import { MarketingNav } from '@/components/layout/MarketingNav';
 import { Footer } from '@/components/layout/Footer';
-import { Hero } from './components/hero/Hero';
-import { StatsBand } from './components/StatsBand';
-import { TrustMarquee } from './components/trust/TrustMarquee';
-import { Problem } from './components/Problem';
-import { FlowSection } from './components/flow/FlowSection';
-import { RolesSection } from './components/roles/RolesSection';
-import { ModuleBento } from './components/ModuleBento';
-import { Proof } from './components/Proof';
-import { Faq } from './components/Faq';
-import { FinalCta } from './components/FinalCta';
 import { getSession } from '@/lib/auth/guards';
 
-const TITLE = 'LIKO. Every teaching task, in one flow.';
+import { Hero } from './components/landing/Hero';
+import { TeacherLevels } from './components/landing/TeacherLevels';
+import { FeaturesShowcase } from './components/landing/FeaturesShowcase';
+import { TeacherStory } from './components/landing/TeacherStory';
+import { MobileBand } from './components/landing/MobileBand';
+import { LandingPricing } from './components/landing/LandingPricing';
+import { Faq } from './components/landing/Faq';
+import { BottomCta } from './components/landing/BottomCta';
+
+/**
+ * The landing page, rebuilt on the supplied brand design.
+ *
+ * THE ORDER IS THE DESIGN'S, AND IT IS THE BETTER ONE. The previous page ran a
+ * hero, a stats band, a logo marquee, a problem statement, two scroll narratives,
+ * a roles pan and a proof carousel before a visitor saw a price or a way to
+ * start. This one reaches the workspace at the first screen, the three things
+ * the product does at the second, and the price at the fourth.
+ *
+ * WHY PRICING IS ON THE LANDING PAGE NOW. The design puts three plan cards
+ * between the features and the questions. They render from the same `PLANS`
+ * array `/pricing` renders from and link to the same `/register?plan=` URLs, so
+ * there is still one list of plans in the product.
+ */
+
+const TITLE = 'Liko. Less admin. More teaching.';
 const DESCRIPTION =
-  'Plan, create, assess, grade, and analyze on a single thread. Built for teachers who are done retyping the same data into four tools.';
+  'Meet Liko. Your lessons, grades, quizzes and student insights, finally together. Built for preschool, grade school, high school and college teachers, with plans in Philippine pesos.';
 
 export function generateMetadata(): Metadata {
   return {
-    title: 'Every teaching task, in one flow.',
+    title: 'Less admin. More teaching.',
     description: DESCRIPTION,
     alternates: { canonical: '/' },
     openGraph: {
@@ -42,11 +56,11 @@ export default async function LandingPage() {
   const jsonLd = {
     '@context': 'https://schema.org',
     '@type': 'SoftwareApplication',
-    name: 'LIKO',
+    name: 'Liko',
     applicationCategory: 'EducationalApplication',
     operatingSystem: 'Any',
     description: DESCRIPTION,
-    offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' },
+    offers: { '@type': 'Offer', price: '0', priceCurrency: 'PHP' },
   };
 
   return (
@@ -62,30 +76,19 @@ export default async function LandingPage() {
 
       {/*
         `overflow-x-clip`, not `overflow-x-hidden`. The hidden variant computes
-        the other axis to `auto` and makes this a scroll container, and both
-        scroll narratives pin their content with `position: sticky`, which
-        resolves against the nearest scrollport. A scrollport that never scrolls
-        means sticky never sticks. Clip still suppresses the horizontal overflow
-        without creating a scroll container.
+        the other axis to `auto` and makes this a scroll container, and the
+        sticky nav inside it resolves against the nearest scrollport. A scrollport
+        that never scrolls means sticky never sticks.
       */}
       <main id="main" className="overflow-x-clip">
-        {/*
-          Section order. The quantified proof used to sit in the seventh
-          section, so the strongest argument on the page only reached the reader
-          willing to scroll past two scroll narratives to find it. `StatsBand`
-          now runs directly under the hero. Every other section keeps the order
-          it already had.
-        */}
         <Hero />
-        <StatsBand />
-        <TrustMarquee />
-        <Problem />
-        <FlowSection />
-        <RolesSection />
-        <ModuleBento />
-        <Proof />
+        <TeacherLevels />
+        <FeaturesShowcase />
+        <TeacherStory />
+        <MobileBand />
+        <LandingPricing />
         <Faq />
-        <FinalCta />
+        <BottomCta />
       </main>
 
       <Footer />

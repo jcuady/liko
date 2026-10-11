@@ -58,5 +58,20 @@ function ellipse({ cx, cy, rx, ry }: { cx: number; cy: number; rx: number; ry: n
 export const O_PATH =
   `${ellipse(O_RING.outer)} ${ellipse(O_RING.inner)}`;
 
-/** The green measured off the supplied artwork. */
-export const BRAND_GREEN = '#29813d';
+/**
+ * The green the mark is drawn in.
+ *
+ * It used to be `#29813d`, "measured off the supplied artwork". The rebrand
+ * moved the whole product to `oklch(0.48 0.13 151)` and that is `#007134`, so
+ * leaving the mark behind would have put the old green logo on a page painted
+ * in the new one. It is the same brand green, deeper and more saturated.
+ *
+ * The mark SHAPE is unchanged: the supplied design's own logo is only a CDN
+ * reference with no file in the repository, so the wordmark that ships is still
+ * the vector mark in `public/brand`. Worth re-checking against the real asset
+ * if the brand owner supplies it.
+ *
+ * A single source for the value, because this one constant paints the logo, the
+ * app icon, the maskable icon and the Open Graph image. They disagreed once.
+ */
+export const BRAND_GREEN = '#007134';

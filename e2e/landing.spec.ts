@@ -11,7 +11,8 @@ test.describe('landing page', () => {
 
     const h1 = page.getByRole('heading', { level: 1 });
     await expect(h1).toBeVisible();
-    await expect(h1).toHaveText(/Every teaching task/i);
+    await expect(h1).toContainText('Less admin.');
+    await expect(h1).toContainText('More teaching.');
 
     const cta = page.getByRole('link', { name: 'Start free' }).first();
     await expect(cta).toBeVisible();
@@ -37,6 +38,26 @@ test.describe('landing page', () => {
     }
   });
 
+  test('the workspace mock is not a picture of headings', async ({ page }) => {
+    /*
+     * The mock's titles are drawn in the display face and read exactly like
+     * headings, which is how three of them became real `h3`s sitting directly
+     * under the page `h1`. That is a heading skip, and the check above catches
+     * the symptom rather than the cause. This one asserts the cause: the
+     * picture contributes no headings at all to the document outline.
+     */
+    await page.goto('/');
+
+    const outline = await page
+      .locator('h1, h2, h3, h4, h5, h6')
+      .evaluateAll((nodes) => nodes.map((node) => node.textContent?.trim() ?? ''));
+
+    const mockCopy = ['A good day to make a difference.', 'See the student behind the score.'];
+    for (const phrase of mockCopy) {
+      expect(outline, `${phrase} must not be a heading on the page`).not.toContain(phrase);
+    }
+  });
+
   test('the primary CTA routes to registration', async ({ page }) => {
     await page.goto('/');
     await page
@@ -46,25 +67,13 @@ test.describe('landing page', () => {
     await expect(page).toHaveURL(/\/register/);
   });
 
-  test('the hero email capture carries the address into registration', async ({
-    page,
-  }) => {
+  test('the hero CTA routes to registration', async ({ page }) => {
     await page.goto('/');
-    await page.getByPlaceholder('Enter your email here').fill('teacher@school.edu');
-    await page.getByRole('button', { name: /Start free/i }).click();
-    await expect(page).toHaveURL(/\/register\?email=teacher%40school\.edu/);
-    await expect(page.getByLabel('Email')).toHaveValue('teacher@school.edu');
-  });
-
-  test('the hero email field rejects a malformed address', async ({ page }) => {
-    await page.goto('/');
-    await page.getByPlaceholder('Enter your email here').fill('not-an-email');
-    await page.getByRole('button', { name: /Start free/i }).click();
-
-    // Scoped to the field's own error, because Next renders a global
-    // route-announcer element that also carries role="alert".
-    await expect(page.locator('#hero-email-error')).toContainText('valid email');
-    await expect(page).toHaveURL(/\/$/);
+    await page
+      .getByRole('link', { name: /Start teaching with Liko/i })
+      .first()
+      .click();
+    await expect(page).toHaveURL(/\/register/);
   });
 
   test('every in-page anchor resolves to a real section', async ({ page }) => {
@@ -100,7 +109,7 @@ test.describe('landing page', () => {
     }
   });
 
-  test('the FAQ answers the cost question first, and says it is free', async ({ page }) => {
+  test('the FAQ answers the money question, and says no card is taken', async ({ page }) => {
     await page.goto('/#faq');
     // Wait for hydration before clicking. The accordion is server-rendered, so
     // the button is visible and readable long before it can respond, and a click
@@ -109,33 +118,71 @@ test.describe('landing page', () => {
     // the machine was, which is the one property a test must not have.
     await page.waitForLoadState('networkidle');
 
-    const first = page.getByRole('button', { name: /what does it cost/i }).first();
-    await expect(first).toBeVisible();
-    await first.click();
+    const money = page.getByRole('button', { name: /credit card/i }).first();
+    await expect(money).toBeVisible();
+    await money.click();
 
     /*
      * It used to open with "What does the free trial include?" There is no
-     * trial, so the first question a teacher sees was about a product that does
-     * not exist. The panel now has to say the thing that is true.
+     * trial, so the first question a teacher saw was about a product that does
+     * not exist. The answer has to say the thing that is true.
      */
     const panel = page.locator('#faq').getByRole('region').first();
-    await expect(panel).toContainText('Nothing right now');
     await expect(panel).toContainText('no card is taken');
+  });
+
+  test('the FAQ is honest about PowerPoint export', async ({ page }) => {
+    /*
+     * The supplied brand design answered this with "AI generation and
+     * PowerPoint file export are not connected yet". Deck generation shipped and
+     * works, so half of that sentence became false and would have undersold the
+     * product. The other half is still true and deliberate:
+     * `slides/actions.ts` refuses to import or export `.pptx`. This pins both
+     * halves so neither drifts again.
+     */
+    await page.goto('/#faq');
+    await page.waitForLoadState('networkidle');
+
+    await page.getByRole('button', { name: /What can Liko make for a lesson/i }).first().click();
+
+    const panel = page.locator('#faq').getByRole('region').first();
+    await expect(panel).toContainText('no PowerPoint file export');
+  });
+
+  test('the FAQ says the students on the page are invented', async ({ page }) => {
+    /*
+     * Six Filipino names on a marketing page could be real children. The page
+     * has to rule that out in its own words rather than relying on the visitor
+     * to assume a demo.
+     */
+    await page.goto('/#faq');
+    await page.waitForLoadState('networkidle');
+
+    await page.getByRole('button', { name: /Are the students on this page real/i }).first().click();
+
+    const panel = page.locator('#faq').getByRole('region').first();
+    await expect(panel).toContainText('six invented names');
   });
 
   test('the closing panel and the FAQ do not repeat the same sentence', async ({
     page,
   }) => {
-    await page.goto('/');
+    await page.goto('/#faq');
+    await page.waitForLoadState('networkidle');
+
+    /*
+     * The answer has to be opened first. A Radix accordion keeps its content
+     * out of the DOM until it is expanded, so reading the FAQ's copy off the
+     * collapsed page times out waiting for text that is genuinely not there.
+     */
+    await page.getByRole('button', { name: /credit card/i }).first().click();
 
     const faqAnswer = await page
       .locator('#faq')
-      // Was "No credit card". The FAQ now says "no card is taken", because
-      // there is no trial and therefore no credit-card question to answer.
       .getByText(/no card is taken/i)
       .first()
       .innerText();
-    const cta = await page.locator('#final-cta-title').locator('..').innerText();
+    const cta = await page.locator('#bottom-cta-title').locator('..').innerText();
 
     // Overlapping wording is fine; an identical sentence is copy duplication.
     expect(cta.includes(faqAnswer.trim())).toBe(false);
@@ -184,15 +231,16 @@ test.describe('landing page', () => {
     expect(emoji).toEqual([]);
   });
 
-  test('attendance state is carried by a glyph, not colour alone', async ({
-    page,
-  }) => {
+  test('the sample marks on the page are labelled as a sample', async ({ page }) => {
+    /*
+     * The workspace mock shows six Filipino names with percentages, and the
+     * phone mock shows four more. Nothing distinguished them from real records
+     * before. This replaced the attendance legend check, which only existed
+     * because the old landing page embedded an attendance widget. The point is
+     * unchanged: state has to be carried by something other than implication.
+     */
     await page.goto('/');
-
-    // The legend text is the non-colour carrier for the attendance states.
-    for (const label of ['Present', 'Absent', 'Late', 'Excused']) {
-      await expect(page.getByText(label, { exact: true }).first()).toBeVisible();
-    }
+    await expect(page.getByText(/Sample data, shown for illustration/i)).toBeVisible();
   });
 
   test('contains no em dash in visible copy', async ({ page }) => {

@@ -1,8 +1,32 @@
 # Project Status
 
-Last Updated: 2026-10-10
+Last Updated: 2026-10-11
 Current Branch: `main`
-Overall Status: **IMPLEMENTED, GATE-GREEN AND DEPLOYED, WITH TWO THINGS THAT NEED THE USER.** Typecheck, lint, unit, migration, build, end to end, responsive and behaviour gates are all green against this working tree. The deck maker, the file import and the slide editor are live. What is not done is anything that needs a decision from the owner: the free AI tier the generator runs on refuses requests at the provider's own rate, and the legal drafts need a lawyer.
+Overall Status: **IMPLEMENTED, GATE-GREEN, WITH TWO THINGS THAT NEED THE USER.** Typecheck, lint, unit (342), migration (197 statements), build, end to end (191), responsive and behaviour gates are all green against this working tree. What is not done is anything that needs a decision from the owner: the free AI tier the generator runs on is currently refusing requests at the provider with a 503, and the legal drafts need a lawyer.
+
+## The rebrand (2026-10-11)
+
+The supplied brand design in `Liko new landing design and branding/` has been applied across the product. That directory is a separate Vite and TanStack Router project kept inside the repo as the reference only; it is excluded from TypeScript, lint, git and the Vercel build.
+
+**Tokens.** The whole palette is now OKLCH rather than hex, because the brand is one hue family that has to lift in dark mode without drifting. DM Sans for interface text, Manrope for headings, and the design's smaller radius scale. The three dark panels, the hero, the mobile band and the lesson preview, sit on `--forest` with a radial glow and a masked grid over it.
+
+**The landing page was rebuilt, not restyled.** It previously ran a hero, a stats band, a logo marquee, a problem statement, two scroll narratives, a roles pan and a proof carousel before a visitor saw a price. It now reaches the workspace at the first screen and a price at the fourth. Nineteen components were deleted.
+
+**Three claims in the design were not true of this product and were not copied.**
+
+1. *App Store and Google Play buttons.* LIKO has no native app. The band now says what is true and was already backed by code: it installs (`app/manifest.ts`) and works offline (Serwist).
+2. *"AI generation and PowerPoint file export are not connected yet."* Half of that sentence had become false. Deck generation shipped, so claiming otherwise undersold the product. But `slides/actions.ts` refuses to import or export `.pptx` by design, so the FAQ now states both halves.
+3. *Its own plan data.* The landing pricing renders from the same `PLANS` array `/pricing` renders from and links to the same `/register?plan=` URLs, so there is one list of plans rather than two.
+
+**The interactive demo was not ported.** The design opens a Zustand-backed fake workspace with an editable gradebook and a scan that returns a score. That was scaffolding for a build with no backend. Putting it beside the real workspace behind `/overview` would be a second, fake product on the page that sells the real one, so the mock keeps only the visual and every mark on it is fixed, fictional and labelled as sample data.
+
+**Bugs found and fixed along the way.**
+
+- The column default on `organizations.plan` was never renamed. `create table if not exists` is a no-op against a live database, so the constraint was replaced while the default stayed `solo` and rejected every insert that omitted the column. `pnpm db:settle` found it with a 23514.
+- `e2e/legal.spec.ts` asserted on the pricing CTA "Create a free account", which has not existed in the product for some time. The test was matching nothing.
+- Three `slide-editor` tests each flipped the same stored font weight on one shared demo deck while `fullyParallel` ran them concurrently. The reload test failed intermittently with a convincing product-level message while saving worked perfectly. The block is now `describe.serial`.
+- The mock's internal titles were real `h3` and `h4` elements sitting directly under the page `h1`, which is a heading-level skip. They are paragraphs now.
+- The logo, app icons, maskable icon and Open Graph image were still painted `#29813d`, the pre-rebrand green, because `BRAND_GREEN` was a constant nobody had revisited.
 
 ## Executive Summary
 
@@ -19,8 +43,8 @@ Students cannot self-register. That was already structurally true; it is now exp
 ### Frontend
 - Next.js 16.4.0 App Router, React 19.3.0, Tailwind v4
 - `--webpack` for dev and build: Serwist cannot hook Turbopack
-- Radix primitives + CVA, vendored in `src/components/ui`
-- Phosphor icons. Server components import from `@phosphor-icons/react/dist/ssr`; the plain entry breaks the build with `createContext is not a function`
+- Radix primitives + CVA, vendored in `src/components/ui`, with `components.json` marking shadcn/ui `new-york` as the standard for anything new
+- lucide-react icons, imported from the package root by server and client alike. Phosphor's plain entry pulled a React context into the server bundle and needed `@phosphor-icons/react/dist/ssr` in server components; lucide has no context, so that split is gone
 - `motion` is the only animation runtime
 - TanStack Query v5, React Hook Form + Zod 4, `sonner`, `next-themes`, `vaul`
 
@@ -131,7 +155,10 @@ bugs were fixed alongside it: the plan ids the page sold
 (`starter | teacher | school`) overlapped the `organizations.plan` check
 constraint (`solo | school | district`) on only one value, so two of the three
 ids could never have been stored and `district` had no card; and the vocabulary
-is now one list in three places.
+is now one list in three places. The tiers were later renamed to
+`starter | teacher-pro | school` across the page, the API types and the check
+constraint together, and `pnpm check:sql` now reads the constraint and both
+TypeScript lists and fails the build if any of the three disagree.
 
 ### Seat limits are enforced; plan gating is still deferred
 

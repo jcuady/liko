@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import { useFormStatus } from 'react-dom';
-import { PaperPlaneTiltIcon } from '@phosphor-icons/react';
+import { Send } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -60,7 +60,7 @@ function ResendButton() {
 
   return (
     <Button type="submit" size="lg" disabled={pending} className="shrink-0 gap-2">
-      <PaperPlaneTiltIcon size={16} weight="bold" aria-hidden="true" />
+      <Send size={16} aria-hidden="true" />
       {pending ? 'Sending' : 'Resend'}
     </Button>
   );

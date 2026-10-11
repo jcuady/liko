@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useFormState, useFormStatus } from 'react-dom';
-import { EnvelopeSimpleIcon } from '@phosphor-icons/react';
+import { Mail } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { AuthFooter, AuthHeading, Field, FormMessages } from '../components/AuthForm';
@@ -33,9 +33,8 @@ export function ForgotPasswordForm() {
           role="status"
           className="rounded-[12px] border border-success bg-success-subtle p-5"
         >
-          <EnvelopeSimpleIcon
+          <Mail
             size={20}
-            weight="duotone"
             aria-hidden="true"
             className="text-success"
           />

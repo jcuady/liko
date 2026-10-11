@@ -5,12 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useMutation } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import {
-  ArchiveIcon,
-  CardsIcon,
-  PencilSimpleIcon,
-  PlusIcon,
-} from '@phosphor-icons/react';
+import { Archive, Pencil, Plus, Presentation } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Badge, Card, CardContent } from '@/components/ui/card';
@@ -111,7 +106,7 @@ export function DecksList({ decks }: { decks: DeckSummary[] }) {
         >
           <DialogTrigger asChild>
             <Button>
-              <PlusIcon size={18} weight="bold" aria-hidden="true" />
+              <Plus size={18} aria-hidden="true" />
               New deck
             </Button>
           </DialogTrigger>
@@ -164,7 +159,7 @@ export function DecksList({ decks }: { decks: DeckSummary[] }) {
 
       {decks.length === 0 ? (
         <EmptyState
-          icon={CardsIcon}
+          icon={Presentation}
           title="No decks yet"
           description="A deck holds the slides for one lesson. Create one and the slides are editable straight away."
         />
@@ -205,7 +200,7 @@ export function DecksList({ decks }: { decks: DeckSummary[] }) {
                   <div className="flex flex-wrap items-center gap-2">
                     <Button asChild size="sm" variant="secondary">
                       <Link href={`/slides/${deck.id}`}>
-                        <PencilSimpleIcon size={15} weight="bold" aria-hidden="true" />
+                        <Pencil size={15} aria-hidden="true" />
                         Open
                       </Link>
                     </Button>
@@ -215,7 +210,7 @@ export function DecksList({ decks }: { decks: DeckSummary[] }) {
                       disabled={archive.isPending}
                       onClick={() => archive.mutate(deck.id)}
                     >
-                      <ArchiveIcon size={15} weight="bold" aria-hidden="true" />
+                      <Archive size={15} aria-hidden="true" />
                       Archive
                     </Button>
                     <Button

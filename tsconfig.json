@@ -42,6 +42,9 @@
   ],
   "exclude": [
     "node_modules",
-    "e2e"
+    "e2e",
+    "Liko new landing design and branding",
+    "sohne-font-family",
+    "graphify-out"
   ]
 }

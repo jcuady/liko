@@ -4,12 +4,7 @@ import * as React from 'react';
 import { useRouter } from 'next/navigation';
 import { useMutation } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import {
-  BuildingsIcon,
-  CheckCircleIcon,
-  MinusCircleIcon,
-  ProhibitIcon,
-} from '@phosphor-icons/react';
+import { Ban, Building2, CircleCheck, CircleMinus } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Badge, Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -766,7 +761,7 @@ export function AdminConsole({
           <Card className="max-w-[42rem]">
             <CardHeader>
               <CardTitle className="flex items-center gap-2.5">
-                <BuildingsIcon size={20} weight="duotone" aria-hidden="true" />
+                <Building2 size={20} aria-hidden="true" />
                 Organisation
               </CardTitle>
             </CardHeader>
@@ -1147,23 +1142,20 @@ export function AdminConsole({
                           {row.grants.map((grant) => (
                             <li key={grant.permission} className="flex items-center gap-2 text-meta">
                               {grant.scope === 'no' ? (
-                                <ProhibitIcon
+                                <Ban
                                   size={15}
-                                  weight="bold"
                                   className="shrink-0 text-ink-subtle"
                                   aria-hidden="true"
                                 />
                               ) : grant.scope === 'yes' ? (
-                                <CheckCircleIcon
+                                <CircleCheck
                                   size={15}
-                                  weight="fill"
                                   className="shrink-0 text-accent"
                                   aria-hidden="true"
                                 />
                               ) : (
-                                <MinusCircleIcon
+                                <CircleMinus
                                   size={15}
-                                  weight="bold"
                                   className="shrink-0 text-warning"
                                   aria-hidden="true"
                                 />

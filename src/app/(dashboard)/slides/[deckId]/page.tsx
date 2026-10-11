@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { requirePagePermission } from '@/lib/auth/guards';
 import { data } from '@/lib/api/client';
 import { ACCEPTED_FILE_TYPES, ACCEPTED_LABEL, MAX_IMPORT_BYTES } from '@/lib/slides/extract';
-import { ArrowLeftIcon } from '@phosphor-icons/react/dist/ssr';
+import { ArrowLeft } from 'lucide-react';
 
 import { SlideEditor } from './SlideEditor';
 import { UploadPanel } from './UploadPanel';
@@ -59,7 +59,7 @@ export default async function SlideEditorPage({
         href="/slides"
         className="mb-4 inline-flex min-h-[44px] items-center gap-1.5 rounded-[8px] text-[0.9375rem] text-ink-muted hover:text-ink"
       >
-        <ArrowLeftIcon size={16} weight="bold" aria-hidden="true" />
+        <ArrowLeft size={16} aria-hidden="true" />
         All decks
       </Link>
 

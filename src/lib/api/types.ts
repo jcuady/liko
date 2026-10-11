@@ -486,18 +486,19 @@ export interface ProfileRecord {
  *
  * These three ids are the same three the pricing page sells and the same three
  * the `organizations.plan` check constraint allows. They used to be two
- * vocabularies: this file and the SQL said `solo | school | district`, while the
- * pricing page sold `starter | teacher | school`. Only `school` appeared in
+ * vocabularies: this file and the SQL said `solo | teacher | school`, while the
+ * pricing page sold `starter | teacher-pro | school`. Only `school` appeared in
  * both, so two of the three plan ids on the pricing page could not have been
- * written to the column they referred to, and `district` had no card on the
- * page at all. Three names, one list, kept here where the type lives.
+ * written to the column they referred to. The 2026-01-01 migration moves
+ * `solo` to `starter` and `teacher` to `teacher-pro` before recreating the
+ * constraint, so the column and the page finally speak the same three names.
  */
-export const ORG_PLANS = ['solo', 'teacher', 'school'] as const;
+export const ORG_PLANS = ['starter', 'teacher-pro', 'school'] as const;
 export type OrgPlan = (typeof ORG_PLANS)[number];
 
 export const ORG_PLAN_LABELS: Record<OrgPlan, string> = {
-  solo: 'Solo',
-  teacher: 'Teacher',
+  starter: 'Starter',
+  'teacher-pro': 'Teacher Pro',
   school: 'School',
 };
 

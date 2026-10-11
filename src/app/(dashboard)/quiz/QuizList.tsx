@@ -3,7 +3,7 @@
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
 import { useMutation } from '@tanstack/react-query';
-import { ArrowRightIcon } from '@phosphor-icons/react';
+import { ArrowRight } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { Badge, Card, CardContent } from '@/components/ui/card';
@@ -82,7 +82,7 @@ export function QuizList({ quizzes }: { quizzes: StudentQuizSummary[] }) {
                   onClick={() => start.mutate({ assessmentId: quiz.assessmentId })}
                 >
                   {start.isPending ? 'Opening' : action}
-                  <ArrowRightIcon size={16} aria-hidden="true" />
+                  <ArrowRight size={16} aria-hidden="true" />
                 </Button>
               </CardContent>
             </Card>

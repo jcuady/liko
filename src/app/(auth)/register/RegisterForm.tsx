@@ -3,7 +3,7 @@
 import * as React from 'react';
 import Link from 'next/link';
 import { useFormState } from 'react-dom';
-import { CheckCircleIcon, SparkleIcon, WarningCircleIcon } from '@phosphor-icons/react';
+import { CircleAlert, CircleCheck, Sparkles } from 'lucide-react';
 
 import { Checkbox } from '@/components/ui/checkbox';
 import {
@@ -50,9 +50,8 @@ export function RegisterForm({
 
       {chosenPlan ? (
         <p className="flex items-start gap-2 rounded-[12px] border border-accent bg-accent-subtle px-4 py-3 text-[0.9375rem] leading-relaxed text-ink-muted">
-          <SparkleIcon
+          <Sparkles
             size={17}
-            weight="fill"
             aria-hidden="true"
             className="mt-0.5 shrink-0 text-accent"
           />
@@ -108,9 +107,9 @@ export function RegisterForm({
                   key={requirement}
                   className="flex items-center gap-1.5 text-[0.8125rem]"
                 >
-                  <CheckCircleIcon
+                  <CircleCheck
                     size={13}
-                    weight={met ? 'fill' : 'regular'}
+                    strokeWidth={met ? 2.25 : 1.75}
                     aria-hidden="true"
                     className={met ? 'text-accent' : 'text-ink-subtle opacity-40'}
                   />
@@ -253,9 +252,8 @@ function ConsentRow({
           role="alert"
           className="mt-1 flex items-start gap-1.5 pl-13 text-meta font-medium text-danger"
         >
-          <WarningCircleIcon
+          <CircleAlert
             size={15}
-            weight="fill"
             aria-hidden="true"
             className="mt-0.5 shrink-0"
           />

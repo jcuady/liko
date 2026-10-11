@@ -6,10 +6,10 @@
 |---|---|---|
 | Framework | Next.js 16.4, App Router | React 19.3 |
 | Styling | Tailwind CSS v4 | CSS-first `@theme`, no `tailwind.config.js` |
-| Type | Geist + Geist Mono | Self-hosted via `next/font` |
-| Icons | Phosphor | One family, no emoji |
-| Components | Radix primitives + CVA | Vendored in `src/components/ui` |
-| Client motion | `motion` | The only animation runtime, including the two landing scroll narratives |
+| Type | DM Sans + Manrope, Geist Mono for tabular figures | Self-hosted via `next/font` |
+| Icons | lucide-react | One family, no emoji. Server and client share one entry point |
+| Components | shadcn/ui on Radix primitives + CVA | Vendored in `src/components/ui` |
+| Client motion | `motion` | The only animation runtime |
 | Server state | TanStack Query v5 | |
 | Forms | React Hook Form + Zod 4 | |
 | PWA | Serwist | Requires webpack |
@@ -322,20 +322,40 @@ production.
 
 ### Two traps in this codebase that cost real time
 
-**Server components must import icons from `@phosphor-icons/react/dist/ssr`.**
-The plain entry pulls a React context into the server bundle, and the route fails
-at build time with `createContext is not a function` during page-data
-collection, which names neither the file nor the import. Client components use
-the plain entry. `verify-email/page.tsx` has always done it the other way.
+**Server components import icons from the package root, like everything else.**
+This used to be a trap. Phosphor's plain entry pulls a React context into the
+server bundle, and a server component importing it failed at build time with
+`createContext is not a function` during page-data collection, naming neither
+the file nor the import. The workaround was `@phosphor-icons/react/dist/ssr`
+in server components and the plain entry in client ones, which every new file
+had to know about.
+
+lucide-react has no React context, so there is nothing to work around. Both
+kinds of component import from `lucide-react` and the rule is gone. If a
+`createContext is not a function` build error ever comes back, it is a real
+context crossing the server boundary, not this.
 
 **The fixture workspace is one shared, mutable store, and Playwright runs specs
 in parallel against one server.** Two tests writing to the demo workspace see
-each other. This has produced two brittle assertions that looked like product
+each other. This has produced three brittle assertions that looked like product
 bugs: an onboarding test asserting an exact count of grading scales, which moved
 when a sibling test authored one, and a present-mode test asserting "1 of 5"
 when a sibling had added a slide. Assert on behaviour the test owns, or read the
 shared value and compare against it, rather than pinning a total. A test that
 mutates shared state should also put it back.
+
+Reading the shared value first is necessary but not sufficient. `slide-editor.spec.ts`
+had three tests that each read the demo deck's current font weight, flipped it, and
+wrote it back. Each was correct in isolation and each passed in isolation, but
+under `fullyParallel: true` on four workers they ran concurrently against the same
+record: the last writer won, and the reload test failed with "the bold weight
+survived the reload. Expected 700, received 500" while saving worked perfectly. The
+fix was `test.describe.serial` on that block, because the real requirement is that
+those tests get the deck to themselves rather than a worker each.
+
+The tell is a failure that only appears in a full-suite run and has a plausible
+product explanation. When a test's own comment admits the suite shares a store,
+suspect the concurrency before the application.
 
 ### The `'use server'` export rule
 

@@ -2,11 +2,11 @@
 
 import * as React from 'react';
 import Link from 'next/link';
-import { CheckIcon, InfoIcon } from '@phosphor-icons/react';
+import { Check, Info } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
-import { Reveal } from '@/app/(marketing)/components/Reveal';
-import { SectionHeader } from '@/app/(marketing)/components/SectionHeader';
+import { Reveal } from '@/components/marketing/Reveal';
+import { SectionHeading } from '@/components/marketing/SectionHeading';
 import {
   EARLY_ACCESS,
   PLANS,
@@ -48,16 +48,15 @@ export function PricingTiers() {
   return (
     <section id="tiers" aria-labelledby="tiers-title" className="chapter">
       <div className="container-marketing">
-        <SectionHeader
-          label="Plans"
-          id="tiers-title"
-          title="Pay for the teacher. Never for the student."
-        >
-          <p className="measure text-lead">
-            Every plan runs the same workspace, so nothing you have already set
-            up gets thrown away when you move between them.
-          </p>
-        </SectionHeader>
+        <SectionHeading
+          align="start"
+          eyebrow="Plans"
+          title={<span id="tiers-title">Pay for the teacher. Never for the student.</span>}
+          copy={
+            <>Every plan runs the same workspace, so nothing you have already
+            set up gets thrown away when you move between them.</>
+          }
+        />
 
         <div className="mt-10 flex flex-wrap items-center gap-4">
           {/*
@@ -66,9 +65,8 @@ export function PricingTiers() {
             about money, and "no card is taken" is the fact that decides it.
           */}
           <p className="flex w-full items-start gap-2 rounded-[12px] border border-border bg-surface-sunken px-4 py-3 text-[0.9375rem] leading-relaxed text-ink-muted">
-            <InfoIcon
+            <Info
               size={18}
-              weight="fill"
               aria-hidden="true"
               className="mt-0.5 shrink-0 text-accent"
             />
@@ -158,9 +156,8 @@ export function PricingTiers() {
                       key={feature}
                       className="flex gap-3 text-[0.9375rem] leading-snug text-ink-muted"
                     >
-                      <CheckIcon
+                      <Check
                         size={16}
-                        weight="bold"
                         aria-hidden="true"
                         className="mt-[0.2rem] shrink-0 text-accent"
                       />

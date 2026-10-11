@@ -2308,7 +2308,7 @@ function mapOrg(row: Row): OrgRecord {
     id: str(row.id),
     name: str(row.name),
     slug: str(row.slug),
-    plan: str(row.plan, 'solo') as OrgPlan,
+    plan: str(row.plan, 'starter') as OrgPlan,
     seatLimit: num(row.seat_limit, 5),
     billingEmail: (row.billing_email as string | null) ?? null,
     createdAt: iso(row.created_at),

@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { PlusIcon } from '@phosphor-icons/react';
+import { Plus } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
@@ -64,7 +64,7 @@ export function NewAssessmentDialog({
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
         <Button variant={variant} size="sm">
-          <PlusIcon size={15} weight="bold" aria-hidden="true" />
+          <Plus size={15} aria-hidden="true" />
           {triggerLabel}
         </Button>
       </DialogTrigger>

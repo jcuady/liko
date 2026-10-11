@@ -8,11 +8,10 @@ import { usePrefersReducedMotion } from '@/lib/hooks/use-media-query';
 /**
  * Scroll reveal.
  *
- * One primitive, used by every section that opts in. It exists so motion stays
- * motivated rather than decorative: a section's blocks arrive in reading order,
- * which tells the eye where to start and makes a long page feel sequenced
- * instead of dumped. Pass an increasing `delay` to stagger siblings, roughly
- * 0.06s apart.
+ * One primitive, for the pages that opt in. It exists so motion stays motivated
+ * rather than decorative: a section's blocks arrive in reading order, which
+ * tells the eye where to start and makes a long page feel sequenced instead of
+ * dumped. Pass an increasing `delay` to stagger siblings, roughly 0.06s apart.
  *
  * Only `transform` and `opacity` move, both compositor-friendly, and the whole
  * thing collapses to a plain block under `prefers-reduced-motion`.
@@ -23,10 +22,10 @@ import { usePrefersReducedMotion } from '@/lib/hooks/use-media-query';
  * reveal that stays at `opacity: 0` hides content from exactly the visitors who
  * asked for less movement, which is the worst possible failure here.
  *
- * Motion owns UI state, these reveals, and the two scroll narratives in the
- * Flow and Roles sections. It is the only animation runtime this route ships,
- * so a visitor downloads one animation library rather than two competing for
- * the same frames.
+ * NOT USED ON THE LANDING PAGE. The supplied brand design is calm and flat, and
+ * every section on it arrives at rest. Carrying the reveal over would have kept
+ * a behaviour the design deliberately drops, so the landing page has none and
+ * this is here for `/pricing`, which does.
  */
 export function Reveal({
   children,

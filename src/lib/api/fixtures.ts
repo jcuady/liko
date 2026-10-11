@@ -479,8 +479,8 @@ function personalOrg(userId: string, store: FixtureStore): { org: OrgRecord; mem
   const org: OrgRecord = {
     id: orgId,
     name: 'My workspace',
-    slug: `solo-${userId.slice(-8)}`,
-    plan: 'solo',
+    slug: `starter-${userId.slice(-8)}`,
+    plan: 'starter',
     seatLimit: 1,
     billingEmail: null,
     createdAt,
