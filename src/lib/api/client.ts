@@ -2007,8 +2007,29 @@ const supabaseAdapter: WorkspaceData = {
   },
 
   async recordAiGeneration(userId, input) {
-    const supabase = await requireClient();
-    const { error } = await supabase.from('ai_generations').insert({
+    /*
+     * WHY THE ROW WRITE GOES THROUGH THE SERVICE CLIENT.
+     *
+     * `ai_generations` has a select policy and nothing else, which is the right
+     * shape for a table the browser must never write: this row is the record
+     * that a teacher's allowance is counted from, so letting a client insert one
+     * would let a client decide how much of its own allowance is left.
+     *
+     * This was written with the session client and it failed on production with
+     * `42501`, because the teacher is `authenticated` and there is no insert
+     * policy for that role. The failure was invisible in every local check: the
+     * fixture adapter has no policies at all, and unit tests never reach
+     * Postgres. It surfaced as a 500 from the generation action and a meter that
+     * never moved, which is the allowance failing open.
+     *
+     * The cost of bypassing RLS is that the explicit filter becomes the only
+     * scoping, so `user_id` below is the caller's own id and is never derived
+     * from anything the browser sent.
+     */
+    const admin = await createSupabaseAdmin();
+    if (!admin) throw new DataError('CONFLICT', 'This environment cannot record usage right now.');
+
+    const { error } = await admin.from('ai_generations').insert({
       user_id: userId,
       model: input.model,
       purpose: input.purpose,

@@ -256,6 +256,19 @@ All run on 2026-10-09 against this working tree, after the quiz maker and the sh
 | Live schema | `pnpm db:apply` then `pnpm db:check` | **21 tables, RLS on 21, 29 policies; all security-relevant columns present** |
 | Live RLS behaviour | `pnpm db:settle` | **6 passed, 0 failed**: self-promotion refused, cross-tenant read refused, server-owned link cannot be moved |
 | Live application | `pnpm verify:app` | **54 passed, 0 failed**: every workspace route renders with real seeded data, refusals hold, an attendance write is read back out of Postgres and replays without duplicating, a write into another teacher's class is refused, the at-risk sweep authenticates and stays idempotent, the push route refuses six SSRF payloads and enforces per-teacher ownership, an outbound dispatch reaches the push service and prunes a dead endpoint, and registration is reported as blocked by the email quota |
+| Storage and AI write paths | `pnpm probe:files` | **all confirmed**: the bucket is private with no delete policy, and the usage row is written through the service client, read back, and removed |
+| Deck maker on the deployed site | `node scripts/verify-deck-maker-prod.mjs` | **18 passed, 0 failed**: signs in against the live database, opens a deck, changes a weight and reads the rendered result, sees the autosave land, reloads and finds it still there, and fits a phone |
+
+### What production found that nothing local could
+
+Four defects in this feature passed every local gate and failed only on the deployed site. They are recorded because the pattern is the lesson, not because the four were unusual.
+
+1. **The provider key arrived with a byte order mark in front of it.** The value had been piped into the Vercel CLI from a shell that writes one. A header value has to be a `ByteString`, so every request threw before it left the function, and because that failure was classified as a transport fault the teacher was told "the AI service could not be reached. Try again in a moment". Nothing in that sentence was true. `readApiKey` now trims and strips the mark, and `aiConfigured` is what decides whether the panel says configured, so a key that cannot be sent is not a key that reports as working.
+2. **The usage row was written with the signed-in teacher's session.** `ai_generations` has a select policy and no insert policy, on purpose, so Postgres answered `42501`. Every generation returned a 500 and the meter never moved, which is the allowance failing open. `createDeckAsset` already did this correctly through the service client; `recordAiGeneration` was the one reader of that rule that did not.
+3. **The `purpose` value was written as a literal in three places.** The live-schema check sent its own value, the check constraint refused it, and the failure read exactly like a product defect. It is one exported constant now, read from source by the check so the probe cannot drift from the application.
+4. **The panel could claim "configured" on a key that could not be used.** That is the one word on it a teacher cannot check for themselves.
+
+`pnpm probe:files` was extended to cover the class rather than the instance: it posts a usage row through the service client, reads it back, removes it, and then posts the same row as a browser does and requires the refusal. A table can have every column, every grant and exactly the intended policies and still be unwritable through the client the application actually uses.
 
 ### What `check:sql` proves, and what it does not
 

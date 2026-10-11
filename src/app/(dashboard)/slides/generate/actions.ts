@@ -23,6 +23,8 @@ import { requirePermission } from '@/lib/auth/guards';
 import {
   AiUnavailable,
   GEMINI_MODEL,
+  aiConfigured,
+  AI_PURPOSE_DECK,
   generateDeckOutline,
   usageFrom,
   type UsageSummary,
@@ -56,7 +58,7 @@ export async function aiStatusAction(): Promise<UsageSummary> {
   const session = await requirePermission('plan:write');
   const store = await data();
   const rows = await store.listAiUsage(session.userId);
-  return withModel(usageFrom(rows, Boolean(process.env.GEMINI_API_KEY)));
+  return withModel(usageFrom(rows, aiConfigured()));
 }
 
 /**
@@ -108,7 +110,7 @@ export async function generateDeckAction(input: {
     return { ok: false, message: 'Type what the slides should be about first.' };
   }
 
-  const configured = Boolean(process.env.GEMINI_API_KEY);
+  const configured = aiConfigured();
   if (!configured) {
     return {
       ok: false,
@@ -151,7 +153,7 @@ export async function generateDeckAction(input: {
     // is still recorded, because the teacher's own allowance did the work.
     await store.recordAiGeneration(session.userId, {
       model: GEMINI_MODEL,
-      purpose: 'deck',
+      purpose: AI_PURPOSE_DECK,
       promptTokens: 0,
       outputTokens: 0,
     });
@@ -172,7 +174,7 @@ export async function generateDeckAction(input: {
    */
   await store.recordAiGeneration(session.userId, {
     model: GEMINI_MODEL,
-    purpose: 'deck',
+    purpose: AI_PURPOSE_DECK,
     promptTokens: tokens.promptTokens,
     outputTokens: tokens.outputTokens,
   });

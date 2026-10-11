@@ -192,6 +192,16 @@ node --env-file=.env.local scripts/probe-gemini.mjs    # is the key valid, what 
 node --env-file=.env.local scripts/probe-ai-deck.mjs   # does a real prompt come back as a deck
 ```
 
+**If you paste the key in from a shell, check what you pasted.** The key first
+set here arrived with a byte order mark in front of it, because the shell that
+piped it into `vercel env add` wrote one. A header value has to be a
+`ByteString`, so every request failed before leaving the function and the panel
+said "the AI service could not be reached". `readApiKey` in
+`src/lib/ai/gemini.ts` now trims and strips the mark so a stray character cannot
+cost another deploy, but the stored value should still be clean. Setting it from
+PowerShell 5.1 needs `$OutputEncoding = New-Object System.Text.UTF8Encoding $false`
+before the pipe.
+
 The probe is deliberately not part of `pnpm e2e`. A suite that depends on a third
 party being up, in quota and fast fails for reasons that have nothing to do with
 this codebase, and a gate that fails for somebody else's reasons stops being read.
@@ -234,6 +244,20 @@ Work through this against the live URL before calling it launched.
       Osei, Clara Nwosu) and none of the fixture names (Tomas Lindqvist, Amara
       Nwankwo, Ravi Menon). The two datasets share no students, so this is not
       ambiguous.
+
+Three commands check the deployed site on their own, and none of them are part of
+`pnpm e2e` because they touch the live database and the real deployment:
+
+```bash
+pnpm verify:saas                                 # 28 checks against the deployed URL
+node --env-file=.env.local pnpm probe:files       # bucket, policies, and the AI write path
+node scripts/verify-deck-maker-prod.mjs          # the deck maker, signed in, on live data
+```
+
+`verify-deck-maker-prod.mjs` creates a deck when the live database has none,
+because the database the deployment points at has no seeded decks and a check
+that depends on seed data fails for a reason that has nothing to do with the
+code.
 
 ---
 

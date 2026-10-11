@@ -251,8 +251,18 @@ test.describe('marketing claims match the product', () => {
     /rubric/i,
     /business day/i,
     /priority email/i,
-    // AI and student data in the same sentence. Not "AI" on its own.
-    /AI[^.]{0,80}student/i,
+    /*
+     * AI and student data in the same sentence. Not "AI" on its own, and `AI` as
+     * a whole word: the first version of this was `/AI[^.]{0,80}student/i`, which
+     * matched `ariaLabel` in the hydration payload on the pricing page. A guard
+     * that fires on a React prop name is not guarding anything, and a real claim
+     * slipping through behind it would be invisible.
+     *
+     * `students?` because `\bstudent\b` does not match the word "students": the
+     * trailing `s` is a word character, so the boundary never lands. Written
+     * that way, this guard passed against the very claim it exists to catch.
+     */
+    /\bAI\b[^.]{0,80}\bstudents?\b/i,
     /export[^.]{0,40}(CSV|JSON)/i,
     /import from a spreadsheet/i,
     /connect an LMS/i,
@@ -263,7 +273,12 @@ test.describe('marketing claims match the product', () => {
   for (const route of ['/', '/pricing']) {
     test(`${route} does not advertise features that do not exist`, async ({ page }) => {
       await page.goto(route);
-      const body = (await page.textContent('body')) ?? '';
+      /*
+       * `innerText`, not `textContent`. What a visitor can read is what these
+       * claims are about, and `textContent` also returns the serialised RSC
+       * payload, which contains every prop name the page used.
+       */
+      const body = await page.locator('body').innerText();
 
       for (const fiction of FICTION) {
         expect(body, `${route} still claims ${fiction}`).not.toMatch(fiction);

@@ -103,6 +103,14 @@ school product that calls a model is the kind of thing that invites the question
 - **A failed generation is still charged.** An allowance that refunds failures can
   be spent by causing failures. Eight generations per person per rolling hour,
   shown to the teacher before anything is spent.
+- **The usage table is written by the server and by nobody else.** `ai_generations`
+  carries a select policy and no insert policy, because that row is what the
+  teacher's remaining allowance is counted from. If a browser could insert one,
+  it could decide how much of its own allowance is left. `pnpm probe:files` proves
+  both halves of that: the service client writes a row, reads it back and removes
+  it, and the same row posted with the browser's key is refused by row level
+  security. The service client bypasses RLS, so the write carries the caller's own
+  `user_id` explicitly and never anything the browser chose.
 
 The real limitation is not a vulnerability but it should not be discovered by a
 teacher: **the free tier refuses.** A probe during this work returned

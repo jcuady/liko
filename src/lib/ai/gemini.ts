@@ -42,6 +42,19 @@ const GENERATIVE_LANGUAGE = 'https://generativelanguage.googleapis.com/v1beta';
  */
 export const GEMINI_MODEL = 'gemini-3.5-flash';
 
+/**
+ * What a generation row is for.
+ *
+ * The migration pins this with `check (purpose in ('deck'))`, so a value that
+ * differs is refused by Postgres as a check violation rather than stored. It is
+ * a constant rather than a literal at each call site because it was written as
+ * a literal in two places and in the live-schema check, and three copies of a
+ * value a constraint enforces is three chances to spell it differently. The
+ * check that proves the write path works imports this same constant, so it
+ * cannot pass against a value the application would never write.
+ */
+export const AI_PURPOSE_DECK = 'deck';
+
 /** Ceiling on one prompt, so a pasted document cannot become an unbounded bill. */
 const MAX_PROMPT_CHARS = 4000;
 
@@ -83,8 +96,42 @@ export class AiUnavailable extends Error {
  * came back. Anything that survives that is checked again by the caller against
  * the real element types.
  */
+/**
+ * Reads the key and makes it safe to put in a header.
+ *
+ * WHY THIS EXISTS, AND IT IS NOT THEORETICAL. The key first deployed to Vercel
+ * was stored with a leading byte order mark, because the value had been piped
+ * into the CLI from a shell that writes one. A header value has to be a
+ * ByteString, so the request never left the function: `fetch` threw a TypeError
+ * about character 65279, which was classified as an unreachable network and
+ * shown to the teacher as "try again in a moment". Nothing in that sentence was
+ * true, and no amount of retrying would have fixed it.
+ *
+ * A key is a secret someone pastes into a dashboard, so the characters around
+ * it are not under this codebase's control. Trimming, and stripping a BOM,
+ * costs nothing and turns a silent total failure into either a working request
+ * or an honest "not configured".
+ */
+function readApiKey(): string {
+  const raw = process.env.GEMINI_API_KEY ?? '';
+  return raw.replace(/^\uFEFF/, '').trim();
+}
+
+/**
+ * Whether generation can be attempted at all.
+ *
+ * Exported rather than left as `Boolean(process.env.GEMINI_API_KEY)` at each
+ * call site, because a key that exists and a key that works stopped being the
+ * same thing the moment a BOM got stored in front of one. Asking the raw
+ * environment variable reported "configured" on a deployment where every
+ * request failed, which is the one sentence the panel must never get wrong.
+ */
+export function aiConfigured(): boolean {
+  return readApiKey().length > 0;
+}
+
 export async function generateDeckOutline(options: GenerateOptions): Promise<GenerateResult> {
-  const apiKey = process.env.GEMINI_API_KEY;
+  const apiKey = readApiKey();
   if (!apiKey) {
     throw new AiUnavailable(
       'AI generation is not configured on this deployment.',
@@ -113,9 +160,40 @@ export async function generateDeckOutline(options: GenerateOptions): Promise<Gen
       }),
       signal: AbortSignal.timeout(45_000),
     });
-  } catch {
-    // Never interpolate the cause: a fetch error can carry the request URL, and
-    // the request URL carries the key when it is a query parameter.
+  } catch (error) {
+    /*
+     * Never the key, and never a URL. This module sends the key as a header, so
+     * no request URL in play contains it, and the original reason for swallowing
+     * the cause wholesale does not apply.
+     *
+     * The detail IS worth having, and this is why. Swallowing it made a
+     * production failure indistinguishable from a provider outage. Node reports
+     * a dual-stack connection failure as an AggregateError whose individual
+     * attempts are in `cause.errors`, so a single `cause.code` reads as
+     * "unknown" and tells nobody anything. What is logged here is the error
+     * shape, with every string truncated: enough to tell DNS from TLS from a
+     * refused connection from a timeout, and not enough to reconstruct a request.
+     */
+    const shape = (value: unknown): string => {
+      if (!(value instanceof Error)) return typeof value;
+      const code = (value as { code?: unknown }).code;
+      const parts = [value.name];
+      if (typeof code === 'string') parts.push(code);
+      // A dual-stack failure arrives as several attempts, and only the list says
+      // which addresses were tried.
+      const nested = (value as { errors?: unknown[] }).errors;
+      if (Array.isArray(nested)) parts.push(`${nested.length} attempts`);
+      // The message carries the operation that failed, not the request. Nothing
+      // here can hold the key: it is sent as a header and never appears in a URL.
+      const message = value.message.replace(/\s+/g, ' ').slice(0, 120);
+      if (message.length > 0) parts.push(message);
+      return parts.join(': ');
+    };
+
+    const cause = error instanceof Error ? (error.cause as unknown) : undefined;
+    // eslint-disable-next-line no-console -- deployment logs are the only place this fault is visible
+    console.error(`[ai] provider unreachable: ${shape(error)} <- ${shape(cause)}`);
+
     throw new AiUnavailable('The AI service could not be reached. Try again in a moment.', 'network');
   }
 
