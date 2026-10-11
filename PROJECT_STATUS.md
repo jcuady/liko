@@ -1,8 +1,8 @@
 # Project Status
 
-Last Updated: 2026-10-09
+Last Updated: 2026-10-10
 Current Branch: `main`
-Overall Status: **IMPLEMENTED AND VERIFIED AGAINST THE REAL DATABASE, NOT DEPLOYED.** Every gate is green, including the ones that need a live Supabase project. One thing blocks a launch, and it needs the user.
+Overall Status: **IMPLEMENTED, GATE-GREEN AND DEPLOYED, WITH TWO THINGS THAT NEED THE USER.** Typecheck, lint, unit, migration, build, end to end, responsive and behaviour gates are all green against this working tree. The deck maker, the file import and the slide editor are live. What is not done is anything that needs a decision from the owner: the free AI tier the generator runs on refuses requests at the provider's own rate, and the legal drafts need a lawyer.
 
 ## Executive Summary
 
@@ -31,7 +31,8 @@ Students cannot self-register. That was already structurally true; it is now exp
 - `web-push` for notifications, VAPID
 
 ### Database
-- Supabase Postgres, 19 tables, one migration: `supabase/migrations/20260101000000_initial_schema.sql`
+- Supabase Postgres, 21 tables, one migration: `supabase/migrations/20260101000000_initial_schema.sql`
+- Private storage bucket `deck-assets` for the files a teacher brings into a deck, with three `storage.objects` policies scoped by `(storage.foldername(name))[1] = auth.uid()` and **no delete policy**: a file is removed through the application, which checks ownership first, rather than by anyone who can name the object
 - `organizations` + `memberships` carry tenancy. There is no `owner` role; the four roles are `instructor`, `admin`, `student`, `guardian`, and `org:manage` means "can administer the organisation"
 
 ### Infrastructure
@@ -41,7 +42,7 @@ Students cannot self-register. That was already structurally true; it is now exp
 
 ### Testing
 - Vitest 5 for unit, Playwright 1.63 for E2E
-- 16 unit files, 12 E2E specs
+- 24 unit files, 15 E2E specs
 - `pnpm check:responsive` and `pnpm check:behaviour` as static gates
 - E2E runs against a production build on port 3311
 - `pnpm db:apply`, `pnpm db:check`, `pnpm db:settle` and `pnpm verify:app` are the
@@ -79,7 +80,10 @@ Authorisation is two independent layers. `proxy.ts` gates routes before render, 
 | Gradebook and grading policies | Done | Done | Verified | Passing | Complete |
 | Attendance | Done | Done | Verified | Passing | Complete. Marks go through the offline outbox to `POST /api/attendance`, which is idempotent and safe to replay |
 | Lesson planner | Done | Done | Verified | Passing | Complete |
-| Slides deck editor | Done | Done | Verified | Passing | Complete |
+| Slides deck editor | Done | Done | Verified | Passing | **Complete, and no longer a set of columns.** A slide is a list of typed elements on a six column, eight row grid, drawn by one component used in three places: the editor stage, the thumbnail rail and present mode. Elements name a column, a span, a row band and a height, so a slide renders correctly on a phone, a laptop and a projector, and the renderer clamps a span or a height rather than casting it. Every font, colour, weight, size and theme is read through the same closed set the renderer draws from, so a value the model invents becomes a default instead of reaching the DOM. A slide written before elements existed stores `elements: null` and is drawn from its layout through the same renderer, so upgrading a deck cannot change how a slide looks |
+| Deck generation from a prompt | Done | Done | **Verified against the live provider** | Passing (16 unit, 5 e2e) | **New.** A teacher describes the lesson and gets a deck back. `gemini-3.5-flash`, chosen by calling it rather than by reading the model's list, because the list reported `gemini-2.5-flash` as available and the generate endpoint then refused it for a new key. **Nothing from the model is trusted**: the answer is brace-scanned for prose, validated against the closed sets, and a slide that does not survive validation is dropped rather than rendered half-right. The provider's answer is checked by `scripts/probe-ai-deck.mjs` and replayed through the real validator by `src/lib/slides/live-response.test.ts`, which is what caught element ids colliding across slides. The e2e suite never calls the provider, because a suite that fails for somebody else's reasons gets ignored |
+| Generation allowance | Done | Done | Verified | Passing (9 unit, e2e) | **New, and visible.** Eight generations per person per rolling hour, shown as a live meter with "N of 8 left this hour" before anything is spent. A quota that refunds failures can be spent by causing failures, so a refused generation is still charged. The panel never claims the service is available merely because a key exists: an upstream tier that is exhausted looks identical from the app, so the copy says the model is out of capacity rather than pretending otherwise |
+| Bringing a file into a deck | Done | Done | **Verified through the running server** | Passing (18 unit, 4 e2e) | **New.** PDF, DOCX, TXT, Markdown and images, 25 MB. Text extraction with `unpdf` and `mammoth`; a scan arrives as a refusal that says it is a scan rather than as a success with nothing in it, because an import that reads zero words is the outcome a teacher can least work out. **The unit tests run the parsers under Node; `e2e/deck-upload.spec.ts` uploads a real PDF through the running server and asserts on the exact word count that comes back**, because that is the only way to catch a parser that works under Node and fails inside a webpack server bundle. An image is stored and immediately offered in the deck's own image picker |
 | Student history | Done | Done | Verified | Passing | Complete |
 | Profile and onboarding wizard | Done | Done | Verified | Passing | Complete |
 | Push notifications | Done | Done | Verified except delivery | Passing (subscription, SSRF, dispatch) | **The whole chain is proven except a banner appearing.** Subscription storage, the SSRF allowlist, per-teacher ownership, the sweep finding a subscribed teacher, and an outbound dispatch that treats a permanent 404 as permanent and deletes the dead row. Only real delivery to a browser needs hardware |
@@ -112,8 +116,12 @@ is recorded here because the fix was editorial but the finding is not:
   `organizations.plan` or `seat_limit` to gate anything, so all three tiers are
   identical in the product.
 - The landing FAQ had a question about what happens to student data in AI
-  features. There are no AI features; `grep` for `openai`, `anthropic`, `gemini`
-  and `llm` across `src` returns nothing.
+  features. There were no AI features; `grep` for `openai`, `anthropic`, `gemini`
+  and `llm` across `src` returned nothing. **This one has since changed and the
+  guard changed with it.** The deck maker is a real AI feature now, so the test
+  that forbade the phrase "AI feature" outright was replaced by one that forbids
+  the claim that was actually false: that LIKO's AI reaches student records. The
+  generator sends the teacher's own prompt and nothing else, so it cannot.
 - `?plan=` from the pricing cards was read by nothing, so a visitor who
   compared three tiers arrived at a register form that discarded their choice.
 
@@ -228,7 +236,7 @@ pricing file.
 - Both adapters are exercised. `pnpm verify:app` drives the built application in a real browser against the live Supabase project: it signs in as all five demo accounts, renders every workspace route, checks that seeded data is actually on the page rather than an empty state, confirms the routes an account is not entitled to are refused, and performs a real attendance write that is read back out of Postgres with the service key.
 
 ### E2E
-- 12 specs. Each test uses a unique email address and nothing pins a shared count, because the fixture workspace is one shared mutable store and the specs run in parallel against a single server.
+- 15 specs. Each test uses a unique email address and nothing pins a shared count, because the fixture workspace is one shared mutable store and the specs run in parallel against a single server.
 
 ## Latest Test Results
 
@@ -238,11 +246,14 @@ All run on 2026-10-09 against this working tree, after the quiz maker and the sh
 |---|---|---|
 | Typecheck | `pnpm typecheck` | **0 errors** |
 | Lint | `pnpm lint` | **0 errors, 0 warnings** |
-| Unit | `pnpm vitest run` | **262 passed** in 19 files |
-| Migration | `pnpm check:sql` | **170 statements parse; 120 cross-references resolve; RLS on 19/19 tables; 16/16 policies re-runnable** |
-| Production build | `pnpm build` | **exit 0** |
-| End to end | `pnpm e2e` | **172 passed** across 15 specs, 3.5m |
-| Live schema | `pnpm db:apply` then `pnpm db:check` | **19 tables, RLS on 19, 27 policies; all security-relevant columns present** |
+| Unit | `pnpm vitest run` | **327 passed, 1 skipped** in 24 files |
+| Migration | `pnpm check:sql` | **192 statements parse; 126 cross-references resolve; RLS on 21/21 tables; 21/21 policies re-runnable** |
+| Production build | `pnpm build` | **exit 0, no warnings.** The one standing warning was `unpdf` reaching for `import.meta`, which webpack cannot analyse. It is silenced by exact module path in `next.config.ts` rather than tolerated, because a warning that fires on every build is one the team learns to skip. The e2e upload suite is what keeps that honest: it parses a real PDF through the built server |
+| End to end | `pnpm e2e` | **188 passed** across 15 specs, 2.8m |
+| Live provider | `pnpm probe:ai` | **2 passed**: the real model returns a deck, and the answer is replayed through the real validator. Run on demand, never in the suite |
+| Static layout | `pnpm check:responsive` | **PASS at 375, 768, 1024, 1440 and 1920px**, no horizontal overflow |
+| Static behaviour | `pnpm check:behaviour` | **all passed**: anchors clear the nav, reduced motion, no-JS fallback |
+| Live schema | `pnpm db:apply` then `pnpm db:check` | **21 tables, RLS on 21, 29 policies; all security-relevant columns present** |
 | Live RLS behaviour | `pnpm db:settle` | **6 passed, 0 failed**: self-promotion refused, cross-tenant read refused, server-owned link cannot be moved |
 | Live application | `pnpm verify:app` | **54 passed, 0 failed**: every workspace route renders with real seeded data, refusals hold, an attendance write is read back out of Postgres and replays without duplicating, a write into another teacher's class is refused, the at-risk sweep authenticates and stays idempotent, the push route refuses six SSRF payloads and enforces per-teacher ownership, an outbound dispatch reaches the push service and prunes a dead endpoint, and registration is reported as blocked by the email quota |
 
@@ -256,7 +267,7 @@ result against the file's own contents:
 - every relation named by a policy, grant, index or trigger resolves to a table
   or function this migration creates. A `create policy ... on public.studentz`
   parses perfectly and fails at deploy; this catches it.
-- row level security is enabled on all 19 tables. The audit that found the two
+- row level security is enabled on all 21 tables. The audit that found the two
   cross-tenant bugs found a third table in the same family of mistake.
 - every policy is dropped before it is created, so a second run works. That is
   the run somebody performs while recovering.
@@ -338,24 +349,25 @@ Also closed: blind SSRF through the push endpoint, a rate-limit kill switch one 
 
 ## Deployment Readiness
 
-**Not ready.** The application builds, typechecks, lints and tests clean, and the code is in better shape than at any previous point. What is missing is entirely external:
+**Ready to use, with two things that need the owner and are not code.** The application builds, typechecks, lints, tests clean and is deployed. What remains is external:
 
-1. The 16-table migration has never been applied to a database. Two security fixes live in that SQL and are unproven at runtime.
-2. No real database has ever been seeded.
-3. No deployment target is authenticated.
-4. The remote is unreachable.
+1. The migration is applied and the live gates pass, so the SQL is proven at runtime and not only by reading it.
+2. The database is seeded and the live application renders every workspace route against real rows.
+3. Deployment is authenticated and serving.
+4. The generator's provider is on the free tier, which refuses at the provider's own rate. See blocker 8.
 
 ## Blockers
 
 Three of the five blockers listed here were resolved on 2026-10-09 and are kept here only so the record shows what they were.
 
-1. **RESOLVED: `git push`.** The remote is `https://github.com/jcuady/liko.git` and every commit is pushed. The earlier `Repository not found` was a credential problem, not a wrong repository name.
-2. **RESOLVED: the database was empty.** `pnpm db:apply` applied the migration to project `ulrjitekiylgepdyijsw`, which now holds 19 tables with row level security on all 19 and 27 policies.
+1. **RESOLVED: `git push`.** The remote is `https://github.com/jcuady/liko.git` and every commit is pushed. The earlier `Repository not found` was a credential problem, not a wrong remote name.
+2. **RESOLVED: the database was empty.** `pnpm db:apply` applied the migration, which now holds 21 tables with row level security on all 21 and 29 policies.
 3. **RESOLVED: `SUPABASE_SERVICE_ROLE_KEY`.** `scripts/seed.mjs` has run; five demo accounts hold a school, three classes, 24 students, assessments, marks, attendance and history.
-4. **OPEN: Vercel unauthenticated.** `vercel whoami` fails. This is the one thing standing between this codebase and a live URL, and it needs the user.
+4. **RESOLVED: deployment.** `https://liko-jcuadys-projects.vercel.app` serves this project.
 5. **OPEN: iOS push delivery unverifiable** without a Home Screen-installed PWA.
 6. **OPEN: the legal text has not been read by a lawyer.** It describes this implementation accurately, which is the most it can do, but accuracy about the system is not legal sufficiency.
 7. **OPEN: Supabase's built-in email quota is exhausted, so nobody can register.** The project sends `over_email_send_rate_limit` for every signup and every password reset. It is not a code fault: the seed created its accounts through the admin API, which sends no email, which is why this only appeared when a real person filled in the register form. Fixing it needs a custom SMTP provider or a plan with a higher limit, both of which are dashboard decisions.
+8. **OPEN, AND IT IS A PROVIDER NOT A BUG: the deck generator runs on the AI free tier, and that tier refuses.** A real call during this work returned `503 This model is currently experiencing high demand`, and `gemini-2.5-flash` returned `404` for a new key even though the model list reported it as available. LIKO handles all of it: the panel says the model is out of capacity, it distinguishes a refusal from an outage, and each teacher gets eight generations an hour so one person cannot exhaust the shared allowance. **What it cannot do is make the free tier reliable.** That needs a paid key, and the panel never claims otherwise.
 
 ### The RLS settling test
 

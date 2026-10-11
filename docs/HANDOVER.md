@@ -17,10 +17,13 @@ Project: `https://ulrjitekiylgepdyijsw.supabase.co`
 | All seven workspace modules | Done, real CRUD through the seam, verified against the live database |
 | Offline write queue | Done |
 | Web push: routes, cron, service worker | Sweep proven against the live database; actual delivery still untested |
-| Migration SQL | Applied to `ulrjitekiylgepdyijsw`, idempotent, 19 tables |
+| Migration SQL | Applied to `ulrjitekiylgepdyijsw`, idempotent, 21 tables |
 | Seed script | Run. Five accounts, one school, three classes, 24 students, three "Bonding Quiz" assessments carrying 24 questions |
 | Quiz maker and sheet scanning | Done. An assessment carries its questions; a marked sheet is read against the answer key, confirmed by the teacher, assigned to a required student and scored on the server |
 | Two ways to deliver one quiz | Both live. `/quiz` is the student-facing quiz, and `/assess/sheet` prints the answer sheet the scanner reads |
+| Slide editor | Done. A slide is a list of typed elements on a grid, drawn by one component in the stage, the rail and present mode. Typography, colour, alignment, theme, element add and delete, and a panel that says when the autosave landed |
+| Deck generation from a prompt | Done. A teacher describes the lesson and gets an editable deck back. Nothing the model returns is trusted: it is validated against the same closed sets the renderer draws from, and a slide that fails validation is dropped rather than rendered half-right. **Not live in production until `GEMINI_API_KEY` is set, see Step 3** |
+| Bringing a file into a deck | Done. PDF, DOCX, TXT, Markdown and images. A scan is refused in words rather than imported empty. Proven by uploading a real PDF through the built server and asserting on the word count that comes back |
 | Git history | 31 commits on `main`, pushed, remote verified identical |
 | Deployment | **Live** at `https://liko-jcuadys-projects.vercel.app`, project `jcuadys-projects/liko`. Production build, `LIKO_DATA_MODE=supabase`, verified by signing in against live Supabase |
 
@@ -28,7 +31,8 @@ The honest summary: every read and write through the seam has now run against th
 real database, not just the fixture adapter. `pnpm db:check`, `pnpm db:settle` and
 `pnpm verify:app` are the commands that prove it, and all three are green. The
 deployment is up and serving real data. What remains is one blocked signup path
-that needs a Supabase email provider, plus things that need hardware or a lawyer.
+that needs a Supabase email provider, one provider key the deck generator cannot
+run without, plus things that need hardware or a lawyer.
 
 ### The seeded demo data
 
@@ -101,6 +105,12 @@ Two deliberate omissions:
 - `SUPABASE_DB_PASSWORD` is **not** set. It is only used by the Supabase CLI to
   apply migrations locally, so it has no reason to exist in the build environment.
 
+`GEMINI_API_KEY` is a **Secret** and is **not** set on the Vercel project yet. Until
+it is, `/slides` in production shows the deck generator as not configured and
+refuses politely rather than failing; see Step 3. It must be added as a Secret,
+never as Config, and it must never be prefixed with `NEXT_PUBLIC_`, which would
+publish it into the client bundle.
+
 `NEXT_PUBLIC_SITE_URL` is `https://liko-jcuadys-projects.vercel.app`. It is baked
 into `sitemap.xml` and `robots.txt`, so if a custom domain is added later this must
 be updated and the app redeployed, or password-reset and email-verification mails
@@ -143,7 +153,52 @@ verified, because it needs no email.
 
 ---
 
-## Step 3: Rotate the VAPID key pair and the Supabase service key
+## Step 3: Give the deck generator a provider key
+
+**The deck maker does nothing in production until this is done.** Without
+`GEMINI_API_KEY` the panel on `/slides` says the generator is not configured,
+names the reason, and refuses to submit. It does not pretend to be available: a
+key that exists but whose provider is out of capacity looks identical from the
+app's side, so the copy never claims the service is up merely because a key is
+present.
+
+```bash
+vercel env add GEMINI_API_KEY production --scope jcuadys-projects
+```
+
+Add it as a **Secret**. Three things about this key are load-bearing:
+
+- **It must never be a `NEXT_PUBLIC_` variable.** That prefix publishes the value
+  into the client bundle, and `e2e/deck-maker.spec.ts` asserts the key is absent
+  from the rendered document.
+- **It lives only in the gitignored `.env.local` and in Vercel.** It is never
+  written to a file that could be committed, and it has never been echoed.
+- **The model is chosen by calling it, not by reading the provider's list.** The
+  list reported `gemini-2.5-flash` as available and the generate endpoint then
+  answered 404 for a new key. `GEMINI_MODEL` in `src/lib/ai/gemini.ts` is
+  `gemini-3.5-flash`, which was verified by making a call.
+
+**The free tier refuses.** A real probe during this work returned
+`503 This model is currently experiencing high demand`, and the provider's own
+per-key rate limit is stricter than anything LIKO enforces. What LIKO does about
+it is cap each teacher at eight generations per rolling hour and show the meter
+before anything is spent, so one person cannot exhaust the shared allowance.
+What it cannot do is make the free tier reliable. A paid key is the only fix.
+
+Check it end to end, without a test:
+
+```bash
+node --env-file=.env.local scripts/probe-gemini.mjs    # is the key valid, what models answer
+node --env-file=.env.local scripts/probe-ai-deck.mjs   # does a real prompt come back as a deck
+```
+
+The probe is deliberately not part of `pnpm e2e`. A suite that depends on a third
+party being up, in quota and fast fails for reasons that have nothing to do with
+this codebase, and a gate that fails for somebody else's reasons stops being read.
+
+---
+
+## Step 4: Rotate the VAPID key pair and the Supabase service key
 
 The private key supplied for this build, and the service role key and database
 password, appear in the project chat transcript. Anyone holding the service key

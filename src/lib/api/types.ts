@@ -685,6 +685,254 @@ export function inviteStatus(
 export const SLIDE_LAYOUTS = ['title', 'bullets', 'split', 'blank'] as const;
 export type SlideLayout = (typeof SLIDE_LAYOUTS)[number];
 
+/**
+ * What a slide actually contains.
+ *
+ * WHY ELEMENTS AND NOT THREE COLUMNS. `title` and `body` describe a slide as a
+ * heading and some bullets, which is a slide a teacher can fill in but not
+ * design: no font, no size, no alignment, no image, no position. Asking for
+ * PowerPoint-like editing means storing the styling somewhere, and storing it
+ * per slide means storing the shape of a slide somewhere.
+ *
+ * WHY A GRID AND NOT ABSOLUTE PIXELS. Every element names a column and a row
+ * rather than an x and a y, so the same slide renders correctly on a phone in a
+ * browser, on a laptop, and projected in a hall. Free positioning is the thing
+ * that makes a slide unreadable on the one screen the teacher did not test it
+ * on, and it is unrecoverable once a teacher has dragged something off the edge.
+ *
+ * WHY FORMATTING IS A CLOSED SET. Every value below is enumerated, which means a
+ * slide cannot carry a colour that is not a token, a font that has not been
+ * loaded, or an alignment nobody implemented. An open field would be one
+ * unvalidated string away from a slide with white text on white.
+ */
+export const SLIDE_ELEMENTS = ['heading', 'text', 'bullets', 'image'] as const;
+export type SlideElementKind = (typeof SLIDE_ELEMENTS)[number];
+
+export const SLIDE_COLUMNS = [1, 2, 3, 4, 5, 6] as const;
+export type SlideColumn = (typeof SLIDE_COLUMNS)[number];
+
+export const SLIDE_ROWS = [1, 2, 3, 4, 5, 6, 7, 8] as const;
+export type SlideRow = (typeof SLIDE_ROWS)[number];
+
+/**
+ * The only weights offered.
+ *
+ * A free weight field is how a slide ends up at 350 and looks like a mistake. A
+ * teacher who wants a heavier slide uses the darkest ink, not a bigger number.
+ */
+export const SLIDE_WEIGHTS = ['normal', 'medium', 'semibold', 'bold'] as const;
+export type SlideWeight = (typeof SLIDE_WEIGHTS)[number];
+
+export const SLIDE_SIZES = ['sm', 'md', 'lg', 'xl'] as const;
+export type SlideSize = (typeof SLIDE_SIZES)[number];
+
+export const SLIDE_FONTS = ['geist', 'geist-mono'] as const;
+export type SlideFont = (typeof SLIDE_FONTS)[number];
+
+export const SLIDE_FONTS_LABELS: Record<SlideFont, string> = {
+  geist: 'Geist',
+  'geist-mono': 'Geist Mono',
+};
+
+export const SLIDE_INKS = ['ink', 'muted', 'accent', 'on-accent'] as const;
+export type SlideInk = (typeof SLIDE_INKS)[number];
+
+export const SLIDE_ALIGNMENTS = ['left', 'center', 'right'] as const;
+export type SlideAlignment = (typeof SLIDE_ALIGNMENTS)[number];
+
+/*
+ * The human labels for the closed sets.
+ *
+ * They live here rather than in the inspector because a control that renders the
+ * raw value is a control showing `semibold`, and a second control elsewhere that
+ * shows `Semibold` for the same thing is two vocabularies. One list, like the
+ * rest of this file.
+ */
+export const SLIDE_SIZE_LABELS: Record<SlideSize, string> = {
+  sm: 'Small',
+  md: 'Body',
+  lg: 'Large',
+  xl: 'Display',
+};
+
+export const SLIDE_WEIGHT_LABELS: Record<SlideWeight, string> = {
+  normal: 'Regular',
+  medium: 'Medium',
+  semibold: 'Semibold',
+  bold: 'Bold',
+};
+
+export const SLIDE_ALIGNMENT_LABELS: Record<SlideAlignment, string> = {
+  left: 'Left',
+  center: 'Center',
+  right: 'Right',
+};
+
+export const SLIDE_INK_LABELS: Record<SlideInk, string> = {
+  ink: 'Ink',
+  muted: 'Muted',
+  accent: 'Accent',
+  'on-accent': 'On accent',
+};
+
+/** The colour treatments a slide can be built from, all of them on-brand. */
+export const SLIDE_THEMES = ['viridian', 'ink', 'paper', 'dusk'] as const;
+export type SlideTheme = (typeof SLIDE_THEMES)[number];
+
+export const SLIDE_THEME_LABELS: Record<SlideTheme, string> = {
+  viridian: 'Viridian',
+  ink: 'Ink',
+  paper: 'Paper',
+  dusk: 'Dusk',
+};
+
+/** Typography shared by every text element, whatever its role. */
+export interface SlideTextStyle {
+  size: SlideSize;
+  weight: SlideWeight;
+  font: SlideFont;
+  ink: SlideInk;
+  align: SlideAlignment;
+}
+
+export const DEFAULT_TEXT_STYLE: SlideTextStyle = {
+  size: 'md',
+  weight: 'normal',
+  font: 'geist',
+  ink: 'ink',
+  align: 'left',
+};
+
+interface SlideElementBase {
+  id: string;
+  /** 1-based column on a six-column grid. */
+  col: SlideColumn;
+  /** How many grid columns the element spans. */
+  span: number;
+  /** 1-based row band. Bands are thirds, so a heading sits at the top. */
+  row: SlideRow;
+  /** How many row bands the element spans. */
+  tall: number;
+}
+
+export interface SlideTextElement extends SlideElementBase {
+  kind: 'heading' | 'text' | 'bullets';
+  /** Bullets hold one item per line. Heading and text hold a single string. */
+  content: string;
+  style: SlideTextStyle;
+}
+
+export interface SlideImageElement extends SlideElementBase {
+  kind: 'image';
+  /** A `deck_assets` id. Never a URL a teacher pasted in. */
+  assetId: string;
+  /** How the image fills its box when it does not match it. */
+  fit: 'cover' | 'contain';
+  alt: string;
+}
+
+export type SlideElement = SlideTextElement | SlideImageElement;
+
+export interface SlideRecord {
+  id: string;
+  deckId: string;
+  ownerId: string;
+  position: number;
+  layout: SlideLayout;
+  theme: SlideTheme;
+  /** Null on a slide written before elements existed: render the legacy layout. */
+  elements: SlideElement[] | null;
+  title: string;
+  body: string;
+  notes: string;
+}
+
+/**
+ * Fills in anything a stored element is missing, and drops anything malformed.
+ *
+ * The alternative is trusting a column. `elements` is jsonb, so anything can
+ * be in it, and a renderer that meets a half-written element and reads
+ * `style.size` off undefined throws during render and takes the editor with it.
+ * Normalising at the boundary means the renderer only ever sees the closed set.
+ */
+export function normaliseElements(value: unknown): SlideElement[] | null {
+  if (value === null || value === undefined) return null;
+  if (!Array.isArray(value)) return null;
+
+  const out: SlideElement[] = [];
+  for (const raw of value) {
+    if (typeof raw !== 'object' || raw === null) continue;
+    const el = raw as Record<string, unknown>;
+    const kind = SLIDE_ELEMENTS.includes(el.kind as SlideElementKind)
+      ? (el.kind as SlideElementKind)
+      : null;
+    if (!kind) continue;
+
+    const base = {
+      id: typeof el.id === 'string' && el.id ? el.id : `el_${out.length}`,
+      col: (SLIDE_COLUMNS.includes(el.col as SlideColumn) ? el.col : 1) as SlideColumn,
+      span: clampSpan(el.span),
+      row: (SLIDE_ROWS.includes(el.row as SlideRow) ? el.row : 1) as SlideRow,
+      tall: clampTall(el.tall),
+    };
+
+    if (kind === 'image') {
+      out.push({
+        ...base,
+        kind,
+        assetId: typeof el.assetId === 'string' ? el.assetId : '',
+        fit: el.fit === 'contain' ? 'contain' : 'cover',
+        alt: typeof el.alt === 'string' ? el.alt : '',
+      });
+      continue;
+    }
+
+    const style = (typeof el.style === 'object' && el.style !== null ? el.style : {}) as Record<
+      string,
+      unknown
+    >;
+    out.push({
+      ...base,
+      kind,
+      content: typeof el.content === 'string' ? el.content : '',
+      style: {
+        size: SLIDE_SIZES.includes(style.size as SlideSize) ? (style.size as SlideSize) : 'md',
+        weight: SLIDE_WEIGHTS.includes(style.weight as SlideWeight)
+          ? (style.weight as SlideWeight)
+          : 'normal',
+        font: SLIDE_FONTS.includes(style.font as SlideFont) ? (style.font as SlideFont) : 'geist',
+        ink: SLIDE_INKS.includes(style.ink as SlideInk) ? (style.ink as SlideInk) : 'ink',
+        align: SLIDE_ALIGNMENTS.includes(style.align as SlideAlignment)
+          ? (style.align as SlideAlignment)
+          : 'left',
+      },
+    });
+  }
+  return out;
+}
+
+/** An element may not run off the right of the grid. */
+function clampSpan(value: unknown): number {
+  const span = typeof value === 'number' && Number.isFinite(value) ? Math.floor(value) : 6;
+  return Math.min(6, Math.max(1, span));
+}
+
+/** An element may not run off the bottom of the grid. */
+function clampTall(value: unknown): number {
+  const tall = typeof value === 'number' && Number.isFinite(value) ? Math.floor(value) : 1;
+  return Math.min(4, Math.max(1, tall));
+}
+
+/** The text a screen reader and a thumbnail get, whatever the slide contains. */
+export function slidePlainText(elements: SlideElement[] | null, fallbackTitle: string): string {
+  if (!elements || elements.length === 0) return fallbackTitle;
+  return elements
+    .filter((el): el is SlideTextElement => el.kind !== 'image')
+    .map((el) => el.content.replace(/\n+/g, ' ').trim())
+    .filter(Boolean)
+    .join(' ');
+}
+
 export const SLIDE_LAYOUT_LABELS: Record<SlideLayout, string> = {
   title: 'Title only',
   bullets: 'Title and points',
@@ -725,6 +973,14 @@ export interface SlideInput {
   title: string;
   body: string;
   notes: string;
+  /**
+   * The design the slide is drawn in. Defaults at the storage layer rather than
+   * being required here, so a caller that only knows the legacy four fields
+   * still produces a valid slide.
+   */
+  theme?: SlideTheme;
+  /** Null renders the legacy layout; an empty array renders a blank slide. */
+  elements?: SlideElement[] | null;
 }
 
 export interface ProfileInput {

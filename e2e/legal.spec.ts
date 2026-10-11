@@ -230,12 +230,29 @@ test.describe('marketing claims match the product', () => {
    *
    * So the words go, and the shapes of the old promises stay.
    */
+
+  /*
+   * THE AI ENTRY WAS NARROWED WHEN THE DECK MAKER ARRIVED, NOT DELETED.
+   *
+   * The original entry banned the phrase "AI feature" outright, which was right
+   * for a product with no AI in it and became a trap the moment
+   * `/slides/generate` shipped a real one. LIKO can now turn a teacher's own
+   * description into slides, so a guard that forbids the words "AI feature"
+   * would fail on the first honest sentence written about it.
+   *
+   * What must stay forbidden is the shape of the claim that was actually made:
+   * that LIKO's AI reaches student records. The deck generator takes a prompt
+   * from the teacher and returns slide content. It reads no student, no mark and
+   * no roster, and it is built so that it cannot: the prompt is the only thing
+   * that crosses to the provider.
+   */
   const FICTION = [
     /free trial/i,
     /rubric/i,
     /business day/i,
     /priority email/i,
-    /AI features?\b/i,
+    // AI and student data in the same sentence. Not "AI" on its own.
+    /AI[^.]{0,80}student/i,
     /export[^.]{0,40}(CSV|JSON)/i,
     /import from a spreadsheet/i,
     /connect an LMS/i,

@@ -85,60 +85,94 @@ test.describe('editing a slide', () => {
   });
 
   test('an edit survives a reload', async ({ page }) => {
-    await page.getByRole('button', { name: /Select slide 2/ }).click();
-    await page.getByLabel('Title').fill('What the collision theory says, revised');
-    await page.getByLabel('Points').fill('Collide with enough energy\nFace the right way');
-    await page.getByRole('button', { name: 'Save slide' }).click();
+    await page.getByRole('button', { name: /^Slide 2:/ }).click();
+    await page.getByLabel('Title', { exact: true }).fill('What the collision theory says, revised');
+    await page.getByLabel('Points', { exact: true }).fill('Collide with enough energy\nFace the right way');
 
+    /*
+     * The details form still saves on a button. What was removed is the
+     * element-level "Save slide": elements, themes and typography autosave, so
+     * the button that remains covers exactly the fields that do not. It is
+     * named "Save details" and lives in the slide details card, and the
+     * assertion is on what the editor confirms and what survives a reload,
+     * which is the property the button exists to guarantee.
+     */
+    await page.getByRole('button', { name: 'Save details' }).click();
     await expect(page.getByText('Slide saved.')).toBeVisible();
 
     await page.reload();
-    await page.getByRole('button', { name: /Select slide 2/ }).click();
-    await expect(page.getByLabel('Title')).toHaveValue('What the collision theory says, revised');
-    await expect(page.getByLabel('Points')).toHaveValue(
+    await page.getByRole('button', { name: /^Slide 2:/ }).click();
+    await expect(page.getByLabel('Title', { exact: true })).toHaveValue('What the collision theory says, revised');
+    await expect(page.getByLabel('Points', { exact: true })).toHaveValue(
       'Collide with enough energy\nFace the right way',
     );
   });
 
   test('the points render as bullets on the slide', async ({ page }) => {
-    await page.getByRole('button', { name: /Select slide 3/ }).click();
+    await page.getByRole('button', { name: /^Slide 3:/ }).click();
+
+    /*
+     * Scoped to the stage canvas. The rail draws every slide through the same
+     * renderer, so a page-wide lookup finds "Temperature" twice: once on the
+     * slide being edited and once in that slide's own thumbnail. That comes
+     * back as a strict mode violation, which reads as a broken bullet list and
+     * is really a locator that was not specific enough.
+     */
+    const stage = page.locator('[data-slide-canvas]:not([aria-hidden="true"])');
 
     // The preview is the same component present mode renders, so what the
     // teacher sees while editing is what the class will see.
-    await expect(page.getByText('Temperature', { exact: true })).toBeVisible();
-    await expect(page.getByText('A catalyst', { exact: true })).toBeVisible();
+    await expect(stage.getByText('Temperature', { exact: true })).toBeVisible();
+    await expect(stage.getByText('A catalyst', { exact: true })).toBeVisible();
   });
 
   test('a slide with neither a title nor points is refused', async ({ page }) => {
     await page.getByRole('button', { name: 'Add slide' }).click();
-    await expect(page.getByRole('heading', { name: 'Slide 6' })).toBeVisible();
+    // Exact, because the details card below it is headed "Slide 6 details" and a
+    // substring lookup matches both. Two headings for one slide is right; two
+    // locators for one heading is not.
+    await expect(page.getByRole('heading', { name: 'Slide 6', exact: true })).toBeVisible();
 
-    await page.getByLabel('Title').fill('');
-    await page.getByLabel('Points').fill('');
-    await page.getByRole('button', { name: 'Save slide' }).click();
+    /*
+     * Exact, and the reason is the rail. An untitled slide's thumbnail button
+     * is labelled "Slide 6: Untitled slide", and a substring lookup for "Title"
+     * matches that button as readily as the textbox. Addressing the exact label
+     * is the difference between filling the field and strict mode complaining
+     * about a thumbnail.
+     */
+    await page.getByLabel('Title', { exact: true }).fill('');
+    await page.getByLabel('Points', { exact: true }).fill('');
+    await page.getByRole('button', { name: 'Save details' }).click();
 
     await expect(page.getByText('Give the slide a title or some points.')).toBeVisible();
   });
 
   test('reordering puts a slide where it was asked to go', async ({ page }) => {
-    // Slide 2 is "What the collision theory says". Pushing it to first place
-    // has to be visible in the rail, not just reported as done.
+    /*
+     * THE SLIDE'S WORDS ARE ITS ACCESSIBLE NAME, NOT ITS TEXT.
+     *
+     * The thumbnail is a decorative canvas with a button laid over it, and the
+     * button's only text is an sr-only "Select slide N". `toContainText` was
+     * therefore reading the string "Select slide 1" and reporting on the wrong
+     * thing entirely, which is how a reorder can pass or fail for reasons that
+     * have nothing to do with the order.
+     */
+    const MOVED = 'What the collision theory says';
+    const first = page.getByRole('button', { name: /^Slide 1:/ });
+    const second = page.getByRole('button', { name: /^Slide 2:/ });
+
+    // Slide 2 is the collision theory slide. An earlier test in this file
+    // renames it, so the match is on the prefix rather than the whole name.
     await page.getByRole('button', { name: 'Move slide 2 up' }).click();
 
-    await expect(page.getByRole('button', { name: /Select slide 1/ })).toContainText(
-      'What the collision theory says',
-    );
+    await expect(first).toHaveAccessibleName(new RegExp(`^Slide 1: ${MOVED}`));
 
     await page.reload();
-    await expect(page.getByRole('button', { name: /Select slide 1/ })).toContainText(
-      'What the collision theory says',
-    );
+    await expect(first).toHaveAccessibleName(new RegExp(`^Slide 1: ${MOVED}`));
 
     // Put it back so the run does not depend on its own earlier mutation.
     await page.getByRole('button', { name: 'Move slide 1 down' }).click();
-    await expect(page.getByRole('button', { name: /Select slide 2/ })).toContainText(
-      'What the collision theory says',
-    );
+    await expect(second).toHaveAccessibleName(new RegExp(`^Slide 2: ${MOVED}`));
   });
 
   test('deleting the only remaining slide archives the deck rather than stranding it', async ({
@@ -163,7 +197,7 @@ test.describe('present mode', () => {
     await signIn(page);
     await page.goto('/slides');
     await page.getByRole('link', { name: 'Reaction rates' }).click();
-    await page.getByRole('button', { name: /Select slide 1/ }).click();
+    await page.getByRole('button', { name: /^Slide 1:/ }).click();
 
     await page.getByRole('button', { name: 'Present' }).click();
 
@@ -192,7 +226,7 @@ test.describe('present mode', () => {
     await signIn(page);
     await page.goto('/slides');
     await page.getByRole('link', { name: 'Reaction rates' }).click();
-    await page.getByRole('button', { name: /Select slide 1/ }).click();
+    await page.getByRole('button', { name: /^Slide 1:/ }).click();
     await page.getByRole('button', { name: 'Present' }).click();
 
     await expect(page.getByText(/Two minutes on why this matters/)).toHaveCount(0);

@@ -23,10 +23,20 @@ import { data } from '@/lib/api/client';
 import { DataError } from '@/lib/api/errors';
 import { requirePermission } from '@/lib/auth/guards';
 import {
+  normaliseElements,
+  SLIDE_ALIGNMENTS,
+  SLIDE_FONTS,
+  SLIDE_INKS,
   SLIDE_LAYOUTS,
+  SLIDE_SIZES,
+  SLIDE_THEMES,
+  SLIDE_WEIGHTS,
   type DeckInput,
+  type SlideElement,
   type SlideInput,
   type SlideLayout,
+  type SlideTextStyle,
+  type SlideTheme,
 } from '@/lib/api/types';
 
 export interface DeckResult {
@@ -222,5 +232,123 @@ export async function moveSlideAction(input: {
     return { ok: true, message: 'Slide moved.' };
   } catch (error) {
     return { ok: false, message: messageFor(error, 'That slide could not be moved.') };
+  }
+}
+
+/*
+ * Slide content writes.
+ *
+ * WHY EVERYTHING IS RE-READ THROUGH A CLOSED SET HERE. A server action is a
+ * public endpoint. Anything arriving from the browser can be an object with
+ * `kind: 'heading'`, a `size` of `enormous` and a `col` of 900 written by anyone
+ * who opens devtools, and `elements` is a jsonb column that stores whatever it
+ * is given. `normaliseElements` on the way in is what means the renderer only
+ * ever reads the closed set, and it is the same function the reader uses, so
+ * what the teacher saw is what was stored.
+ *
+ * WHY THE STYLE PATCH IS APPLIED TO THE STORED LIST RATHER THAN SENT WHOLE. A
+ * style control is a discrete choice, and sending the whole element list with it
+ * turns one click into a last write wins race between two teachers editing the
+ * same slide. The patch is applied to the row as it stands, so the two writers
+ * touch different elements.
+ *
+ * The gate is `plan:write` for the reason the rest of this file gives: there is
+ * no `slides:write`, and `/slides` is already authorised as `plan:write`.
+ */
+
+function oneOf<T extends string>(value: unknown, allowed: readonly T[]): T | undefined {
+  return typeof value === 'string' && (allowed as readonly string[]).includes(value)
+    ? (value as T)
+    : undefined;
+}
+
+function readTheme(value: unknown): SlideTheme | null {
+  return oneOf(value, SLIDE_THEMES) ?? null;
+}
+
+function readElements(value: unknown): SlideElement[] | string {
+  const parsed = normaliseElements(value);
+  if (parsed === null) return 'That slide content could not be read.';
+  return parsed;
+}
+
+/**
+ * Reads a style patch out of an untrusted object.
+ *
+ * `null` rather than a rejection: a teacher changing one control must not lose
+ * the other four because the browser sent one value nobody recognises.
+ */
+function readStylePatch(value: unknown): Partial<SlideTextStyle> {
+  const patch = (typeof value === 'object' && value !== null ? value : {}) as Record<string, unknown>;
+  const out: Partial<SlideTextStyle> = {};
+  const size = oneOf(patch.size, SLIDE_SIZES);
+  if (size) out.size = size;
+  const weight = oneOf(patch.weight, SLIDE_WEIGHTS);
+  if (weight) out.weight = weight;
+  const font = oneOf(patch.font, SLIDE_FONTS);
+  if (font) out.font = font;
+  const ink = oneOf(patch.ink, SLIDE_INKS);
+  if (ink) out.ink = ink;
+  const align = oneOf(patch.align, SLIDE_ALIGNMENTS);
+  if (align) out.align = align;
+  return out;
+}
+
+export async function saveSlideElements(input: {
+  slideId: string;
+  elements: unknown;
+  theme: string;
+}): Promise<DeckResult> {
+  const session = await requirePermission('plan:write');
+  if (!input.slideId.trim()) return { ok: false, message: 'That slide could not be found.' };
+
+  const elements = readElements(input.elements);
+  if (typeof elements === 'string') return { ok: false, message: elements };
+
+  const theme = readTheme(input.theme);
+  if (!theme) return { ok: false, message: 'Choose one of the four backgrounds.' };
+
+  try {
+    const store = await data();
+    const slide = await store.updateSlideContent(session.userId, input.slideId.trim(), {
+      elements,
+      theme,
+    });
+    revalidatePath(`/slides/${slide.deckId}`);
+    return { ok: true, message: 'Slide saved.' };
+  } catch (error) {
+    return { ok: false, message: messageFor(error, 'That slide could not be saved.') };
+  }
+}
+
+export async function updateElementStyle(input: {
+  slideId: string;
+  elementId: string;
+  patch: unknown;
+}): Promise<DeckResult> {
+  const session = await requirePermission('plan:write');
+  if (!input.slideId.trim()) return { ok: false, message: 'That slide could not be found.' };
+  if (!input.elementId.trim()) return { ok: false, message: 'That element could not be found.' };
+
+  const patch = readStylePatch(input.patch);
+
+  try {
+    const store = await data();
+    const slide = await store.getSlide(session.userId, input.slideId.trim());
+    const elements = normaliseElements(slide.elements) ?? [];
+    const index = elements.findIndex((element) => element.id === input.elementId.trim());
+    if (index === -1) return { ok: false, message: 'That element is no longer on the slide.' };
+
+    const current = elements[index]!;
+    if (current.kind === 'image') {
+      return { ok: false, message: 'An image does not carry a text style.' };
+    }
+
+    elements[index] = { ...current, style: { ...current.style, ...patch } };
+    await store.updateSlideContent(session.userId, slide.id, { elements, theme: slide.theme });
+    revalidatePath(`/slides/${slide.deckId}`);
+    return { ok: true, message: 'Element updated.' };
+  } catch (error) {
+    return { ok: false, message: messageFor(error, 'That element could not be updated.') };
   }
 }

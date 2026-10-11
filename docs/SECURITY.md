@@ -10,8 +10,8 @@ never claim a control that does not exist yet.
 |---|---|---|
 | **A01** Broken access control | Strict RBAC, two layers | `src/proxy.ts` gates routes before render; `requirePermission()` gates every server action and API route independently. Ownership scopes return 404 for cross-account reads rather than 403, so a tampered id cannot confirm a record exists. |
 | **A02** Cryptographic failures | No client-side tokens | Session is a JWS in an `httpOnly`, `SameSite=Lax`, `Secure`-in-production, `Path=/` cookie. `e2e/auth.spec.ts` asserts nothing matching `token`, `jwt`, or `liko_session` reaches `localStorage` or `sessionStorage`. Passwords use scrypt (N=16384, r=8, p=1, 32-byte random salt), compared with `timingSafeEqual`. |
-| **A03** Injection | Validation at the boundary | Every server action and route handler parses input with a Zod schema before it reaches the API client. No queries exist in this codebase, so there is no string interpolation surface. |
-| **A04** Insecure design | Rate limiting | Token-bucket limiter in `lib/security/rate-limit.ts`: auth 10 per 5 minutes per IP, password reset 3 per hour, AI endpoints 20 per minute per user. Server-side only. A client cooldown is cosmetic and never relied on. |
+| **A03** Injection | Validation at the boundary | Every server action and route handler parses input with a Zod schema before it reaches the API client. No queries exist in this codebase, so there is no string interpolation surface. **Model output is untrusted input too.** A slide's fonts, colours, weights, sizes and themes are read through the same closed sets the renderer draws from, so a value the model invents becomes a default rather than reaching the DOM. An uploaded file is likewise identified by MIME first, extension second, and a PDF by its magic bytes, so a file's name is never taken as evidence of what it is. |
+| **A04** Insecure design | Rate limiting | Token-bucket limiter in `lib/security/rate-limit.ts`: auth 10 per 5 minutes per IP, password reset 3 per hour, AI endpoints 20 per minute per user. Server-side only. A client cooldown is cosmetic and never relied on. **The deck generator carries a second, separate allowance of eight generations per person per rolling hour**, counted from `ai_generations` rather than in memory, so it survives a redeploy and holds across instances. A failed generation is charged on purpose: an allowance that refunds failures can be spent by causing failures. |
 | **A05** Security misconfiguration | Response headers | `X-Content-Type-Options`, `Referrer-Policy`, `X-Frame-Options: DENY`, `Permissions-Policy` set in `next.config.ts` and on every proxy response. `Strict-Transport-Security` in production only. `poweredByHeader` is disabled. |
 | **A07** Identification and authentication failures | Verification and CSRF | Email verification is required before the workspace renders. CSRF defence is Origin and `Sec-Fetch-Site` validation on every state-changing request in `isSameOrigin`, plus `SameSite=Lax` cookies. Auth autocomplete attributes are set so password managers work, and paste is never blocked. |
 | **A09** Logging | Auditable events | Login, logout, registration, password change, and permission denial are the events to emit. **Not yet wired** to a logging backend. `no-console` is enforced by lint so no component logs ad hoc. |
@@ -77,6 +77,66 @@ Notification content is generated server-side and is limited to what a teacher
 would already see in the product: a count of flagged students, or a summary of
 marks posted. Student names are not placed in push payloads, because a
 notification can be shown on a lock screen.
+
+## The deck generator and what crosses to the provider
+
+LIKO sends exactly one thing to a third party: **the prompt the teacher typed.**
+That is the whole data flow, and it is worth being precise about, because a
+school product that calls a model is the kind of thing that invites the question.
+
+- **No student data reaches the provider.** The generator is given a string of
+  lesson text. It does not read `students`, `grades`, `attendance` or any
+  attendance or mark table, and it has no code path that could: the only input to
+  `generateDeckOutline` is the prompt, and the only output is slide content that
+  goes through the same validator the editor uses. `e2e/legal.spec.ts` forbids
+  the marketing pages from claiming otherwise.
+- **The provider key never reaches the browser.** `GEMINI_API_KEY` is read in
+  `src/lib/ai/gemini.ts`, which is server-only, and is sent as the
+  `x-goog-api-key` **header** rather than a query parameter, so it does not land
+  in an access log or a proxy log. `e2e/deck-maker.spec.ts` asserts the rendered
+  document contains no key in any of the three shapes these keys take.
+- **The prompt is bounded before it leaves**, at 4000 characters, and the
+  provider's answer is bounded on the way back at 4096.
+- **Nothing the model returns is trusted.** Fonts, colours, weights, sizes and
+  themes are read through the same closed sets the renderer draws from, so a
+  hallucinated font name cannot reach the DOM. It becomes a default.
+- **A failed generation is still charged.** An allowance that refunds failures can
+  be spent by causing failures. Eight generations per person per rolling hour,
+  shown to the teacher before anything is spent.
+
+The real limitation is not a vulnerability but it should not be discovered by a
+teacher: **the free tier refuses.** A probe during this work returned
+`503 This model is currently experiencing high demand`, and the provider's own
+per-key limit is stricter than the one LIKO enforces. The panel reports that as a
+capacity refusal rather than an outage, and never claims the service is available
+merely because a key exists, because an upstream-exhausted tier is
+indistinguishable from a working one from inside the app.
+
+## Files brought into a deck
+
+A teacher can add a PDF, Word file, plain text, Markdown file or image to a deck.
+
+- **The format is decided from the MIME type first and the filename second**, so
+  a `.pdf` sent with no type is still read and a `notes.txt` renamed to `.pdf` is
+  refused on what it actually is.
+- **A PDF is checked by its magic bytes**, not by its name. A file called `.pdf`
+  that does not begin `%PDF-` is refused rather than handed to a parser.
+- **25 MB cap**, enforced on the server. The picker's own check exists so a
+  teacher is told while they still have the file in their hand; the server check
+  is the one that counts, because `accept` is a hint somebody can edit in
+  devtools.
+- **Scans are refused in words.** A PDF whose page draws nothing has no text to
+  read, and it arrives as a refusal saying so. An import that reports success and
+  yields zero words is the outcome a teacher can least diagnose.
+- **Images are stored in a private bucket** with no public URL. Only an image
+  keeps its bytes; **a document's original file is not stored at all**, because
+  the extracted text is what the deck uses and holding a megabyte of PDF per
+  import that nothing reads back is the wrong trade on a school connection. The
+  extracted text is retained in `deck_assets.extracted_text`.
+- **There is no delete policy on `storage.objects`.** A file is removed through
+  the application, which proves deck ownership first. Three policies scope reads
+  by `(storage.foldername(name))[1] = auth.uid()`, so a teacher can reach their
+  own folder and nobody else's.
 
 ## Data privacy posture
 
@@ -169,6 +229,8 @@ owner change.
 | `questions` written without an ownership proof | A teacher holds their own `owner_id` on every question row, so attaching questions to somebody else's assessment would not leak the assessment, it would silently strand the questions where only the other teacher could see them | `getAssessment` proves ownership on the server before `saveQuestionSet` writes, so the write is refused rather than accepted and lost |
 | A student awards themselves a mark on an online quiz | A quiz runner renders the questions of an assessment whose answer key sits in the database beside it, and the student also holds a session that can write to `quiz_attempts`. RLS alone is not enough here because the whole point of the table is that the student updates it | Three boundaries: the key is never selected on a path a student's token can reach, `student_quiz_questions` declaring its own columns with no `answer_key` among them; `UPDATE` is revoked from `authenticated` and re-granted on the single `responses` column, so a direct PostgREST PATCH of `score` is refused rather than ignored; and the submit path proves attempt ownership with a caller-scoped read *before* any service-role read, because everything after that runs with RLS off. Proven in e2e against the serialised page payload, not the rendered screen |
 | A teacher sits a quiz and records a mark on a child | `quiz:take` is granted to students alone. Teachers author quizzes at `/assess`; letting them sit one would put a second, unmarked copy of the answers in front of whoever marks it, and an admin sitting one would write a mark to a child's record from an account that is not that child | `quiz:take` is `own` for the student and `no` for every other role, and `rbac.test.ts` enumerates the administrator exception explicitly so a second one cannot be added without this test failing |
+| The AI free tier is not reliable, and one key is shared by every teacher | Not a leak: no student data crosses to the provider at all. But an upstream 503 is indistinguishable from an outage from inside the app, and one teacher exhausting the provider's per-key limit makes the generator look broken for everybody | LIKO's own allowance is eight generations per person per rolling hour, shown before anything is spent, and failures are charged so they cannot be farmed. **The provider's own limit still applies on top and cannot be fixed in code.** A paid key is the only real answer |
+| Extracted document text is retained in the database | `deck_assets.extracted_text` holds the readable text of every PDF, Word file and Markdown file a teacher brings in, so a teacher's own lesson material sits in the database after the original file is gone | It is the text the deck is built from, and it is scoped by `owner_id` with an RLS select policy for the owner and no insert policy, so only a server action can write it. A document's original bytes are never stored. There is **no delete policy on the storage bucket**, so removing an asset goes through the application, which proves deck ownership first |
 
 ## Reporting a vulnerability
 

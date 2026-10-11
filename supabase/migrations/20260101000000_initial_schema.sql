@@ -993,10 +993,188 @@ create table if not exists public.slides (
 
 create index if not exists slides_deck_idx on public.slides (deck_id, position);
 
+-- ---------------------------------------------------------------------------
+-- The slide's contents, as data rather than as three columns
+--
+-- `title`, `body` and `notes` model a slide as a title, some bullets and
+-- nothing else. That is a slide a teacher cannot design: no font, no size, no
+-- alignment, no image, no position. So the slide now carries an element list,
+-- and the three columns stay because they are what the thumbnail list, the
+-- accessibility text and the search index read, and a deck list that has to
+-- parse JSON for every row is a deck list that gets slow.
+--
+-- WHY JSONB AND NOT A CHILD TABLE. A slide's elements are only ever read and
+-- written as a set with the slide. A separate table buys referential integrity
+-- and nothing else, and costs a round trip per save, which is the operation a
+-- teacher performs several hundred times in an editing session. The shape is
+-- validated in the application and in `slides_elements_shape`, because unlike a
+-- foreign key this constraint can actually say what a valid element is.
+--
+-- WHY `null` MEANS "USE THE LAYOUT". A slide written before this release has no
+-- elements, and `null` says "render it the way it always rendered" rather than
+-- "render nothing". An empty array is different: it means the teacher deleted
+-- every element on purpose, and that is a blank slide, not a layout.
+-- ---------------------------------------------------------------------------
+alter table public.slides
+  add column if not exists elements jsonb,
+  add column if not exists theme     text not null default 'viridian';
+
+alter table public.slides
+  drop constraint if exists slides_theme_known;
+
+alter table public.slides
+  add constraint slides_theme_known
+  check (theme in ('viridian', 'ink', 'paper', 'dusk'));
+
+-- An element list is either absent (render the legacy layout) or an array. The
+-- per-element rules live in the application, where the renderer is, because a
+-- JSON schema in a check constraint would drift from it silently.
+alter table public.slides
+  drop constraint if exists slides_elements_shape;
+
+alter table public.slides
+  add constraint slides_elements_shape
+  check (elements is null or jsonb_typeof(elements) = 'array');
+
+-- ---------------------------------------------------------------------------
+-- AI usage, so a free tier can be shown honestly
+--
+-- WHY THIS EXISTS. Generation runs on a shared key against a provider's free
+-- tier, so it can be refused. A teacher who hits that with no warning sees an
+-- error and no explanation. Counting every call against the person who made it
+-- is what lets the product say "you have used 4 of 8 this hour" instead, and
+-- what lets the refusal name the limit rather than shrugging.
+--
+-- ROWS ARE NEVER DELETED BY THE USER. There is no delete policy and no delete
+-- grant; the table is a log, not a workspace. A quota you can erase by deleting
+-- rows is a quota you have not enforced.
+-- ---------------------------------------------------------------------------
+create table if not exists public.ai_generations (
+  id                uuid primary key default gen_random_uuid(),
+  user_id           uuid not null references auth.users (id) on delete cascade,
+  owner_id          uuid,
+  model             text not null,
+  purpose           text not null default 'deck'
+                      check (purpose in ('deck')),
+  prompt_tokens     integer not null default 0 check (prompt_tokens >= 0),
+  output_tokens     integer not null default 0 check (output_tokens >= 0),
+  -- Kept so the meter can be "per hour" without scanning every row a user has
+  -- ever generated.
+  created_at        timestamptz not null default now()
+);
+
+create index if not exists ai_generations_user_recent_idx
+  on public.ai_generations (user_id, created_at desc);
+
+alter table public.ai_generations enable row level security;
+
+-- Readable by the person who spent the quota, so the console can render a real
+-- number. Writes go through the server only, which is why there is no insert
+-- policy: a client could otherwise manufacture usage that locks a user out.
+drop policy if exists "own ai usage readable" on public.ai_generations;
+create policy "own ai usage readable" on public.ai_generations
+  for select to authenticated
+  using ((select auth.uid()) = user_id);
+
+-- ---------------------------------------------------------------------------
+-- Files a teacher brought in
+--
+-- `extracted_text` is the reason the upload exists. A teacher with a chapter
+-- from a textbook does not want the PDF on a slide, they want it turned into
+-- slides they can then restyle, and the text is the whole of that.
+--
+-- WHY THE BYTES LIVE IN STORAGE AND THE TEXT LIVES HERE. Images are large and
+-- are served by a CDN from a bucket. Extracted text is read on every edit and
+-- compared on every re-import, so it belongs beside the deck rather than
+-- requiring a download to render a thumbnail.
+-- ---------------------------------------------------------------------------
+create table if not exists public.deck_assets (
+  id            uuid primary key default gen_random_uuid(),
+  deck_id       uuid references public.decks (id) on delete cascade,
+  owner_id      uuid not null references auth.users (id) on delete cascade,
+  kind          text not null check (kind in ('image', 'document')),
+  filename      text not null check (char_length(filename) between 1 and 255),
+  mime          text not null,
+  byte_size     integer not null check (byte_size >= 0),
+  storage_path  text,
+  extracted_text text,
+  created_at    timestamptz not null default now()
+);
+
+create index if not exists deck_assets_deck_idx
+  on public.deck_assets (deck_id, created_at desc);
+
+alter table public.deck_assets enable row level security;
+
+drop policy if exists "own deck assets readable" on public.deck_assets;
+create policy "own deck assets readable" on public.deck_assets
+  for select to authenticated
+  using ((select auth.uid()) = owner_id);
+
 drop trigger if exists slides_set_updated_at on public.slides;
 create trigger slides_set_updated_at
   before update on public.slides
   for each row execute function public.set_updated_at();
+
+-- ---------------------------------------------------------------------------
+-- deck-assets: the bucket a deck's images are served from
+-- ---------------------------------------------------------------------------
+-- WHY THE BUCKET IS CREATED BY SQL AND NOT BY THE APP. A bucket made by hand in
+-- a dashboard exists in one environment and not the next, and the first teacher
+-- on a fresh database gets an upload failure that reads as a broken feature
+-- rather than as a missing setup step.
+--
+-- WHY `on conflict do nothing`. The whole migration is re-run on every apply, so
+-- anything that is not idempotent fails the second time. That includes the
+-- policy drops below, which is why they are written the same way.
+-- ---------------------------------------------------------------------------
+insert into storage.buckets (id, name, public)
+values ('deck-assets', 'deck-assets', false)
+on conflict (id) do nothing;
+
+-- WHY PRIVATE, NOT PUBLIC. A deck is a teacher's lesson, and a public bucket
+-- makes every image addressable by anyone who has or guesses the path. Reads
+-- go through short-lived signed URLs instead, which is what the data layer
+-- issues.
+--
+-- WHY THE PATH IS SCOPED BY THE OWNER'S UID. Every object lives at
+-- `<auth uid>/<deck id>/<file>`, so one policy can express "your own files and
+-- nothing else" without a join back to `deck_assets`. A teacher who knows
+-- another teacher's uid still gets nothing, because the policy tests the first
+-- segment against `auth.uid()` rather than trusting the prefix to be well formed.
+--
+-- WHY THERE IS NO DELETE AND NO LIST POLICY. Deleting an asset removes the row
+-- through `deck_assets`, and the bytes go with it through the service client,
+-- so no teacher needs to delete an object directly. Listing the bucket would
+-- hand out the name of every other object in it, which is an inventory of
+-- every other teacher's uploads.
+drop policy if exists "read own deck asset objects" on storage.objects;
+create policy "read own deck asset objects" on storage.objects
+  for select to authenticated
+  using (
+    bucket_id = 'deck-assets'
+    and (storage.foldername(name))[1] = (select auth.uid())::text
+  );
+
+drop policy if exists "write own deck asset objects" on storage.objects;
+create policy "write own deck asset objects" on storage.objects
+  for insert to authenticated
+  with check (
+    bucket_id = 'deck-assets'
+    and (storage.foldername(name))[1] = (select auth.uid())::text
+  );
+
+drop policy if exists "replace own deck asset objects" on storage.objects;
+create policy "replace own deck asset objects" on storage.objects
+  for update to authenticated
+  using (
+    bucket_id = 'deck-assets'
+    and (storage.foldername(name))[1] = (select auth.uid())::text
+  )
+  with check (
+    bucket_id = 'deck-assets'
+    and (storage.foldername(name))[1] = (select auth.uid())::text
+  );
 
 -- ---------------------------------------------------------------------------
 -- consent_events: append-only log of what each account agreed to, and when

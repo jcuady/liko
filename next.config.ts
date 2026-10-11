@@ -66,6 +66,27 @@ const nextConfig: NextConfig = {
   images: {
     formats: ['image/avif', 'image/webp'],
   },
+  webpack(config) {
+    /*
+     * `unpdf` reaches for `import.meta` at module scope, which webpack cannot
+     * statically analyse and reports as a critical dependency on every build.
+     *
+     * It is silenced rather than tolerated because a warning that fires on
+     * every build is a warning the team learns to skip, and the next one that
+     * appears would be skipped with it. The path is matched exactly, so a
+     * genuine `import.meta` problem anywhere else in the tree still reports.
+     *
+     * This is not a papered-over failure. `e2e/deck-upload.spec.ts` uploads a
+     * real PDF through the running server and asserts on the exact word count
+     * that comes back out of it, so if this module stopped working under
+     * webpack that suite goes red rather than the build going quiet.
+     */
+    config.ignoreWarnings = [
+      ...(config.ignoreWarnings ?? []),
+      { module: /node_modules[\\/].*unpdf[\\/].*index\.mjs/ },
+    ];
+    return config;
+  },
   async headers() {
     return [
       {

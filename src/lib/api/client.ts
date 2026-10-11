@@ -1,5 +1,6 @@
 import 'server-only';
 
+import { randomUUID } from 'node:crypto';
 import { cache } from 'react';
 
 import { assertRealDataMode, isSupabaseMode } from '@/lib/data-mode';
@@ -52,9 +53,11 @@ import type {
   Role,
   ScannedAnswer,
   Severity,
+  SlideElement,
   SlideInput,
   SlideLayout,
   SlideRecord,
+  SlideTheme,
   Stat,
   StudentQuiz,
   StudentQuizQuestion,
@@ -69,7 +72,7 @@ import type {
  * fail at runtime, which is the shape of bug that only shows up against a real
  * database.
  */
-import { ORG_SECTORS, ORG_VERIFICATION_STATUSES } from './types';
+import { ORG_SECTORS, ORG_VERIFICATION_STATUSES, SLIDE_THEMES, normaliseElements } from './types';
 
 /**
  * The five scales that ship with the product, as records rather than code
@@ -109,6 +112,37 @@ function builtInPolicies(): GradingPolicyRecord[] {
  * `auth.uid()` set to that user as well. The explicit filter is belt and braces:
  * RLS is the boundary, and a forgotten filter should not be the thing that leaks.
  */
+
+export type DeckAssetKind = 'image' | 'document';
+
+/**
+ * A file a teacher brought into a deck.
+ *
+ * Declared here rather than in `types.ts` because the adapter and the fixtures
+ * both consume it and this file is the boundary both are written against.
+ */
+export interface DeckAssetRecord {
+  id: string;
+  deckId: string;
+  ownerId: string;
+  kind: DeckAssetKind;
+  filename: string;
+  mime: string;
+  byteSize: number;
+  /** Null for a document. The bytes of a document are never stored, only its text. */
+  storagePath: string | null;
+  extractedText: string | null;
+  createdAt: string;
+  /**
+   * A short-lived signed URL for an image, or null for a document and for an
+   * image whose object is gone.
+   *
+   * Never a URL assembled from the project address. The bucket is private, so a
+   * hand-built URL fails on every load and shows the editor a broken image with
+   * nothing in the console explaining it.
+   */
+  url: string | null;
+}
 
 export interface WorkspaceData {
   // Reads
@@ -355,6 +389,24 @@ export interface WorkspaceData {
   updateSlide(userId: string, slideId: string, input: SlideInput): Promise<SlideRecord>;
   deleteSlide(userId: string, slideId: string): Promise<void>;
 
+  /** One slide by its own id, for a write that patches a single element. */
+  getSlide(userId: string, slideId: string): Promise<SlideRecord>;
+
+  /**
+   * Writes the element list and the background, and nothing else.
+   *
+   * Separate from `updateSlide` on purpose. The editor rewrites these two
+   * columns on every keystroke in the style panel, and a method that took the
+   * whole `SlideInput` would make that write carry the title, the body and the
+   * notes as well, so two teachers editing different parts of one slide would
+   * overwrite each other over fields neither of them touched.
+   */
+  updateSlideContent(
+    userId: string,
+    slideId: string,
+    input: { elements: SlideElement[]; theme: SlideTheme },
+  ): Promise<SlideRecord>;
+
   /**
    * Moves a slide and renumbers the deck in one call.
    *
@@ -363,6 +415,63 @@ export interface WorkspaceData {
    * two people reorder at once.
    */
   moveSlide(userId: string, slideId: string, toIndex: number): Promise<void>;
+
+  /**
+   * Reads this person's generation history for the current window.
+   *
+   * Returns the rows rather than a count, because the window is decided in the
+   * application and a `count` from the database would have to be told what the
+   * window is on every call. The meter is also used to explain what happened
+   * after a refusal, which needs the timestamps rather than a number.
+   *
+   * Scoped to `user_id` twice over: by the query, and by the RLS select policy,
+   * so a person cannot read anybody else's usage by passing another id.
+   */
+  listAiUsage(userId: string): Promise<{ created_at: string }[]>;
+
+  /**
+   * Records one generation against the person who made it.
+   *
+   * THE ROW IS WRITTEN BY THE SERVER ONLY. There is no insert policy on
+   * `ai_generations`, deliberately: a quota whose rows a client can manufacture
+   * is a quota a client can use to lock a user out of their own feature. The
+   * service client writes it after the provider has been called, because a
+   * refund on failure can be spent by causing failures.
+   */
+  recordAiGeneration(
+    userId: string,
+    input: {
+      model: string;
+      purpose: 'deck';
+      promptTokens: number;
+      outputTokens: number;
+    },
+  ): Promise<void>;
+
+  /**
+   * Files brought into a deck.
+   *
+   * A document is stored as its extracted text and nothing else. A PDF of a
+   * chapter is not kept as a file: what the teacher wants is the words, on
+   * slides they can restyle, and keeping the original too would mean storing a
+   * megabyte per import that nothing ever reads back.
+   */
+  createDeckAsset(
+    userId: string,
+    deckId: string,
+    input: {
+      kind: DeckAssetKind;
+      filename: string;
+      mime: string;
+      byteSize: number;
+      /** Images only. Ignored for a document, whose bytes are never stored. */
+      bytes?: ArrayBuffer;
+      extractedText?: string | null;
+    },
+  ): Promise<DeckAssetRecord>;
+  listDeckAssets(userId: string, deckId: string): Promise<DeckAssetRecord[]>;
+  /** Removes the row and the stored image. The row, so the object is only removed for a proven owner. */
+  deleteDeckAsset(userId: string, assetId: string): Promise<void>;
 }
 
 /**
@@ -400,6 +509,41 @@ const INVITE_COLUMNS =
  * administrator caused.
  */
 const UNIQUE_VIOLATION = '23505';
+
+/**
+ * The bucket `deck_assets` rows point into. Named in the migration too, so a
+ * fresh database has it before the first upload rather than after the first
+ * failure.
+ */
+const DECK_ASSET_BUCKET = 'deck-assets';
+
+/**
+ * How long a signed URL lasts.
+ *
+ * Long enough to sit open on an editing page for the length of a lesson
+ * planning session, short enough that a URL pasted into a chat is dead by the
+ * time it is read.
+ */
+const SIGNED_URL_TTL_SECONDS = 60 * 60;
+
+/**
+ * Reduces a teacher's filename to something safe to put in an object path.
+ *
+ * WHY IT IS NOT ENCODED. Anything is legal inside a path segment, so encoding
+ * would work, but an object key nobody can predict is also one nobody can
+ * recognise in a storage console while debugging a failed upload. Stripping to
+ * a conservative alphabet keeps the key legible and the bucket free of keys
+ * that only exist because a macOS download added ` (1)` four times.
+ */
+function safeFileName(filename: string): string {
+  const cleaned = (filename ?? '')
+    .normalize('NFKD')
+    .replace(/[^a-zA-Z0-9._-]+/g, '-')
+    .replace(/-{2,}/g, '-')
+    .replace(/^[.-]+/, '')
+    .slice(0, 120);
+  return cleaned.length > 0 ? cleaned : 'file';
+}
 
 function iso(value: unknown): string {
   return typeof value === 'string' ? value : new Date().toISOString();
@@ -1800,6 +1944,82 @@ const supabaseAdapter: WorkspaceData = {
     return mapSlide(data as Row);
   },
 
+  async getSlide(userId, slideId) {
+    const supabase = await requireClient();
+    const { data, error } = await supabase
+      .from('slides')
+      .select('*')
+      .eq('id', slideId)
+      .eq('owner_id', userId)
+      .maybeSingle();
+    throwIf(error);
+
+    const row = data as Row | null;
+    if (!row) throw new DataError('NOT_FOUND', 'That slide no longer exists.');
+    return mapSlide(row);
+  },
+
+  async updateSlideContent(userId, slideId, input) {
+    const supabase = await requireClient();
+
+    /*
+     * `elements` goes to the jsonb column as the validated array and `theme` to
+     * the column beside it. The theme is checked against the same list the
+     * column's constraint uses, because a value the database refuses would come
+     * back as an error the teacher reads as "your slide did not save" rather
+     * than as the mistake it is.
+     */
+    const theme = SLIDE_THEMES.includes(input.theme) ? input.theme : 'viridian';
+    const { data, error } = await supabase
+      .from('slides')
+      .update({ elements: input.elements, theme })
+      .eq('id', slideId)
+      .eq('owner_id', userId)
+      .select('*')
+      .single();
+    throwIf(error);
+
+    await touchDeck(supabase, data.deck_id);
+    return mapSlide(data as Row);
+  },
+
+  async listAiUsage(userId) {
+    const supabase = await requireClient();
+
+    /*
+     * A window of two hours, not of "all time".
+     *
+     * The meter counts an hour, but the query takes the longer of the two so the
+     * result is stable for a panel that stays open across a boundary. Counting
+     * in the database instead would mean passing the window on every call and
+     * moving the rule out of the one place it is tested.
+     */
+    const since = new Date(Date.now() - 2 * 60 * 60_000).toISOString();
+    const { data, error } = await supabase
+      .from('ai_generations')
+      .select('created_at')
+      .eq('user_id', userId)
+      .gte('created_at', since)
+      .order('created_at', { ascending: false });
+    throwIf(error);
+
+    return ((data ?? []) as Row[]).map((row) => ({ created_at: iso(row.created_at) }));
+  },
+
+  async recordAiGeneration(userId, input) {
+    const supabase = await requireClient();
+    const { error } = await supabase.from('ai_generations').insert({
+      user_id: userId,
+      model: input.model,
+      purpose: input.purpose,
+      // Clamped rather than trusted. A negative count from a caller would make
+      // the history look like it had capacity to give away.
+      prompt_tokens: Math.max(0, Math.floor(input.promptTokens) || 0),
+      output_tokens: Math.max(0, Math.floor(input.outputTokens) || 0),
+    });
+    throwIf(error);
+  },
+
   async deleteSlide(userId, slideId) {
     const supabase = await requireClient();
     const { data, error } = await supabase
@@ -1854,6 +2074,150 @@ const supabaseAdapter: WorkspaceData = {
     );
     await touchDeck(supabase, deckId);
   },
+
+  /*
+   * WHY THE ROW WRITE GOES THROUGH THE SERVICE CLIENT.
+   *
+   * `deck_assets` carries a select policy and nothing else, which is the right
+   * shape for a table whose rows are created by one server route and never by a
+   * browser. Routing the write back through that table would mean adding insert
+   * and delete policies, and an insert policy is a second, weaker place to
+   * decide whose files exist.
+   *
+   * The cost of bypassing RLS is that the explicit filter becomes the only
+   * scoping there is, so it is on every write below and is not decoration.
+   */
+  async createDeckAsset(userId, deckId, input) {
+    const supabase = await requireClient();
+    const id = randomUUID();
+    let storagePath: string | null = null;
+
+    /*
+     * The image is uploaded before the row is written, not after. The reverse
+     * order leaves a row pointing at an object that was never stored, and that
+     * row is the thing the editor renders, so it is the failure a teacher
+     * actually sees. An object with no row is only wasted storage, which a
+     * later sweep can reclaim and nobody sees in the meantime.
+     *
+     * This upload runs as the teacher, so it is the storage policies doing the
+     * work: the first path segment has to be their own uid or it is refused.
+     */
+    if (input.kind === 'image') {
+      if (!input.bytes || input.bytes.byteLength === 0) {
+        throw new DataError('MISSING_FIELD', 'That image had nothing in it.');
+      }
+      storagePath = `${userId}/${deckId}/${id}/${safeFileName(input.filename)}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from(DECK_ASSET_BUCKET)
+        .upload(storagePath, new Uint8Array(input.bytes), {
+          contentType: input.mime,
+          upsert: false,
+        });
+      throwIf(uploadError);
+    }
+
+    const admin = await createSupabaseAdmin();
+    if (!admin) throw new DataError('CONFLICT', 'This environment cannot store files right now.');
+
+    const { data, error } = await admin
+      .from('deck_assets')
+      .insert({
+        id,
+        deck_id: deckId,
+        owner_id: userId,
+        kind: input.kind,
+        filename: input.filename,
+        mime: input.mime,
+        byte_size: input.byteSize,
+        storage_path: storagePath,
+        // A document's bytes are deliberately not stored anywhere. The text is
+        // the whole of what the import produced.
+        extracted_text: input.extractedText ?? null,
+      })
+      .select('*')
+      .single();
+    throwIf(error);
+
+    await touchDeck(supabase, deckId);
+    return mapAsset(data as Row, null);
+  },
+
+  async listDeckAssets(userId, deckId) {
+    const supabase = await requireClient();
+    const { data, error } = await supabase
+      .from('deck_assets')
+      .select('*')
+      .eq('owner_id', userId)
+      .eq('deck_id', deckId)
+      .order('created_at', { ascending: false });
+    throwIf(error);
+
+    const rows = (data ?? []) as Row[];
+
+    // Signed in the storage API rather than assembled from the project address.
+    // The bucket is private, so a URL written by hand is refused by the CDN and
+    // the editor shows a broken image with nothing to explain it.
+    const urls = await Promise.all(
+      rows.map(async (row) => {
+        const path = str(row.storage_path);
+        if (path.length === 0) return null;
+        const signed = await supabase.storage
+          .from(DECK_ASSET_BUCKET)
+          .createSignedUrl(path, SIGNED_URL_TTL_SECONDS);
+        return signed.data?.signedUrl ?? null;
+      }),
+    );
+
+    return rows.map((row, index) => mapAsset(row, urls[index] ?? null));
+  },
+
+  /*
+   * Deleted through the service client for the same reason the create is.
+   * `deck_assets` carries a select policy and no delete policy, so the
+   * anonymous client is refused here, and the explicit `owner_id` filter below
+   * is the whole of the ownership check.
+   */
+  async deleteDeckAsset(userId, assetId) {
+    const supabase = await requireClient();
+    const admin = await createSupabaseAdmin();
+    if (!admin) throw new DataError('CONFLICT', 'This environment cannot store files right now.');
+
+    const { data, error } = await admin
+      .from('deck_assets')
+      .delete()
+      .eq('id', assetId)
+      .eq('owner_id', userId)
+      .select('deck_id, storage_path')
+      .maybeSingle();
+    throwIf(error);
+
+    const row = data as Row | null;
+    if (!row) throw new DataError('NOT_FOUND', 'That file is no longer there.');
+
+    const path = str(row.storage_path);
+    const deckId = str(row.deck_id);
+
+    /*
+     * The bucket has no delete policy on purpose, so removing the bytes goes
+     * through the service client rather than by granting every teacher the
+     * ability to delete any object under their prefix. The row that proved the
+     * path was theirs has already been read and matched above, so this is a
+     * cleanup of an object whose owner is established, not a way to reach one
+     * whose owner is not.
+     */
+    if (path.length > 0) {
+      const { error: removeError } = await admin.storage.from(DECK_ASSET_BUCKET).remove([path]);
+      if (removeError) {
+        throw new DataError(
+          'CONFLICT',
+          'That file was removed from the deck, but its stored image could not be cleaned up.',
+        );
+      }
+    }
+
+    await touchDeck(supabase, deckId);
+  },
 };
 
 function mapClass(row: Row): ClassRecord {
@@ -1888,10 +2252,33 @@ function mapSlide(row: Row): SlideRecord {
     ownerId: str(row.owner_id),
     position: num(row.position),
     layout: str(row.layout, 'bullets') as SlideLayout,
+    // Read back through the normaliser rather than cast. The column is jsonb, so
+    // a half-written element is a thing this function can be handed, and the
+    // alternative is a renderer that reads `style.size` off undefined.
+    theme: SLIDE_THEMES.includes(str(row.theme) as SlideTheme)
+      ? (str(row.theme) as SlideTheme)
+      : 'viridian',
+    elements: normaliseElements(row.elements),
     title: str(row.title),
     body: str(row.body),
     notes: str(row.notes),
     updatedAt: iso(row.updated_at),
+  };
+}
+
+function mapAsset(row: Row, url: string | null): DeckAssetRecord {
+  return {
+    id: str(row.id),
+    deckId: str(row.deck_id),
+    ownerId: str(row.owner_id),
+    kind: str(row.kind, 'document') === 'image' ? 'image' : 'document',
+    filename: str(row.filename),
+    mime: str(row.mime),
+    byteSize: num(row.byte_size),
+    storagePath: (row.storage_path as string | null) ?? null,
+    extractedText: (row.extracted_text as string | null) ?? null,
+    createdAt: iso(row.created_at),
+    url,
   };
 }
 

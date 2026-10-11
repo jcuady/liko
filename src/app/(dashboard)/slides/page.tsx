@@ -5,6 +5,7 @@ import { requirePagePermission } from '@/lib/auth/guards';
 import { data } from '@/lib/api/client';
 
 import { DecksList } from './DecksList';
+import { DeckMakerPanel } from './generate/DeckMakerPanel';
 
 export const metadata: Metadata = {
   title: 'Slides',
@@ -40,6 +41,7 @@ export default async function SlidesPage() {
         title="Slides"
         description="Build a deck for a lesson and present it from here. Printing to PDF is in your browser's hands."
       />
+      <DeckMakerPanel classId={null} />
       <DecksList
         decks={decks.map((deck) => ({ ...deck, slideCount: slideCounts[deck.id] ?? 0 }))}
       />

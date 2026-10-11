@@ -57,7 +57,13 @@ import type {
   StudentQuizSummary,
   StudentRecord,
 } from './types';
-import type { WorkspaceData } from './client';
+import type { WorkspaceData, DeckAssetRecord } from './client';
+
+/*
+ * Values, not types: both are compared against, and an unknown value read from
+ * a row has to read as the default rather than as a member of the closed set.
+ */
+import { SLIDE_THEMES, normaliseElements } from './types';
 
 /**
  * Fixture adapter.
@@ -117,6 +123,17 @@ interface FixtureStore {
   invites: InviteRecord[];
   decks: DeckRecord[];
   slides: SlideRecord[];
+  /** Files brought into a deck. Seeded so the editor and the suite have something to render. */
+  assets: DeckAssetRecord[];
+  /**
+   * Generation history, per person.
+   *
+   * Present in the fixture adapter for one reason: the meter has to render
+   * something other than "8 of 8 left" on a demo workspace, or the one surface
+   * that tells a teacher what is left is never exercised by the suite. The
+   * Supabase adapter reads a real table with the same shape.
+   */
+  aiGenerations: { userId: string; created_at: string; model: string }[];
 }
 
 function createStore(): FixtureStore {
@@ -196,9 +213,107 @@ function createStore(): FixtureStore {
     memberships: demoMemberships.map((member) => ({ ...member })),
     invites: [],
     decks: demoDecks.map((deck) => ({ ...deck })),
-    slides: demoSlides.map((slide) => ({ ...slide })),
+    /*
+     * The seeded slides predate elements, so they carry none. They are
+     * normalised on the way in rather than trusted, which is the same seam the
+     * Supabase mapper crosses, and a demo slide that renders through the legacy
+     * layout is a demo of the fallback rather than a hole in the demo.
+     */
+    slides: demoSlides.map((slide) => ({
+      ...slide,
+      theme: SLIDE_THEMES.includes(slide.theme) ? slide.theme : 'viridian',
+      elements: normaliseElements(slide.elements),
+    })),
+    assets: demoDeckAssets.map((asset) => ({ ...asset })),
+    /*
+     * Three recent generations against the demo teacher, so the meter renders a
+     * part-spent bar rather than a full one. A demo workspace that always reads
+     * "8 of 8 left" never exercises the state a teacher will actually meet.
+     */
+    aiGenerations: [
+      { userId: OWNER, model: 'gemini', created_at: minutesAgoIso(12) },
+      { userId: OWNER, model: 'gemini', created_at: minutesAgoIso(40) },
+      { userId: OWNER, model: 'gemini', created_at: minutesAgoIso(75) },
+    ],
   };
 }
+
+/** An ISO timestamp `minutes` in the past, for seeding relative history. */
+function minutesAgoIso(minutes: number): string {
+  return new Date(Date.now() - minutes * 60_000).toISOString();
+}
+
+/**
+ * A 1x1 transparent PNG, inlined.
+ *
+ * WHY A DATA URI AND NOT A PATH. There is no bucket behind the fixtures, so a
+ * path would render as a broken image and the editor's image element would look
+ * untested rather than demoed. One real image, repeated at different sizes, is
+ * enough to show that the element places an asset correctly.
+ */
+const FIXTURE_IMAGE =
+  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+
+/**
+ * Three assets on the demo deck: two images the editor can place and one
+ * document whose text a teacher can turn into slides. All three are needed,
+ * because they render through different parts of the panel and testing only one
+ * would leave the other branches to be found by hand.
+ *
+ * WHY ONE OF THE IMAGES IS A REAL FILE RATHER THAN THE DATA URI ABOVE. A
+ * transparent pixel proves an image element places an asset; it does not prove
+ * `fit` does anything, because a one pixel square is `cover` and `contain` at
+ * the same time. The renderer cannot be judged on it.
+ */
+const demoDeckAssets: DeckAssetRecord[] = [
+  {
+    id: 'ast_demo_reaction_curve',
+    deckId: 'deck_demo_reaction_rates',
+    ownerId: OWNER,
+    kind: 'image',
+    filename: 'reaction-curve.png',
+    mime: 'image/png',
+    byteSize: 20480,
+    storagePath: `${OWNER}/deck_demo_reaction_rates/ast_demo_reaction_curve/reaction-curve.png`,
+    // An image has no text. Storing an empty string rather than null would make
+    // a caller unable to tell an empty extraction from an image.
+    extractedText: null,
+    createdAt: '2026-01-08T09:05:00.000Z',
+    url: FIXTURE_IMAGE,
+  },
+  {
+    id: 'ast_demo_chapter_notes',
+    deckId: 'deck_demo_reaction_rates',
+    ownerId: OWNER,
+    kind: 'document',
+    filename: 'chapter-4-notes.txt',
+    mime: 'text/plain',
+    byteSize: 1840,
+    // A document is not stored, so it has no path and no URL. That is the shape
+    // the real adapter produces too, and it is why the editor cannot render one
+    // as an image.
+    storagePath: null,
+    extractedText:
+      'Collision theory\n\nReaction rate depends on how often particles collide and how hard they hit.\n\nA catalyst gives the collisions more energy without raising the temperature.',
+    createdAt: '2026-01-08T09:12:00.000Z',
+    url: null,
+  },
+  {
+    id: 'ast_demo_classroom_photo',
+    deckId: 'deck_demo_reaction_rates',
+    ownerId: OWNER,
+    kind: 'image',
+    filename: 'classroom-demo.jpg',
+    mime: 'image/jpeg',
+    byteSize: 48000,
+    storagePath: `${OWNER}/deck_demo_reaction_rates/ast_demo_classroom_photo/classroom-demo.jpg`,
+    extractedText: null,
+    createdAt: '2026-01-08T09:18:00.000Z',
+    // A file that ships with the app, so the renderer draws something a teacher
+    // can actually see rather than an empty box.
+    url: '/marketing/liko-flow-pill.jpg',
+  },
+];
 
 /**
  * WHY THE STORE LIVES ON `globalThis`.
@@ -1315,6 +1430,8 @@ export const fixtures: WorkspaceData = {
         ownerId: userId,
         position: 0,
         layout: 'title',
+        theme: 'viridian',
+        elements: null,
         title: input.title,
         body: '',
         notes: '',
@@ -1360,6 +1477,11 @@ export const fixtures: WorkspaceData = {
       // once cannot collide on the same position.
       position: siblings.length,
       layout: input.layout ?? 'bullets',
+      theme: 'viridian',
+      // Null rather than an empty list: a new slide has a layout and nothing on
+      // it yet, which is exactly what a slide written before elements existed
+      // looks like to the renderer.
+      elements: null,
       title: input.title ?? '',
       body: input.body ?? '',
       notes: input.notes ?? '',
@@ -1379,6 +1501,46 @@ export const fixtures: WorkspaceData = {
     slide.title = input.title;
     slide.body = input.body;
     slide.notes = input.notes;
+    slide.updatedAt = new Date().toISOString();
+
+    const deck = store.decks.find((row) => row.id === slide.deckId);
+    if (deck) deck.updatedAt = slide.updatedAt;
+
+    return { ...slide };
+  },
+
+  async getSlide(userId, slideId) {
+    guard('getSlide');
+    return { ...ownedSlide(store, userId, slideId) };
+  },
+
+  async listAiUsage(userId) {
+    guard('listAiUsage');
+    // Only this person's rows, and only the recent window, which is what the
+    // Supabase adapter does with a `user_id` filter and a `created_at` floor.
+    return store.aiGenerations
+      .filter((row) => row.userId === userId)
+      .sort((a, b) => b.created_at.localeCompare(a.created_at))
+      .map((row) => ({ created_at: row.created_at }));
+  },
+
+  async recordAiGeneration(userId, input) {
+    guard('recordAiGeneration');
+    store.aiGenerations.push({
+      userId,
+      model: input.model,
+      created_at: new Date().toISOString(),
+    });
+  },
+
+  async updateSlideContent(userId, slideId, input) {
+    guard('updateSlideContent');
+    const slide = ownedSlide(store, userId, slideId);
+
+    // Normalised on the way in here as well as in the action, so the fixture and
+    // the database agree that a stored element list is always the closed set.
+    slide.elements = normaliseElements(input.elements);
+    slide.theme = SLIDE_THEMES.includes(input.theme) ? input.theme : 'viridian';
     slide.updatedAt = new Date().toISOString();
 
     const deck = store.decks.find((row) => row.id === slide.deckId);
@@ -1418,6 +1580,61 @@ export const fixtures: WorkspaceData = {
     });
 
     const deck = store.decks.find((row) => row.id === slide.deckId);
+    if (deck) deck.updatedAt = new Date().toISOString();
+  },
+
+  async createDeckAsset(userId, deckId, input) {
+    guard('createDeckAsset');
+    const deck = ownedDeck(store, userId, deckId);
+    const id = `ast_${store.assets.length + 1}`;
+    const now = new Date().toISOString();
+
+    const asset: DeckAssetRecord = {
+      id,
+      deckId: deck.id,
+      ownerId: userId,
+      kind: input.kind,
+      filename: input.filename,
+      mime: input.mime,
+      byteSize: input.byteSize,
+      // No bucket exists behind the fixtures, so the path is recorded the way
+      // the real adapter records one and the URL is the inlined image. What the
+      // panel renders is the same either way.
+      storagePath: input.kind === 'image' ? `${userId}/${deckId}/${id}/${input.filename}` : null,
+      extractedText: input.extractedText ?? null,
+      createdAt: now,
+      url: input.kind === 'image' ? FIXTURE_IMAGE : null,
+    };
+
+    store.assets = [...store.assets, asset];
+    deck.updatedAt = now;
+    return { ...asset };
+  },
+
+  async listDeckAssets(userId, deckId) {
+    guard('listDeckAssets');
+    ownedDeck(store, userId, deckId);
+
+    // Scoped by owner as well as by deck, matching the Supabase adapter. A deck
+    // id in the query is not proof of ownership, and an adapter that trusted it
+    // would hide a leak that only appears against the real database.
+    return store.assets
+      .filter((asset) => asset.deckId === deckId)
+      .filter((asset) => isDemoAccount(userId) || asset.ownerId === userId)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .map((asset) => ({ ...asset }));
+  },
+
+  async deleteDeckAsset(userId, assetId) {
+    guard('deleteDeckAsset');
+    const asset = store.assets.find((row) => row.id === assetId);
+    if (!asset || (!isDemoAccount(userId) && asset.ownerId !== userId)) {
+      throw new DataError('NOT_FOUND', 'That file is no longer there.');
+    }
+
+    store.assets = store.assets.filter((row) => row.id !== assetId);
+
+    const deck = store.decks.find((row) => row.id === asset.deckId);
     if (deck) deck.updatedAt = new Date().toISOString();
   },
 };

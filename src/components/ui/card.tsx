@@ -52,11 +52,21 @@ const CardTitle = React.forwardRef<
   HTMLHeadingElement,
   React.HTMLAttributes<HTMLHeadingElement>
 >(({ className, ...props }, ref) => (
-  <h3
-    ref={ref}
-    className={cn('text-h4 text-ink', className)}
-    {...props}
-  />
+  /*
+   * `h2`, NOT `h3`.
+   *
+   * Every dashboard page opens with a `PageHeader`, which is the page's `h1`,
+   * and the cards below it are that page's sections. As an `h3` they skipped a
+   * level, so heading navigation went h1 and then straight past the sections a
+   * screen reader user is relying on to move around the page. The rule is that
+   * no level is skipped, and this was the one place it was.
+   *
+   * The visual size is set by `text-h4` and is unchanged, so this is a change to
+   * the document outline and nothing else. A card nested inside another card is
+   * the case that would want a deeper level, and none exists; if one does,
+   * render a heading element directly there rather than nesting a `Card`.
+   */
+  <h2 ref={ref} className={cn('text-h4 text-ink', className)} {...props} />
 ));
 CardTitle.displayName = 'CardTitle';
 

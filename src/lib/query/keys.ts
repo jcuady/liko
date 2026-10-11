@@ -17,6 +17,15 @@
 export const queryKeys = {
   workspace: () => ['workspace'] as const,
 
+  /**
+   * How much of the AI allowance this person has spent.
+   *
+   * Under `workspace` because it belongs to the signed-in person rather than to
+   * anything they are looking at, so opening a deck and opening the generator
+   * read the same number instead of two copies of it.
+   */
+  aiStatus: () => ['workspace', 'ai-status'] as const,
+
   classes: () => ['workspace', 'classes'] as const,
 
   students: (classId: string) => ['workspace', 'classes', classId, 'students'] as const,
