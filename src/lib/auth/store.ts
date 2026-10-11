@@ -4,6 +4,7 @@ import { verifyPassword } from './password';
 import { classifySignupFailure } from './signup-error';
 import { isSupabaseMode } from '@/lib/data-mode';
 import { createSupabaseAdmin, createSupabaseAnon, createSupabaseServerClient } from '@/lib/supabase/server';
+import { emailVerificationSkipped } from './email-verification';
 import type { Role } from './rbac';
 
 /**
@@ -376,6 +377,67 @@ export async function signUp(input: {
 
   const supabase = await createSupabaseAnon();
   if (!supabase) throw new Error('SUPABASE_NOT_CONFIGURED');
+
+  /*
+   * THE CONFIRMED-AT-CREATION PATH.
+   *
+   * The flow below asks Supabase to send a confirmation link, and on this
+   * project's email quota nobody can receive one, so every registration ends at
+   * /verify-email with no way forward. When the flag says so, the account is
+   * created through the admin API with `email_confirm: true`, which creates it
+   * confirmed and sends nothing, and is then signed in through the ordinary
+   * password path.
+   *
+   * That last part is the point. The session is a real Supabase session carrying
+   * a real user id, so every RLS policy downstream evaluates against a real
+   * identity. Nothing about the data model changes; only the emailed proof that
+   * somebody owns the address is skipped. See `email-verification.ts` for what
+   * that costs.
+   */
+  if (emailVerificationSkipped()) {
+    const admin = await createSupabaseAdmin();
+    if (!admin) {
+      throw new Error(
+        'SUPABASE_SERVICE_ROLE_KEY is required to confirm an account without an email link.',
+      );
+    }
+
+    const { data: created, error: createError } = await admin.auth.admin.createUser({
+      email,
+      password: input.password,
+      email_confirm: true,
+      user_metadata: { full_name: input.name },
+    });
+
+    if (createError || !created.user) {
+      throw new Error(classifySignupFailure(createError));
+    }
+
+    const { data: session, error: signInError } = await supabase.auth.signInWithPassword({
+      email,
+      password: input.password,
+    });
+
+    if (signInError || !session.session) {
+      throw new Error(classifySignupFailure(signInError));
+    }
+
+    const confirmed: StoredUser = {
+      id: created.user.id,
+      name: input.name,
+      email,
+      passwordHash: '',
+      role: input.role,
+      emailVerified: true,
+      createdAt: created.user.created_at ?? new Date().toISOString(),
+    };
+
+    return {
+      user: confirmed,
+      accessToken: session.session.access_token,
+      awaitingConfirmation: false,
+    };
+  }
 
   /*
    * signUp on the anon client is the standard flow: Supabase hashes the

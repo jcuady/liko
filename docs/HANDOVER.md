@@ -151,6 +151,37 @@ Until that is done, the signup path, the `handle_new_user` trigger and the
 `consent_events` write are **unverified against the live database**. Sign-in is
 verified, because it needs no email.
 
+### The way out while the quota lasts: confirm accounts at creation
+
+**This is currently switched on on the live deployment**, so anyone can register
+and lands straight in their workspace instead of on "Check your inbox".
+
+```bash
+vercel env add LIKO_SKIP_EMAIL_VERIFICATION production --yes --scope jcuadys-projects
+vercel env add LIKO_ALLOW_UNVERIFIED_SIGNUP production --yes --scope jcuadys-projects
+vercel redeploy
+```
+
+Both variables are needed. On a production deployment `LIKO_SKIP_EMAIL_VERIFICATION`
+alone is **ignored**, and says so in the deployment log, because this codebase
+already decided that a production bypass takes two deliberate choices in the same
+place (`rate-limit.ts` works the same way). A single stray variable in a deploy
+dashboard resolves to email verification being enforced.
+
+What it changes: the account is created through the admin API with
+`email_confirm: true`, so nothing is sent, and is then signed in through the
+ordinary password path. The session is a real Supabase session with a real user
+id, so every RLS policy downstream is unchanged.
+
+What it costs: **anyone can register using an address they do not own.** They
+cannot read another account, because none of that is reachable without the
+password, but they can occupy an address somebody else would later register with,
+and take a name they would have chosen themselves.
+
+**Remove `LIKO_ALLOW_UNVERIFIED_SIGNUP` and redeploy before this carries real
+student data.** That single removal restores verification everywhere, because the
+other variable alone does nothing in production.
+
 ---
 
 ## Step 3: Give the deck generator a provider key
