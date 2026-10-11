@@ -238,11 +238,11 @@ All run on 2026-10-09 against this working tree, after the quiz maker and the sh
 |---|---|---|
 | Typecheck | `pnpm typecheck` | **0 errors** |
 | Lint | `pnpm lint` | **0 errors, 0 warnings** |
-| Unit | `pnpm vitest run` | **241 passed** in 18 files |
-| Migration | `pnpm check:sql` | **149 statements parse; 111 cross-references resolve; RLS on 18/18 tables; 14/14 policies re-runnable** |
+| Unit | `pnpm vitest run` | **262 passed** in 19 files |
+| Migration | `pnpm check:sql` | **170 statements parse; 120 cross-references resolve; RLS on 19/19 tables; 16/16 policies re-runnable** |
 | Production build | `pnpm build` | **exit 0** |
-| End to end | `pnpm e2e` | **169 passed** across 15 specs, 2.9m |
-| Live schema | `pnpm db:apply` then `pnpm db:check` | **18 tables, RLS on 18, 27 policies; all security-relevant columns present** |
+| End to end | `pnpm e2e` | **172 passed** across 15 specs, 3.5m |
+| Live schema | `pnpm db:apply` then `pnpm db:check` | **19 tables, RLS on 19, 27 policies; all security-relevant columns present** |
 | Live RLS behaviour | `pnpm db:settle` | **6 passed, 0 failed**: self-promotion refused, cross-tenant read refused, server-owned link cannot be moved |
 | Live application | `pnpm verify:app` | **54 passed, 0 failed**: every workspace route renders with real seeded data, refusals hold, an attendance write is read back out of Postgres and replays without duplicating, a write into another teacher's class is refused, the at-risk sweep authenticates and stays idempotent, the push route refuses six SSRF payloads and enforces per-teacher ownership, an outbound dispatch reaches the push service and prunes a dead endpoint, and registration is reported as blocked by the email quota |
 
@@ -256,7 +256,7 @@ result against the file's own contents:
 - every relation named by a policy, grant, index or trigger resolves to a table
   or function this migration creates. A `create policy ... on public.studentz`
   parses perfectly and fails at deploy; this catches it.
-- row level security is enabled on all 18 tables. The audit that found the two
+- row level security is enabled on all 19 tables. The audit that found the two
   cross-tenant bugs found a third table in the same family of mistake.
 - every policy is dropped before it is created, so a second run works. That is
   the run somebody performs while recovering.
@@ -350,7 +350,7 @@ Also closed: blind SSRF through the push endpoint, a rate-limit kill switch one 
 Three of the five blockers listed here were resolved on 2026-10-09 and are kept here only so the record shows what they were.
 
 1. **RESOLVED: `git push`.** The remote is `https://github.com/jcuady/liko.git` and every commit is pushed. The earlier `Repository not found` was a credential problem, not a wrong repository name.
-2. **RESOLVED: the database was empty.** `pnpm db:apply` applied the migration to project `ulrjitekiylgepdyijsw`, which now holds 18 tables with row level security on all 18 and 27 policies.
+2. **RESOLVED: the database was empty.** `pnpm db:apply` applied the migration to project `ulrjitekiylgepdyijsw`, which now holds 19 tables with row level security on all 19 and 27 policies.
 3. **RESOLVED: `SUPABASE_SERVICE_ROLE_KEY`.** `scripts/seed.mjs` has run; five demo accounts hold a school, three classes, 24 students, assessments, marks, attendance and history.
 4. **OPEN: Vercel unauthenticated.** `vercel whoami` fails. This is the one thing standing between this codebase and a live URL, and it needs the user.
 5. **OPEN: iOS push delivery unverifiable** without a Home Screen-installed PWA.
