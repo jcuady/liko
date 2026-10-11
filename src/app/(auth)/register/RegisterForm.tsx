@@ -25,10 +25,13 @@ const REQUIREMENTS = [
 export function RegisterForm({
   prefilledEmail,
   chosenPlan,
+  verificationSkipped = false,
 }: {
   prefilledEmail: string;
   /** Set when the visitor arrived from a pricing card. */
   chosenPlan?: { id: string; name: string } | null;
+  /** Read on the server, so the line below the form cannot promise an email. */
+  verificationSkipped?: boolean;
 }) {
   const [result, formAction] = useFormState<ActionResult | null, FormData>(
     registerAction,
@@ -128,8 +131,15 @@ export function RegisterForm({
         </SubmitButton>
       </form>
 
+      {/*
+       * Said only when it is true. With accounts confirmed at creation nothing
+       * is emailed, and a form that still promises a link teaches a teacher to
+       * wait for an email that will never arrive before anyone will look for it.
+       */}
       <p className="mt-5 text-[0.8125rem] text-ink-subtle">
-        We will email you a verification link before the workspace opens.
+        {verificationSkipped
+          ? 'Your workspace opens as soon as you finish this form.'
+          : 'We will email you a verification link before the workspace opens.'}
       </p>
 
       <div className="mt-8 border-t border-border pt-6">

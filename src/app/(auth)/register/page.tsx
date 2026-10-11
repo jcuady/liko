@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 
 import { isPlanId, PLANS, type PlanId } from '@/app/pricing/plans';
+import { emailVerificationSkipped } from '@/lib/auth/email-verification';
 
 import { RegisterForm } from './RegisterForm';
 
@@ -35,10 +36,22 @@ export default async function RegisterPage({
   const plan: PlanId | null = isPlanId(params.plan) ? params.plan : null;
   const chosen = plan ? PLANS.find((candidate) => candidate.id === plan) : undefined;
 
+  /*
+   * READ ON THE SERVER, AND SENT DOWN AS A BOOLEAN.
+   *
+   * The line under the form used to say "We will email you a verification link
+   * before the workspace opens". That became false the moment accounts were
+   * confirmed at creation, and a page that says it will do something and then
+   * does not is worse than a page that never mentioned it: the teacher waits for
+   * an email that was never going to arrive.
+   */
+  const verificationSkipped = emailVerificationSkipped();
+
   return (
     <RegisterForm
       prefilledEmail={params.email ?? ''}
       chosenPlan={chosen ? { id: chosen.id, name: chosen.name } : null}
+      verificationSkipped={verificationSkipped}
     />
   );
 }
