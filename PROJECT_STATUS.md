@@ -246,10 +246,10 @@ All run on 2026-10-09 against this working tree, after the quiz maker and the sh
 |---|---|---|
 | Typecheck | `pnpm typecheck` | **0 errors** |
 | Lint | `pnpm lint` | **0 errors, 0 warnings** |
-| Unit | `pnpm vitest run` | **327 passed, 1 skipped** in 24 files |
+| Unit | `pnpm vitest run` | **334 passed, 1 skipped** in 25 files |
 | Migration | `pnpm check:sql` | **192 statements parse; 126 cross-references resolve; RLS on 21/21 tables; 21/21 policies re-runnable** |
 | Production build | `pnpm build` | **exit 0, no warnings.** The one standing warning was `unpdf` reaching for `import.meta`, which webpack cannot analyse. It is silenced by exact module path in `next.config.ts` rather than tolerated, because a warning that fires on every build is one the team learns to skip. The e2e upload suite is what keeps that honest: it parses a real PDF through the built server |
-| End to end | `pnpm e2e` | **188 passed** across 15 specs, 2.8m |
+| End to end | `pnpm e2e` | **189 passed** across 15 specs. Run twice, because the fault described below was intermittent and one green run would not have meant much |
 | Live provider | `pnpm probe:ai` | **2 passed**: the real model returns a deck, and the answer is replayed through the real validator. Run on demand, never in the suite |
 | Static layout | `pnpm check:responsive` | **PASS at 375, 768, 1024, 1440 and 1920px**, no horizontal overflow |
 | Static behaviour | `pnpm check:behaviour` | **all passed**: anchors clear the nav, reduced motion, no-JS fallback |
@@ -258,6 +258,12 @@ All run on 2026-10-09 against this working tree, after the quiz maker and the sh
 | Live application | `pnpm verify:app` | **54 passed, 0 failed**: every workspace route renders with real seeded data, refusals hold, an attendance write is read back out of Postgres and replays without duplicating, a write into another teacher's class is refused, the at-risk sweep authenticates and stays idempotent, the push route refuses six SSRF payloads and enforces per-teacher ownership, an outbound dispatch reaches the push service and prunes a dead endpoint, and registration is reported as blocked by the email quota |
 | Storage and AI write paths | `pnpm probe:files` | **all confirmed**: the bucket is private with no delete policy, and the usage row is written through the service client, read back, and removed |
 | Deck maker on the deployed site | `node scripts/verify-deck-maker-prod.mjs` | **18 passed, 0 failed**: signs in against the live database, opens a deck, changes a weight and reads the rendered result, sees the autosave land, reloads and finds it still there, and fits a phone |
+
+A real generation was run through the deployed site end to end, not simulated:
+a prompt went to the provider, six slides came back, the first rendered as
+"The Collision Theory of Chemical Reactions", the teacher changed its weight from
+600 to 700, the panel confirmed the save, and the allowance on the panel went
+from 6 of 8 to 5 of 8.
 
 ### What production found that nothing local could
 
@@ -269,6 +275,11 @@ Four defects in this feature passed every local gate and failed only on the depl
 4. **The panel could claim "configured" on a key that could not be used.** That is the one word on it a teacher cannot check for themselves.
 
 `pnpm probe:files` was extended to cover the class rather than the instance: it posts a usage row through the service client, reads it back, removes it, and then posts the same row as a browser does and requires the refusal. A table can have every column, every grant and exactly the intended policies and still be unwritable through the client the application actually uses.
+
+Two more were found the same way, in the editor rather than the generator.
+
+5. **The panel's save status watched one of the two things that write a slide.** The first edit on a slide writes the whole element list; every edit after that patches one element through a different action. From the second edit onwards the panel sat on "changes here save on their own" while a write was in flight and never said it had landed. Every test passed, because a test that edits a slide once is always taking the first path. The control that finds it edits the same slide twice.
+6. **Two style writes could lose each other.** Patching one element means reading the slide and writing the whole list back, so two overlapping calls is a read, a read, a write, a write, and the second carries the array as the first read it. Both requests succeed and the later change is gone. Writes are now serialised on the client, and the end-to-end suite was run twice because the fault was intermittent.
 
 ### What `check:sql` proves, and what it does not
 
