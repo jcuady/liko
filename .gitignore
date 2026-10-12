@@ -75,6 +75,7 @@ sohne-font-family/
 .e2e-final.txt
 .e2e-slot.txt
 .e2e-slot2.txt
+.e2e-fence.txt
 
 # One-shot verification scripts used while porting the UI kit, not standing
 # gates. They are written against the tree at the moment they run.
@@ -93,6 +94,10 @@ sohne-font-family/
 
 # The supplied brand prototype. A separate Vite and TanStack Router project that
 # happens to sit inside this repo; it is the reference the design was ported
-# from, not part of the application. Excluded from TypeScript and lint for
-# the same reason.
+# from, not part of the application. Excluded from TypeScript, ESLint, git and
+# the Vercel build.
+#
+# All four have to agree on this list. It was missing from eslint.config.mjs, so
+# `pnpm lint` had been reporting 18 errors and 7 warnings from files this product
+# never builds, serves or ships.
 Liko new landing design and branding/

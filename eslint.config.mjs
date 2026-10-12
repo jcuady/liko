@@ -31,6 +31,27 @@ const eslintConfig = [
       // `seed.mjs` is the same category: a developer CLI whose output is the
       // product. Nothing in `scripts/` is ever bundled or served.
       '**/*.mjs',
+
+      /*
+       * The supplied brand prototype.
+       *
+       * A separate Vite and TanStack Router project that happens to sit inside
+       * this repository. It is the reference the design was ported from, not
+       * part of the application, and it is already excluded from `tsconfig.json`,
+       * `.gitignore` and `.vercelignore`.
+       *
+       * It was MISSING from here, which meant `pnpm lint` had been failing on
+       * somebody else's codebase: 18 errors and 7 warnings, every one of them
+       * in files this product does not build, serve or ship. The gate was being
+       * reported as green because it was being run as `eslint src e2e` rather
+       * than as the project's own `eslint .`, so nothing in this repository
+       * noticed for several days.
+       *
+       * Four files have to agree on this list. If you are adding a new top level
+       * directory that should not be built, excluded from the module graph, or
+       * kept out of version control, add it to all of them in the same commit.
+       */
+      'Liko new landing design and branding/**',
     ],
   },
 

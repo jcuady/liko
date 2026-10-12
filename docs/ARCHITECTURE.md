@@ -58,6 +58,37 @@ of which are easy to break again:
   are silently ignored. Adding it means converting every card in the product,
   which is its own change.
 
+### Four files have to agree on what is not built
+
+A directory that is excluded from the build has to be excluded in four places:
+`tsconfig.json` (so it is not typechecked), `eslint.config.mjs` (so it is not
+linted), `.gitignore` (so it is not committed) and `.vercelignore` (so it is not
+uploaded). Add it to all four in the same commit.
+
+The supplied brand prototype was in three of the four for several days. The one
+that was missing was `eslint.config.mjs`, so `pnpm lint`, which is `eslint .`,
+had been reporting 18 errors and 7 warnings from a Vite project this product
+does not build, serve or ship. It went unnoticed because the gate was being run
+as `eslint src e2e` rather than as the script in `package.json`, which is the
+one thing a gate exists to stop you doing. **Run the package script, not a
+command that happens to look like it.**
+
+### Eleven visible `<label>`s, and why they stay
+
+Raw `<label>` elements are used in eleven places that render visibly, not only
+in the six `sr-only` ones. Six of them, on the assessment list, the scan sheet,
+the deck maker panel and the ID format control, hand-paste
+`text-[0.875rem] font-medium text-ink`, which is the kit's `Label` minus
+`leading-none`. The other five are composite labels wrapping a checkbox and its
+text, or section headings, where a plain `Label` would be wrong.
+
+The six are left as they are deliberately. The kit's `Label` also sets
+`leading-none`, so swapping them is not a pure rename: it changes the line box
+of a label on nine screens. That is a small change that wants a visual pass over
+every screen it lands on, not a drive-by inside a rebrand that has otherwise
+been verified end to end. It is a real duplication and a real piece of drift, and
+it should be done as its own change with the screens looked at.
+
 ## Routing
 
 Route groups share layouts without affecting URLs. `app/layout.tsx` is the only
