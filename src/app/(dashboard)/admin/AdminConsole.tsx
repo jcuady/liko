@@ -9,7 +9,14 @@ import { Ban, Building2, CircleCheck, CircleMinus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge, Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { FormField } from '@/components/ui/form-field';
-import { Input, Select } from '@/components/ui/input';
+import { Input } from '@/components/ui/input';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   INVITE_TTL_DAYS,
@@ -531,22 +538,28 @@ export function AdminConsole({
                           Role for {member.fullName || member.email}
                         </label>
                         <Select
-                          id={`role-${member.id}`}
                           value={member.role}
                           disabled={pending}
-                          onChange={(event) =>
+                          onValueChange={(next) =>
                             changeRole.mutate({
                               memberId: member.id,
-                              role: event.target.value as Role,
+                              role: next as Role,
                             })
                           }
-                          className="w-auto min-w-[8.5rem] rounded-[10px] px-2.5 lg:h-9 lg:text-sm"
                         >
-                          {ROLE_ORDER.map((role) => (
-                            <option key={role} value={role}>
-                              {roleLabels[role]}
-                            </option>
-                          ))}
+                          <SelectTrigger
+                            id={`role-${member.id}`}
+                            className="w-auto min-w-[8.5rem] rounded-[10px] px-2.5 lg:h-9 lg:text-sm"
+                          >
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {ROLE_ORDER.map((role) => (
+                              <SelectItem key={role} value={role}>
+                                {roleLabels[role]}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
                         </Select>
 
                         <Button
@@ -617,17 +630,18 @@ export function AdminConsole({
                 hint="What this person will be able to do once they join."
               >
                 {(props) => (
-                  <Select
-                    {...props}
-                    value={inviteRole}
-                    onChange={(event) => setInviteRole(event.target.value as Role)}
-                  >
+                  <Select value={inviteRole} onValueChange={(next) => setInviteRole(next as Role)}>
+                  <SelectTrigger {...props}>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
                     {ROLE_ORDER.map((role) => (
-                      <option key={role} value={role}>
+                      <SelectItem key={role} value={role}>
                         {roleLabels[role]}
-                      </option>
+                      </SelectItem>
                     ))}
-                  </Select>
+                  </SelectContent>
+                </Select>
                 )}
               </FormField>
 
@@ -783,17 +797,18 @@ export function AdminConsole({
 
               <FormField id="org-plan" label="Plan">
                 {(props) => (
-                  <Select
-                    {...props}
-                    value={plan}
-                    onChange={(event) => setPlan(event.target.value as OrgPlan)}
-                  >
+                  <Select value={plan} onValueChange={(next) => setPlan(next as OrgPlan)}>
+                  <SelectTrigger {...props}>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
                     {ORG_PLANS.map((option) => (
-                      <option key={option} value={option}>
+                      <SelectItem key={option} value={option}>
                         {ORG_PLAN_LABELS[option]}
-                      </option>
+                      </SelectItem>
                     ))}
-                  </Select>
+                  </SelectContent>
+                </Select>
                 )}
               </FormField>
 
@@ -883,26 +898,28 @@ export function AdminConsole({
                 hint="A starting point rather than the whole list of country codes."
               >
                 {(props) => (
-                  <Select
-                    {...props}
-                    value={country}
-                    onChange={(event) => setCountry(event.target.value)}
-                  >
-                    <option value="">Not set</option>
+                  <Select value={country} onValueChange={setCountry}>
+                  <SelectTrigger {...props}>
+                    {/* Radix reserves the empty string, so the "Not set" option
+                        becomes the placeholder and the stored value is unchanged. */}
+                    <SelectValue placeholder="Not set" />
+                  </SelectTrigger>
+                  <SelectContent>
                     {/*
                      * Rendered rather than filtered out. An institution in a
                      * country this list does not carry is already recorded, and
                      * the select has to be able to say which one it is.
                      */}
                     {!countryListed && country.length > 0 ? (
-                      <option value={country}>Other ({country})</option>
+                      <SelectItem value={country}>Other ({country})</SelectItem>
                     ) : null}
                     {COUNTRY_CODES.map(([code, name]) => (
-                      <option key={code} value={code}>
+                      <SelectItem key={code} value={code}>
                         {name}
-                      </option>
+                      </SelectItem>
                     ))}
-                  </Select>
+                  </SelectContent>
+                </Select>
                 )}
               </FormField>
 
@@ -928,18 +945,18 @@ export function AdminConsole({
                 hint="Leave it unset if none of these fit."
               >
                 {(props) => (
-                  <Select
-                    {...props}
-                    value={sector}
-                    onChange={(event) => setSector(event.target.value as OrgSector | '')}
-                  >
-                    <option value="">Not set</option>
+                  <Select value={sector} onValueChange={(next) => setSector(next as OrgSector | '')}>
+                  <SelectTrigger {...props}>
+                    <SelectValue placeholder="Not set" />
+                  </SelectTrigger>
+                  <SelectContent>
                     {ORG_SECTORS.map((option) => (
-                      <option key={option} value={option}>
+                      <SelectItem key={option} value={option}>
                         {ORG_SECTOR_LABELS[option]}
-                      </option>
+                      </SelectItem>
                     ))}
-                  </Select>
+                  </SelectContent>
+                </Select>
                 )}
               </FormField>
 
@@ -1005,26 +1022,26 @@ export function AdminConsole({
                 hint="A starting point rather than the whole list of zones."
               >
                 {(props) => (
-                  <Select
-                    {...props}
-                    value={timezone}
-                    onChange={(event) => setTimezone(event.target.value)}
-                  >
-                    <option value="">Not set</option>
+                  <Select value={timezone} onValueChange={setTimezone}>
+                  <SelectTrigger {...props}>
+                    <SelectValue placeholder="Not set" />
+                  </SelectTrigger>
+                  <SelectContent>
                     {/*
                      * The same escape hatch as the country, and for the same
                      * reason: a stored zone this list omits still has to be
                      * visible in the control that owns it.
                      */}
                     {!zoneListed && timezone.length > 0 ? (
-                      <option value={timezone}>Other ({timezone})</option>
+                      <SelectItem value={timezone}>Other ({timezone})</SelectItem>
                     ) : null}
                     {TIMEZONE_ZONES.map((zone) => (
-                      <option key={zone} value={zone}>
+                      <SelectItem key={zone} value={zone}>
                         {zone}
-                      </option>
+                      </SelectItem>
                     ))}
-                  </Select>
+                  </SelectContent>
+                </Select>
                 )}
               </FormField>
 

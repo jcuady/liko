@@ -5,6 +5,13 @@ import { useMutation } from '@tanstack/react-query';
 import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { setIdFormatAction } from '@/app/(dashboard)/assess/actions';
 import type { IdFormat } from '@/lib/api/types';
 import { codeBlockFits, codeBlockWidthMm, maxGroupsFor, SHEET_CONTENT_MM } from '@/lib/omr/code-block';
@@ -96,53 +103,61 @@ export function IdFormatControl({
           <label className="text-[0.875rem] font-medium text-ink" htmlFor="code-groups">
             Groups
           </label>
-          <select
-            id="code-groups"
-            value={groups}
-            onChange={(event) => {
-              const next = Number(event.target.value);
-              setGroups(next);
+          <Select
+            value={String(groups)}
+            onValueChange={(next) => {
+              const chosen = Number(next);
+              setGroups(chosen);
               // Choosing more groups than the page can hold would leave the
               // picker showing a shape the server refuses. Offering only what
               // fits is better than offering it and saying no afterwards.
-              if (!codeBlockFits(next, perGroup)) {
+              if (!codeBlockFits(chosen, perGroup)) {
                 const widest = maxGroupsFor(perGroup);
                 if (widest >= 1) setGroups(widest);
               }
             }}
-            className="flex h-11 w-24 rounded-[12px] border border-border-strong bg-surface px-3 text-[0.9375rem] text-ink transition-colors duration-150 focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent-ring/25"
           >
-            {/* One to three, filtered by what actually fits alongside the
-                chosen number of bubbles per group. */}
-            {[1, 2, 3].filter((value) => codeBlockFits(value, perGroup)).map((value) => (
-              <option key={value} value={value}>
-                {value}
-              </option>
-            ))}
-          </select>
+            <SelectTrigger id="code-groups" className="w-24 px-3">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {/* One to three, filtered by what actually fits alongside the
+                  chosen number of bubbles per group. */}
+              {[1, 2, 3]
+                .filter((value) => codeBlockFits(value, perGroup))
+                .map((value) => (
+                  <SelectItem key={value} value={String(value)}>
+                    {value}
+                  </SelectItem>
+                ))}
+            </SelectContent>
+          </Select>
         </div>
 
         <div className="flex flex-col gap-1.5">
           <label className="text-[0.875rem] font-medium text-ink" htmlFor="code-codes">
             Bubbles per group
           </label>
-          <select
-            id="code-codes"
-            value={perGroup}
-            onChange={(event) => {
-              const next = Number(event.target.value);
-              setPerGroup(next);
-              const widest = maxGroupsFor(next);
-              if (widest >= 1 && !codeBlockFits(groups, next)) setGroups(widest);
+          <Select
+            value={String(perGroup)}
+            onValueChange={(next) => {
+              const chosen = Number(next);
+              setPerGroup(chosen);
+              const widest = maxGroupsFor(chosen);
+              if (widest >= 1 && !codeBlockFits(groups, chosen)) setGroups(widest);
             }}
-            className="flex h-11 w-24 rounded-[12px] border border-border-strong bg-surface px-3 text-[0.9375rem] text-ink transition-colors duration-150 focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent-ring/25"
           >
-            {CODE_OPTIONS.map((value) => (
-              <option key={value} value={value}>
-                {value}
-              </option>
-            ))}
-          </select>
+            <SelectTrigger id="code-codes" className="w-24 px-3">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {CODE_OPTIONS.map((value) => (
+                <SelectItem key={value} value={String(value)}>
+                  {value}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
 
         <Button

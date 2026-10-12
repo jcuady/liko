@@ -100,6 +100,7 @@ const GATES = [
   { id: 'unit', script: 'test' },
   { id: 'check:sql', script: 'check:sql' },
   { id: 'check:redaction', script: 'check:redaction' },
+  { id: 'check:primitives', script: 'check:primitives' },
   { id: 'e2e', script: 'e2e' },
   { id: 'db:check', script: 'db:check' },
   { id: 'db:settle', script: 'db:settle' },

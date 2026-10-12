@@ -8,7 +8,14 @@ import { NotebookPen, Plus } from 'lucide-react';
 import { Badge, Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { FormField } from '@/components/ui/form-field';
-import { Input, Select, Textarea } from '@/components/ui/input';
+import { Input, Textarea } from '@/components/ui/input';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import {
   Dialog,
   DialogContent,
@@ -110,16 +117,17 @@ export function LessonPlanner({
       <div className="flex flex-wrap items-end justify-between gap-4">
         <FormField id="plan-class" label="Class" className="min-w-[14rem]">
           {(props) => (
-            <Select
-              {...props}
-              value={effectiveClassId}
-              onChange={(event) => setSelectedClassId(event.target.value)}
-            >
-              {classes.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.name}
-                </option>
-              ))}
+            <Select value={effectiveClassId} onValueChange={setSelectedClassId}>
+              <SelectTrigger {...props}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {classes.map((item) => (
+                  <SelectItem key={item.id} value={item.id}>
+                    {item.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
             </Select>
           )}
         </FormField>

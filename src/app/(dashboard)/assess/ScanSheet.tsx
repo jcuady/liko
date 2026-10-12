@@ -8,6 +8,13 @@ import { toast } from 'sonner';
 
 import { Badge, Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { scanSheet, scoreAnswers, formatIdCode, idToStudentNumber } from '@/lib/omr/omr';
 import type { OmrSheet } from '@/lib/omr/omr';
 import type { IdFormat, QuestionRecord, ScannedAnswer } from '@/lib/api/types';
@@ -475,25 +482,29 @@ export function ScanSheet({
                 <label className="text-[0.875rem] font-medium text-ink" htmlFor="scan-student">
                   Whose sheet is this?
                 </label>
-                <select
-                  id="scan-student"
+                <Select
                   value={studentId}
-                  onChange={(event) => {
-                    setStudentId(event.target.value);
+                  onValueChange={(next) => {
+                    setStudentId(next);
                     // Any manual change clears the "this came off the sheet" claim,
                     // so the note below never describes a choice the teacher
                     // overrode.
                     setFromCode(null);
                   }}
-                  className="flex h-11 max-w-[18rem] rounded-[12px] border border-border-strong bg-surface px-3.5 text-[0.9375rem] text-ink transition-colors duration-150 focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent-ring/25"
                 >
-                  <option value="">Choose a student</option>
-                  {roster.map((student) => (
-                    <option key={student.id} value={student.id}>
-                      {student.name}
-                    </option>
-                  ))}
-                </select>
+                  <SelectTrigger id="scan-student" className="max-w-[18rem]">
+                    {/* Was an empty-valued option; Radix reserves the empty
+                        string for the placeholder, so the wording moved here. */}
+                    <SelectValue placeholder="Choose a student" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {roster.map((student) => (
+                      <SelectItem key={student.id} value={student.id}>
+                        {student.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
                 <p className="text-meta text-ink-muted">
                   {fromCode
                     ? `Code ${fromCode} on the sheet picked this. Change it if the sheet is wrong.`

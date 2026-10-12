@@ -6,7 +6,14 @@ import { Plus } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
-import { Input, Select } from '@/components/ui/input';
+import { Input } from '@/components/ui/input';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { FormField } from '@/components/ui/form-field';
 import {
   Dialog,
@@ -101,16 +108,24 @@ export function NewAssessmentDialog({
           <div className="grid gap-4 sm:grid-cols-2">
             <FormField id="assessment-type" label="Type">
               {(props) => (
-                <Select
-                  {...props}
-                  name="type"
-                  defaultValue="quiz"
-                >
-                  {ASSESSMENT_TYPES.map((type) => (
-                    <option key={type.value} value={type.value}>
-                      {type.label}
-                    </option>
-                  ))}
+                /*
+                 * `name` sits on the root, not the trigger. This is the one
+                 * select in the product that is read back as a real form post,
+                 * and Radix puts the name on the hidden native select it renders
+                 * beside the trigger. On the trigger it would post nothing and
+                 * the new assessment would be saved with no type.
+                 */
+                <Select name="type" defaultValue="quiz">
+                  <SelectTrigger {...props}>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {ASSESSMENT_TYPES.map((type) => (
+                      <SelectItem key={type.value} value={type.value}>
+                        {type.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
                 </Select>
               )}
             </FormField>

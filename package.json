@@ -16,6 +16,7 @@
     "check:behaviour": "node scripts/behaviour-check.cjs",
     "check:sql": "node scripts/check-migration.mjs",
     "check:redaction": "node scripts/check-redaction.mjs",
+    "check:primitives": "node scripts/check-primitives.mjs",
     "gates": "node scripts/run-gates.mjs",
     "db:apply": "node --env-file=.env.local scripts/apply-migration.mjs",
     "db:check": "node --env-file=.env.local scripts/check-remote-db.mjs",

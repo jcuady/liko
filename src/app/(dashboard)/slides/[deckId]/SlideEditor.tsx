@@ -23,7 +23,14 @@ import {
 import { Button } from '@/components/ui/button';
 import { Badge, Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { FormField } from '@/components/ui/form-field';
-import { Input, Select, Textarea } from '@/components/ui/input';
+import { Input, Textarea } from '@/components/ui/input';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { ElementInspector } from '@/components/slides/ElementInspector';
 import { SlideCanvas, type SlideImageSource } from '@/components/slides/SlideCanvas';
 import {
@@ -242,16 +249,17 @@ function SlideForm({
       <CardContent className="flex flex-col gap-4">
         <FormField id="slide-layout" label="Layout">
           {(props) => (
-            <Select
-              {...props}
-              value={layout}
-              onChange={(event) => setLayout(event.target.value as SlideLayout)}
-            >
-              {SLIDE_LAYOUTS.map((option) => (
-                <option key={option} value={option}>
-                  {SLIDE_LAYOUT_LABELS[option]}
-                </option>
-              ))}
+            <Select value={layout} onValueChange={(next) => setLayout(next as SlideLayout)}>
+              <SelectTrigger {...props}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {SLIDE_LAYOUTS.map((option) => (
+                  <SelectItem key={option} value={option}>
+                    {SLIDE_LAYOUT_LABELS[option]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
             </Select>
           )}
         </FormField>
@@ -887,15 +895,19 @@ export function SlideEditor({
                       <FormField id="slide-image-source" label="Image">
                         {(props) => (
                           <Select
-                            {...props}
                             value={chosenAssetId || imageSources[0]!.id}
-                            onChange={(event) => setChosenAssetId(event.target.value)}
+                            onValueChange={setChosenAssetId}
                           >
-                            {imageSources.map((asset) => (
-                              <option key={asset.id} value={asset.id}>
-                                {asset.alt}
-                              </option>
-                            ))}
+                            <SelectTrigger {...props}>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {imageSources.map((asset) => (
+                                <SelectItem key={asset.id} value={asset.id}>
+                                  {asset.alt}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
                           </Select>
                         )}
                       </FormField>

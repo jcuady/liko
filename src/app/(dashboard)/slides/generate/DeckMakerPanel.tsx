@@ -6,6 +6,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
+import { Input, Textarea } from '@/components/ui/input';
 import { queryKeys } from '@/lib/query/keys';
 
 import { aiStatusAction, generateDeckAction } from './actions';
@@ -137,7 +138,7 @@ export function DeckMakerPanel({ classId }: { classId: string | null }) {
            * rendered on the page and read out by the screen reader that the rest
            * of this component is written for.
            */}
-          <textarea
+          <Textarea
             id="deck-prompt"
             value={prompt}
             onChange={(event) => setPrompt(event.target.value)}
@@ -152,7 +153,7 @@ export function DeckMakerPanel({ classId }: { classId: string | null }) {
           <label className="text-[0.875rem] font-medium text-ink" htmlFor="deck-title">
             Name it (optional)
           </label>
-          <input
+          <Input
             id="deck-title"
             value={title}
             onChange={(event) => setTitle(event.target.value)}

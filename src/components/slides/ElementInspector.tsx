@@ -5,7 +5,14 @@ import { Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { FormField } from '@/components/ui/form-field';
-import { Input, Select, Textarea } from '@/components/ui/input';
+import { Input, Textarea } from '@/components/ui/input';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import {
   SLIDE_ALIGNMENTS,
   SLIDE_ALIGNMENT_LABELS,
@@ -71,15 +78,19 @@ function TextControls({
       <FormField id="element-size" label="Size">
         {(props) => (
           <Select
-            {...props}
             value={style.size}
-            onChange={(event) => onStyleChange({ ...style, size: event.target.value as typeof style.size })}
+            onValueChange={(next) => onStyleChange({ ...style, size: next as typeof style.size })}
           >
-            {SLIDE_SIZES.map((size) => (
-              <option key={size} value={size}>
-                {SLIDE_SIZE_LABELS[size]}
-              </option>
-            ))}
+            <SelectTrigger {...props}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {SLIDE_SIZES.map((size) => (
+                <SelectItem key={size} value={size}>
+                  {SLIDE_SIZE_LABELS[size]}
+                </SelectItem>
+              ))}
+            </SelectContent>
           </Select>
         )}
       </FormField>
@@ -87,15 +98,21 @@ function TextControls({
       <FormField id="element-weight" label="Weight">
         {(props) => (
           <Select
-            {...props}
             value={style.weight}
-            onChange={(event) => onStyleChange({ ...style, weight: event.target.value as typeof style.weight })}
+            onValueChange={(next) =>
+              onStyleChange({ ...style, weight: next as typeof style.weight })
+            }
           >
-            {SLIDE_WEIGHTS.map((weight) => (
-              <option key={weight} value={weight}>
-                {SLIDE_WEIGHT_LABELS[weight]}
-              </option>
-            ))}
+            <SelectTrigger {...props}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {SLIDE_WEIGHTS.map((weight) => (
+                <SelectItem key={weight} value={weight}>
+                  {SLIDE_WEIGHT_LABELS[weight]}
+                </SelectItem>
+              ))}
+            </SelectContent>
           </Select>
         )}
       </FormField>
@@ -103,15 +120,19 @@ function TextControls({
       <FormField id="element-font" label="Font">
         {(props) => (
           <Select
-            {...props}
             value={style.font}
-            onChange={(event) => onStyleChange({ ...style, font: event.target.value as typeof style.font })}
+            onValueChange={(next) => onStyleChange({ ...style, font: next as typeof style.font })}
           >
-            {SLIDE_FONTS.map((font) => (
-              <option key={font} value={font}>
-                {SLIDE_FONTS_LABELS[font]}
-              </option>
-            ))}
+            <SelectTrigger {...props}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {SLIDE_FONTS.map((font) => (
+                <SelectItem key={font} value={font}>
+                  {SLIDE_FONTS_LABELS[font]}
+                </SelectItem>
+              ))}
+            </SelectContent>
           </Select>
         )}
       </FormField>
@@ -123,15 +144,19 @@ function TextControls({
       >
         {(props) => (
           <Select
-            {...props}
             value={style.ink}
-            onChange={(event) => onStyleChange({ ...style, ink: event.target.value as typeof style.ink })}
+            onValueChange={(next) => onStyleChange({ ...style, ink: next as typeof style.ink })}
           >
-            {inks.map((ink) => (
-              <option key={ink} value={ink}>
-                {SLIDE_INK_LABELS[ink]}
-              </option>
-            ))}
+            <SelectTrigger {...props}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {inks.map((ink) => (
+                <SelectItem key={ink} value={ink}>
+                  {SLIDE_INK_LABELS[ink]}
+                </SelectItem>
+              ))}
+            </SelectContent>
           </Select>
         )}
       </FormField>
@@ -139,15 +164,19 @@ function TextControls({
       <FormField id="element-align" label="Alignment">
         {(props) => (
           <Select
-            {...props}
             value={style.align}
-            onChange={(event) => onStyleChange({ ...style, align: event.target.value as typeof style.align })}
+            onValueChange={(next) => onStyleChange({ ...style, align: next as typeof style.align })}
           >
-            {SLIDE_ALIGNMENTS.map((align) => (
-              <option key={align} value={align}>
-                {SLIDE_ALIGNMENT_LABELS[align]}
-              </option>
-            ))}
+            <SelectTrigger {...props}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {SLIDE_ALIGNMENTS.map((align) => (
+                <SelectItem key={align} value={align}>
+                  {SLIDE_ALIGNMENT_LABELS[align]}
+                </SelectItem>
+              ))}
+            </SelectContent>
           </Select>
         )}
       </FormField>
@@ -169,15 +198,19 @@ function ImageControls({
       <FormField id="element-fit" label="Fit">
         {(props) => (
           <Select
-            {...props}
             value={element.fit}
-            onChange={(event) => onFitChange(event.target.value as SlideImageElement['fit'])}
+            onValueChange={(next) => onFitChange(next as SlideImageElement['fit'])}
           >
-            {FITS.map((fit) => (
-              <option key={fit} value={fit}>
-                {SLIDE_FIT_LABELS[fit]}
-              </option>
-            ))}
+            <SelectTrigger {...props}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {FITS.map((fit) => (
+                <SelectItem key={fit} value={fit}>
+                  {SLIDE_FIT_LABELS[fit]}
+                </SelectItem>
+              ))}
+            </SelectContent>
           </Select>
         )}
       </FormField>

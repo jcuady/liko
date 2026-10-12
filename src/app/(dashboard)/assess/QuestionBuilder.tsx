@@ -8,6 +8,13 @@ import { toast } from 'sonner';
 import { Badge, Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { saveQuestionSet } from '@/app/(dashboard)/assess/actions';
 import { queryKeys } from '@/lib/query/keys';
 import type { QuestionKind, QuestionRecord } from '@/lib/api/types';
@@ -279,11 +286,10 @@ export function QuestionBuilder({
                         <label className="sr-only" htmlFor={`q-kind-${index}`}>
                           Question {index + 1} type
                         </label>
-                        <select
-                          id={`q-kind-${index}`}
+                        <Select
                           value={row.kind}
-                          onChange={(event) => {
-                            const kind = event.target.value as QuestionKind;
+                          onValueChange={(next) => {
+                            const kind = next as QuestionKind;
                             // Switching to single keeps only the first answer,
                             // because a single-choice key with two letters is
                             // rejected on save and would fail silently until then.
@@ -292,11 +298,18 @@ export function QuestionBuilder({
                               answerKey: kind === 'single' ? row.answerKey.slice(0, 1) : row.answerKey,
                             });
                           }}
-                          className="h-9 rounded-[10px] border border-border-strong bg-surface px-2.5 text-[0.8125rem] text-ink transition-colors duration-150 focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent-ring/25"
                         >
-                          <option value="single">Single choice</option>
-                          <option value="multiple">Multiple select</option>
-                        </select>
+                          <SelectTrigger
+                            id={`q-kind-${index}`}
+                            className="h-9 rounded-[10px] px-2.5 text-[0.8125rem]"
+                          >
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="single">Single choice</SelectItem>
+                            <SelectItem value="multiple">Multiple select</SelectItem>
+                          </SelectContent>
+                        </Select>
 
                         <label className="sr-only" htmlFor={`q-points-${index}`}>
                           Question {index + 1} points

@@ -10,6 +10,7 @@ import {
   DialogDescription,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
 import { PRIMARY_NAV, SECONDARY_NAV } from './Navigation';
 
 /**
@@ -80,7 +81,7 @@ export function CommandPalette() {
           </DialogDescription>
 
           <div className="border-b border-border p-3">
-            <input
+            <Input
               autoFocus
               value={query}
               onChange={(event) => onQueryChange(event.target.value)}

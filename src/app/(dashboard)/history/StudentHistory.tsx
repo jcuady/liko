@@ -8,7 +8,14 @@ import { toast } from 'sonner';
 import { Badge, Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { FormField } from '@/components/ui/form-field';
-import { Select, Textarea } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/input';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { queryKeys } from '@/lib/query/keys';
 import type { HistoryRecord } from '@/lib/api/types';
 
@@ -133,23 +140,27 @@ export function StudentHistory({
         <FormField id="history-class" label="Class">
           {(props) => (
             <Select
-              {...props}
               value={effectiveClassId}
-              onChange={(event) => {
+              onValueChange={(next) => {
                 // Switching class changes the roster, so the stored student
                 // selection is cleared rather than carried into a class the
                 // student is not in.
-                setSelectedClassId(event.target.value);
+                setSelectedClassId(next);
                 setSelectedStudentId('');
-                const params = new URLSearchParams({ class: event.target.value });
+                const params = new URLSearchParams({ class: next });
                 router.push(`/history?${params.toString()}`);
               }}
             >
-              {classes.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.name}
-                </option>
-              ))}
+              <SelectTrigger {...props}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {classes.map((item) => (
+                  <SelectItem key={item.id} value={item.id}>
+                    {item.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
             </Select>
           )}
         </FormField>
@@ -157,11 +168,9 @@ export function StudentHistory({
         <FormField id="history-student" label="Student">
           {(props) => (
             <Select
-              {...props}
               value={activeStudentId ?? ''}
               disabled={roster.length === 0}
-              onChange={(event) => {
-                const next = event.target.value;
+              onValueChange={(next) => {
                 setSelectedStudentId(next);
                 // The student lives in the URL so a record can be linked to and
                 // survives a reload.
@@ -172,11 +181,18 @@ export function StudentHistory({
                 router.push(`/history?${params.toString()}`);
               }}
             >
-              {roster.map((student) => (
-                <option key={student.id} value={student.id}>
-                  {student.fullName}
-                </option>
-              ))}
+              <SelectTrigger {...props}>
+                {/* No roster means no selection, which was a blank control
+                    before and stays one rather than inventing placeholder copy. */}
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {roster.map((student) => (
+                  <SelectItem key={student.id} value={student.id}>
+                    {student.fullName}
+                  </SelectItem>
+                ))}
+              </SelectContent>
             </Select>
           )}
         </FormField>
@@ -278,16 +294,22 @@ export function StudentHistory({
 
                 <FormField id="history-severity" label="Kind">
                   {(props) => (
-                    <Select
-                      {...props}
-                      name="severity"
-                      defaultValue="note"
-                    >
-                      {SEVERITY_OPTIONS.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
+                    /*
+                     * `name` on the root again: this form is posted through
+                     * `FormData` on submit, and Radix puts the name on the
+                     * hidden native select beside the trigger.
+                     */
+                    <Select name="severity" defaultValue="note">
+                      <SelectTrigger {...props}>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {SEVERITY_OPTIONS.map((option) => (
+                          <SelectItem key={option.value} value={option.value}>
+                            {option.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
                     </Select>
                   )}
                 </FormField>

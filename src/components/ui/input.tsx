@@ -66,33 +66,12 @@ const Textarea = React.forwardRef<
 });
 Textarea.displayName = 'Textarea';
 
-/**
- * Select.
- *
- * This existed as the same twelve utility classes pasted into fifteen files. A
- * copy that size drifts: it was already at 36px in two places where the inputs
- * beside it were 44px, and nobody was going to notice that a select was harder
- * to hit than the field above it.
+/*
+ * There used to be a third primitive in this file: a `Select`, which was the
+ * same twelve utility classes pasted around a native `<select>`. It is gone.
+ * A native select draws its own control, so its height, padding, chevron,
+ * popup and dark mode are the browser's rather than the design system's, and
+ * classes cannot fix an element you do not draw. `select.tsx` is the Radix one
+ * and it is the only select in the product.
  */
-const Select = React.forwardRef<
-  HTMLSelectElement,
-  React.SelectHTMLAttributes<HTMLSelectElement>
->(({ className, ...props }, ref) => (
-  <select
-    ref={ref}
-    data-slot="select"
-    className={cn(
-      'flex h-11 w-full rounded-[12px] border border-border-strong bg-surface px-3.5',
-      'text-base lg:text-[0.9375rem] text-ink',
-      'transition-colors duration-150 ease-[cubic-bezier(0.23,1,0.32,1)]',
-      'hover:border-border-strong',
-      'focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent-ring/25',
-      'disabled:cursor-not-allowed disabled:opacity-50',
-      className,
-    )}
-    {...props}
-  />
-));
-Select.displayName = 'Select';
-
-export { Input, Textarea, Select };
+export { Input, Textarea };

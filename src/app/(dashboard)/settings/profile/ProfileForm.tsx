@@ -7,7 +7,14 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { FormField } from '@/components/ui/form-field';
-import { Input, Select } from '@/components/ui/input';
+import { Input } from '@/components/ui/input';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import type { GradingPolicyRecord, Role } from '@/lib/api/types';
 
 import { saveProfile } from './actions';
@@ -138,15 +145,17 @@ export function ProfileForm({
 
           <FormField id="profile-level" label="Level you usually teach">
             {(props) => (
-              <Select
-                {...props}
-                value={level}
-                onChange={(event) => setLevel(event.target.value)}
-              >
-                <option value="">Not set</option>
-                <option value="preschool">Preschool</option>
-                <option value="k12">K to 12</option>
-                <option value="university">University</option>
+              <Select value={level} onValueChange={setLevel}>
+                <SelectTrigger {...props}>
+                  {/* Radix reserves the empty string, which is the state that
+                      shows a placeholder. See the same field in OnboardingWizard. */}
+                  <SelectValue placeholder="Not set" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="preschool">Preschool</SelectItem>
+                  <SelectItem value="k12">K to 12</SelectItem>
+                  <SelectItem value="university">University</SelectItem>
+                </SelectContent>
               </Select>
             )}
           </FormField>
@@ -164,16 +173,17 @@ export function ProfileForm({
             hint="Used when a class does not name its own. Any class can override it."
           >
             {(props) => (
-              <Select
-                {...props}
-                value={policyId}
-                onChange={(event) => setPolicyId(event.target.value)}
-              >
-                {policies.map((policy) => (
-                  <option key={policy.id} value={policy.id}>
-                    {policy.name}
-                  </option>
-                ))}
+              <Select value={policyId} onValueChange={setPolicyId}>
+                <SelectTrigger {...props}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {policies.map((policy) => (
+                    <SelectItem key={policy.id} value={policy.id}>
+                      {policy.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
               </Select>
             )}
           </FormField>

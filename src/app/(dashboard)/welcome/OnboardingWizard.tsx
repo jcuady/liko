@@ -9,7 +9,14 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { FormField } from '@/components/ui/form-field';
-import { Input, Select } from '@/components/ui/input';
+import { Input } from '@/components/ui/input';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import type { GradingPolicyRecord } from '@/lib/api/types';
 
 import { createFirstClass, saveGradingPolicy, saveOnboardingProfile } from './actions';
@@ -190,15 +197,21 @@ export function OnboardingWizard({
 
             <FormField id="onboard-level" label="Level you usually teach">
               {(props) => (
-                <Select
-                  {...props}
-                  value={level}
-                  onChange={(event) => setLevel(event.target.value)}
-                >
-                  <option value="">Not set</option>
-                  <option value="preschool">Preschool</option>
-                  <option value="k12">K to 12</option>
-                  <option value="university">University</option>
+                <Select value={level} onValueChange={setLevel}>
+                  <SelectTrigger {...props}>
+                    {/*
+                      "Not set" was an empty-valued option, and Radix reserves the
+                      empty string: it is the state that shows the placeholder.
+                      So the wording lives on the trigger now and the value stays
+                      what it always was.
+                    */}
+                    <SelectValue placeholder="Not set" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="preschool">Preschool</SelectItem>
+                    <SelectItem value="k12">K to 12</SelectItem>
+                    <SelectItem value="university">University</SelectItem>
+                  </SelectContent>
                 </Select>
               )}
             </FormField>

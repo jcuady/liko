@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import * as React from 'react';
 import Link from 'next/link';
@@ -6,6 +6,13 @@ import { useQuery } from '@tanstack/react-query';
 import { Printer } from 'lucide-react';
 
 import { Badge, Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { NewAssessmentDialog } from '@/components/product/NewAssessmentDialog';
 import { queryKeys } from '@/lib/query/keys';
 import type { AssessmentRecord, QuestionRecord } from '@/lib/api/types';
@@ -76,18 +83,18 @@ export function AssessmentList({
           <label htmlFor="assess-class" className="text-[0.875rem] font-medium text-ink">
             Class
           </label>
-          <select
-            id="assess-class"
-            value={effectiveClassId}
-            onChange={(event) => setSelectedId(event.target.value)}
-            className="mt-1.5 flex h-11 rounded-[12px] border border-border-strong bg-surface px-3.5 text-[0.9375rem] text-ink transition-colors duration-150 focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent-ring/25"
-          >
-            {classes.map((item) => (
-              <option key={item.id} value={item.id}>
-                {item.name}
-              </option>
-            ))}
-          </select>
+          <Select value={effectiveClassId} onValueChange={setSelectedId}>
+            <SelectTrigger id="assess-class" aria-label="Class" className="mt-1.5 w-[16rem] max-w-full">
+              <SelectValue placeholder="Choose a class" />
+            </SelectTrigger>
+            <SelectContent>
+              {classes.map((item) => (
+                <SelectItem key={item.id} value={item.id}>
+                  {item.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
         <NewAssessmentDialog classId={effectiveClassId} triggerLabel="New assessment" variant="primary" />
       </div>

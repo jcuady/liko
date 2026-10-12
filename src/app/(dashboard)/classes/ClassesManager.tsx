@@ -7,7 +7,14 @@ import { toast } from 'sonner';
 import { Archive, Plus, Upload, Users } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
-import { Input, Select } from '@/components/ui/input';
+import { Input, Textarea } from '@/components/ui/input';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { FormField } from '@/components/ui/form-field';
 import { Switch } from '@/components/ui/switch';
 import { Badge, Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -389,14 +396,16 @@ function NewClassDialog() {
 
           <FormField id="class-level" label="Level">
             {(props) => (
-              <Select
-                {...props}
-                name="level"
-                defaultValue="k12"
-              >
-                <option value="preschool">Preschool</option>
-                <option value="k12">K to 12</option>
-                <option value="university">University</option>
+              /* `name` on the root: this dialog posts through FormData. */
+              <Select name="level" defaultValue="k12">
+                <SelectTrigger {...props}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="preschool">Preschool</SelectItem>
+                  <SelectItem value="k12">K to 12</SelectItem>
+                  <SelectItem value="university">University</SelectItem>
+                </SelectContent>
               </Select>
             )}
           </FormField>
@@ -553,7 +562,7 @@ function ImportRosterDialog({ classId }: { classId: string }) {
 
             <FormField id="roster-paste" label="Or paste rows" hint="First column is the name.">
               {(props) => (
-                <textarea
+                <Textarea
                   {...props}
                   rows={5}
                   value={csv}
@@ -772,9 +781,14 @@ function NewStudentDialog({ classId }: { classId: string }) {
               <div className="flex flex-col gap-4">
                 <FormField id="student-login-role" label="Login is for">
                   {(props) => (
-                    <Select {...props} name="loginRole" defaultValue="student">
-                      <option value="student">The student</option>
-                      <option value="guardian">The guardian</option>
+                    <Select name="loginRole" defaultValue="student">
+                      <SelectTrigger {...props}>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="student">The student</SelectItem>
+                        <SelectItem value="guardian">The guardian</SelectItem>
+                      </SelectContent>
                     </Select>
                   )}
                 </FormField>
