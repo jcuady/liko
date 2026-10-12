@@ -1433,6 +1433,441 @@
         }
       },
       "note": "Recorded by scripts/run-gates.mjs. A blocked gate measured nothing and never overwrites a previous pass; see lastPassing."
+    },
+    {
+      "at": "2026-10-12T15:14:25.438Z",
+      "commit": "c8396a5",
+      "node": "v25.4.0",
+      "summary": {
+        "pass": 9,
+        "blocked": 1,
+        "fail": 1,
+        "error": 0
+      },
+      "results": {
+        "typecheck": {
+          "status": "pass",
+          "exit": 0,
+          "ms": 9134,
+          "tail": [
+            "Already up to date",
+            "Done in 742ms using pnpm v11.8.0"
+          ],
+          "at": "2026-10-12T15:07:46.629Z"
+        },
+        "lint": {
+          "status": "pass",
+          "exit": 0,
+          "ms": 28609,
+          "tail": [
+            "Already up to date",
+            "Done in 729ms using pnpm v11.8.0"
+          ],
+          "at": "2026-10-12T15:08:15.240Z"
+        },
+        "unit": {
+          "status": "pass",
+          "exit": 0,
+          "ms": 6119,
+          "tail": [
+            "Already up to date",
+            "Done in 875ms using pnpm v11.8.0",
+            " RUN  v5.0.3 C:/Users/jcuad/OneDrive/Documents/Liko",
+            " Test Files  27 passed (27)",
+            "      Tests  344 passed | 2 skipped (346)",
+            "   Start at  23:08:18",
+            "   Duration  2.37s (import 38%, tests 30%, transform 29%, worker 3%)",
+            "  Transform  transforming modules took 3.45s · 29% of tracked time, re-done on every run",
+            "             persist transforms across runs with fsModuleCache: true",
+            "             learn more: https://vitest.dev/guide/improving-performance#caching-between-reruns"
+          ],
+          "at": "2026-10-12T15:08:21.359Z"
+        },
+        "check:sql": {
+          "status": "pass",
+          "exit": 0,
+          "ms": 2349,
+          "tail": [
+            "20260101000000_initial_schema.sql  (1750 lines)",
+            "  ok    syntax: 197 statements accepted by the PostgreSQL parser",
+            "  ok    cross-references: all 126 references resolve (21 tables, 12 functions)",
+            "  ok    row level security: enabled on all 21 tables",
+            "  ok    re-runnable: all 21 policies are dropped before creation",
+            "  ok    plan vocabulary: SQL, the API types and the pricing page all allow 3 (school, starter, teacher-pro)",
+            "        21 policies across 21 tables",
+            "No problems found. This proves the migration is sound, not that it works:",
+            "apply it, then run `pnpm db:check` and `pnpm db:settle`."
+          ],
+          "at": "2026-10-12T15:08:23.708Z"
+        },
+        "check:redaction": {
+          "status": "pass",
+          "exit": 0,
+          "ms": 99,
+          "tail": [
+            "ok    Gemini API key",
+            "ok    JWT with a short header",
+            "ok    Supabase secret key",
+            "ok    Supabase legacy key",
+            "ok    a secret embedded in a normal log line",
+            "ok    key length and shape",
+            "ok    an RLS PASS line",
+            "ok    a table inventory line",
+            "ok    a hex colour in output",
+            "ok    the plan vocabulary guard line",
+            "RESULT: 7 secret shapes removed, 4 real gate lines unaltered."
+          ],
+          "at": "2026-10-12T15:08:23.807Z"
+        },
+        "check:primitives": {
+          "status": "pass",
+          "exit": 0,
+          "ms": 147,
+          "tail": [
+            "RESULT: 129 files scanned. Every form control is a kit primitive.",
+            "7 deliberate exceptions are allowed and each carries a reason."
+          ],
+          "at": "2026-10-12T15:08:23.954Z"
+        },
+        "e2e": {
+          "status": "fail",
+          "exit": 1,
+          "ms": 346678,
+          "tail": [
+            "    [chromium] › e2e\\interactions.spec.ts:374:7 › profile › the default scale offers every grading system ",
+            "    [chromium] › e2e\\onboarding.spec.ts:34:7 › the three questions › walks from teaching context to a created class ",
+            "    [chromium] › e2e\\onboarding.spec.ts:72:7 › the three questions › the scale the teacher chose is the class scale ",
+            "    [chromium] › e2e\\quiz-maker.spec.ts:196:7 › the quiz maker › an assessment opens onto the questions it has, not onto nothing ",
+            "    [chromium] › e2e\\quiz-maker.spec.ts:260:7 › reading a marked sheet › a drawn sheet is read, checked, assigned and saved ",
+            "    [chromium] › e2e\\slide-editor.spec.ts:127:7 › the slide editor › selecting text lets the teacher change its typography ",
+            "  5 did not run",
+            "  169 passed (5.7m)",
+            "[WebServer] $ next build --webpack",
+            "[WebServer] $ next start \"--port\" \"3311\"",
+            "[WebServer] (node:12624) LikoRateLimit: SECURITY: rate limiting is DISABLED because LIKO_E2E=true alongside LIKO_RATE_LIMIT_DISABLED=true. This combination must exist only on a test server. If you are reading this on a deployed environment, turn the limiter off at the store layer instead of here.",
+            "[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)"
+          ],
+          "at": "2026-10-12T15:14:10.641Z"
+        },
+        "db:check": {
+          "status": "pass",
+          "exit": 0,
+          "ms": 5946,
+          "tail": [
+            "  present  student_history  (HTTP 200)",
+            "  present  push_subscriptions  (HTTP 200)",
+            "  present  organizations  (HTTP 200)",
+            "  present  memberships  (HTTP 200)",
+            "  present  decks  (HTTP 200)",
+            "  present  slides  (HTTP 200)",
+            "  present  consent_events  (HTTP 200)",
+            "  present  organization_invites  (HTTP 200)",
+            "RESULT: all 19 tables and their security-relevant columns exist.",
+            "Existence is not correctness. Run scripts/rls-settling-test.mjs to prove",
+            "the policies behave: that a user cannot promote themselves, and that no",
+            "account can read another school."
+          ],
+          "at": "2026-10-12T15:14:16.589Z"
+        },
+        "db:settle": {
+          "status": "pass",
+          "exit": 0,
+          "ms": 4326,
+          "tail": [
+            "Critical: self-promotion to admin",
+            "  PASS  a signed-in student cannot set their own role to admin",
+            "  PASS  and the stored role is still student",
+            "High: cross-tenant class read",
+            "  PASS  a student sees their own class",
+            "  PASS  a student does NOT see another school's class",
+            "Server-owned link",
+            "  PASS  a student cannot re-point their own record at another account",
+            "  PASS  a student CAN read its own record",
+            "Cleaning up",
+            "Done.",
+            "6 passed, 0 failed"
+          ],
+          "at": "2026-10-12T15:14:20.916Z"
+        },
+        "probe:files": {
+          "status": "pass",
+          "exit": 0,
+          "ms": 2974,
+          "tail": [
+            "PASS  deck asset policies exist on storage.objects -- own deck assets readable:SELECT, read own deck asset objects:SELECT, write own deck asset objects:INSERT, replace own deck asset objects:UPDATE",
+            "PASS  there is no delete policy on storage objects -- own deck assets readable:SELECT, read own deck asset objects:SELECT, write own deck asset objects:INSERT, replace own deck asset objects:UPDATE",
+            "PASS  deck_assets carries every column the adapter writes -- 10 columns",
+            "PASS  ai_generations carries every column the adapter writes -- 8 columns",
+            "PASS  slides carries elements and theme -- elements, theme",
+            "PASS  the usage table can be read but not written from a client -- own ai usage readable:SELECT",
+            "PASS  the server can record a generation through the client the app uses -- status 201",
+            "PASS  a browser cannot write its own usage record -- refused with 401",
+            "PASS  that refusal is row level security rather than a missing grant -- {\"code\":\"42501\",\"details\":null,\"hint\":null,\"message\":\"new row violates row-level security policy for table \\\"ai_generations\\\"\"}",
+            "PASS  the recorded generation is readable back out for the meter -- 1 rows",
+            "PASS  the probe row is removed again -- status 204",
+            "all confirmed"
+          ],
+          "at": "2026-10-12T15:14:23.891Z"
+        },
+        "probe:ai": {
+          "status": "blocked",
+          "exit": 1,
+          "ms": 1546,
+          "tail": [
+            "FAIL  the provider answered -- HTTP 503 This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.",
+            "      503 means the model is listed but at capacity. Being listed is not the",
+            "      same as being able to answer; probe:gemini reports the same thing.",
+            "0 passed, 1 failed"
+          ],
+          "at": "2026-10-12T15:14:25.437Z"
+        }
+      },
+      "lastPassing": {
+        "e2e": {
+          "status": "pass",
+          "exit": 0,
+          "ms": 183440,
+          "tail": [
+            "  ok 184 [chromium] › e2e\\slide-editor.spec.ts:223:7 › the slide editor › a slide looks the same in present mode as in the editor (1.2s)",
+            "  ok 185 [chromium] › e2e\\slides.spec.ts:111:7 › editing a slide › the points render as bullets on the slide (1.2s)",
+            "  ok 186 [chromium] › e2e\\slide-editor.spec.ts:240:7 › the slide editor › the canvas fits a phone without horizontal overflow (1.2s)",
+            "  ok 187 [chromium] › e2e\\slides.spec.ts:129:7 › editing a slide › a slide with neither a title nor points is refused (1.5s)",
+            "  ok 188 [chromium] › e2e\\slide-editor.spec.ts:254:7 › the slide editor › every theme is reachable and actually changes the slide (1.5s)",
+            "  ok 189 [chromium] › e2e\\slides.spec.ts:150:7 › editing a slide › reordering puts a slide where it was asked to go (1.5s)",
+            "  ok 190 [chromium] › e2e\\slides.spec.ts:178:7 › editing a slide › deleting the only remaining slide archives the deck rather than stranding it (1.9s)",
+            "  ok 191 [chromium] › e2e\\slides.spec.ts:196:7 › present mode › the keyboard moves between slides (1.2s)",
+            "  ok 192 [chromium] › e2e\\slides.spec.ts:225:7 › present mode › notes are hidden until asked for (1.2s)",
+            "  ok 193 [chromium] › e2e\\slides.spec.ts:238:7 › present mode › escape leaves present mode (1.4s)",
+            "  ok 194 [chromium] › e2e\\slides.spec.ts:255:7 › access › a student is neither offered nor able to open it (831ms)",
+            "  194 passed (3.0m)"
+          ],
+          "at": "2026-10-12T09:46:16.980Z",
+          "recordedInRun": "2026-10-12T09:46:32.762Z",
+          "commit": "435f4bd"
+        },
+        "probe:ai": {
+          "status": "pass",
+          "exit": 0,
+          "ms": 11659,
+          "tail": [
+            "PASS  the provider answered -- 11.5s",
+            "PASS  it reported token usage, which is what the quota is billed against -- prompt 319, output 540",
+            "      wrote C:\\Users\\jcuad\\AppData\\Local\\Temp\\liko-ai-live-response.json",
+            "      now run: pnpm exec vitest run src/lib/slides/live-response.test.ts",
+            "2 passed, 0 failed"
+          ],
+          "at": "2026-10-12T09:19:35.657Z",
+          "recordedInRun": "2026-10-12T09:19:35.662Z",
+          "commit": "435f4bd"
+        }
+      },
+      "note": "Recorded by scripts/run-gates.mjs. A blocked gate measured nothing and never overwrites a previous pass; see lastPassing."
+    },
+    {
+      "at": "2026-10-12T15:49:39.825Z",
+      "commit": "c8396a5",
+      "node": "v25.4.0",
+      "summary": {
+        "pass": 10,
+        "blocked": 1,
+        "fail": 0,
+        "error": 0
+      },
+      "results": {
+        "typecheck": {
+          "status": "pass",
+          "exit": 0,
+          "ms": 10893,
+          "tail": [
+            "Already up to date",
+            "Done in 764ms using pnpm v11.8.0"
+          ],
+          "at": "2026-10-12T15:42:48.967Z"
+        },
+        "lint": {
+          "status": "pass",
+          "exit": 0,
+          "ms": 84822,
+          "tail": [
+            "Already up to date",
+            "Done in 872ms using pnpm v11.8.0"
+          ],
+          "at": "2026-10-12T15:44:13.791Z"
+        },
+        "unit": {
+          "status": "pass",
+          "exit": 0,
+          "ms": 16296,
+          "tail": [
+            "Already up to date",
+            "Done in 678ms using pnpm v11.8.0",
+            " RUN  v5.0.3 C:/Users/jcuad/OneDrive/Documents/Liko",
+            " Test Files  27 passed (27)",
+            "      Tests  344 passed | 2 skipped (346)",
+            "   Start at  23:44:21",
+            "   Duration  8.07s (import 60%, tests 23%, transform 14%, worker 3%)",
+            "    Isolate  27 workers spawned · ~922ms startup each (spawn + environment, per file)",
+            "             at least ~737ms faster with isolate: false — reuses workers across files instead of one per file"
+          ],
+          "at": "2026-10-12T15:44:30.088Z"
+        },
+        "check:sql": {
+          "status": "pass",
+          "exit": 0,
+          "ms": 2091,
+          "tail": [
+            "20260101000000_initial_schema.sql  (1750 lines)",
+            "  ok    syntax: 197 statements accepted by the PostgreSQL parser",
+            "  ok    cross-references: all 126 references resolve (21 tables, 12 functions)",
+            "  ok    row level security: enabled on all 21 tables",
+            "  ok    re-runnable: all 21 policies are dropped before creation",
+            "  ok    plan vocabulary: SQL, the API types and the pricing page all allow 3 (school, starter, teacher-pro)",
+            "        21 policies across 21 tables",
+            "No problems found. This proves the migration is sound, not that it works:",
+            "apply it, then run `pnpm db:check` and `pnpm db:settle`."
+          ],
+          "at": "2026-10-12T15:44:32.179Z"
+        },
+        "check:redaction": {
+          "status": "pass",
+          "exit": 0,
+          "ms": 92,
+          "tail": [
+            "ok    Gemini API key",
+            "ok    JWT with a short header",
+            "ok    Supabase secret key",
+            "ok    Supabase legacy key",
+            "ok    a secret embedded in a normal log line",
+            "ok    key length and shape",
+            "ok    an RLS PASS line",
+            "ok    a table inventory line",
+            "ok    a hex colour in output",
+            "ok    the plan vocabulary guard line",
+            "RESULT: 7 secret shapes removed, 4 real gate lines unaltered."
+          ],
+          "at": "2026-10-12T15:44:32.272Z"
+        },
+        "check:primitives": {
+          "status": "pass",
+          "exit": 0,
+          "ms": 172,
+          "tail": [
+            "RESULT: 129 files scanned. Every form control is a kit primitive.",
+            "7 deliberate exceptions are allowed and each carries a reason."
+          ],
+          "at": "2026-10-12T15:44:32.445Z"
+        },
+        "e2e": {
+          "status": "pass",
+          "exit": 0,
+          "ms": 293383,
+          "tail": [
+            "  ok 186 [chromium] › e2e\\slide-editor.spec.ts:198:7 › the slide editor › the change survives a reload, which is what saving means (4.1s)",
+            "  ok 188 [chromium] › e2e\\slides.spec.ts:129:7 › editing a slide › a slide with neither a title nor points is refused (2.4s)",
+            "  ok 189 [chromium] › e2e\\slide-editor.spec.ts:225:7 › the slide editor › a slide looks the same in present mode as in the editor (2.1s)",
+            "  ok 191 [chromium] › e2e\\slide-editor.spec.ts:242:7 › the slide editor › the canvas fits a phone without horizontal overflow (1.6s)",
+            "  ok 190 [chromium] › e2e\\slides.spec.ts:150:7 › editing a slide › reordering puts a slide where it was asked to go (2.8s)",
+            "  ok 192 [chromium] › e2e\\slide-editor.spec.ts:256:7 › the slide editor › every theme is reachable and actually changes the slide (2.1s)",
+            "  ok 193 [chromium] › e2e\\slides.spec.ts:178:7 › editing a slide › deleting the only remaining slide archives the deck rather than stranding it (3.2s)",
+            "  ok 194 [chromium] › e2e\\slides.spec.ts:196:7 › present mode › the keyboard moves between slides (1.7s)",
+            "  ok 195 [chromium] › e2e\\slides.spec.ts:225:7 › present mode › notes are hidden until asked for (1.6s)",
+            "  ok 196 [chromium] › e2e\\slides.spec.ts:238:7 › present mode › escape leaves present mode (1.6s)",
+            "  ok 197 [chromium] › e2e\\slides.spec.ts:255:7 › access › a student is neither offered nor able to open it (1.0s)",
+            "  197 passed (4.8m)"
+          ],
+          "at": "2026-10-12T15:49:25.830Z"
+        },
+        "db:check": {
+          "status": "pass",
+          "exit": 0,
+          "ms": 4194,
+          "tail": [
+            "  present  student_history  (HTTP 200)",
+            "  present  push_subscriptions  (HTTP 200)",
+            "  present  organizations  (HTTP 200)",
+            "  present  memberships  (HTTP 200)",
+            "  present  decks  (HTTP 200)",
+            "  present  slides  (HTTP 200)",
+            "  present  consent_events  (HTTP 200)",
+            "  present  organization_invites  (HTTP 200)",
+            "RESULT: all 19 tables and their security-relevant columns exist.",
+            "Existence is not correctness. Run scripts/rls-settling-test.mjs to prove",
+            "the policies behave: that a user cannot promote themselves, and that no",
+            "account can read another school."
+          ],
+          "at": "2026-10-12T15:49:30.028Z"
+        },
+        "db:settle": {
+          "status": "pass",
+          "exit": 0,
+          "ms": 4206,
+          "tail": [
+            "Critical: self-promotion to admin",
+            "  PASS  a signed-in student cannot set their own role to admin",
+            "  PASS  and the stored role is still student",
+            "High: cross-tenant class read",
+            "  PASS  a student sees their own class",
+            "  PASS  a student does NOT see another school's class",
+            "Server-owned link",
+            "  PASS  a student cannot re-point their own record at another account",
+            "  PASS  a student CAN read its own record",
+            "Cleaning up",
+            "Done.",
+            "6 passed, 0 failed"
+          ],
+          "at": "2026-10-12T15:49:34.234Z"
+        },
+        "probe:files": {
+          "status": "pass",
+          "exit": 0,
+          "ms": 3193,
+          "tail": [
+            "PASS  deck asset policies exist on storage.objects -- own deck assets readable:SELECT, read own deck asset objects:SELECT, write own deck asset objects:INSERT, replace own deck asset objects:UPDATE",
+            "PASS  there is no delete policy on storage objects -- own deck assets readable:SELECT, read own deck asset objects:SELECT, write own deck asset objects:INSERT, replace own deck asset objects:UPDATE",
+            "PASS  deck_assets carries every column the adapter writes -- 10 columns",
+            "PASS  ai_generations carries every column the adapter writes -- 8 columns",
+            "PASS  slides carries elements and theme -- elements, theme",
+            "PASS  the usage table can be read but not written from a client -- own ai usage readable:SELECT",
+            "PASS  the server can record a generation through the client the app uses -- status 201",
+            "PASS  a browser cannot write its own usage record -- refused with 401",
+            "PASS  that refusal is row level security rather than a missing grant -- {\"code\":\"42501\",\"details\":null,\"hint\":null,\"message\":\"new row violates row-level security policy for table \\\"ai_generations\\\"\"}",
+            "PASS  the recorded generation is readable back out for the meter -- 1 rows",
+            "PASS  the probe row is removed again -- status 204",
+            "all confirmed"
+          ],
+          "at": "2026-10-12T15:49:37.428Z"
+        },
+        "probe:ai": {
+          "status": "blocked",
+          "exit": 1,
+          "ms": 2396,
+          "tail": [
+            "FAIL  the provider answered -- HTTP 503 This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.",
+            "      503 means the model is listed but at capacity. Being listed is not the",
+            "      same as being able to answer; probe:gemini reports the same thing.",
+            "0 passed, 1 failed"
+          ],
+          "at": "2026-10-12T15:49:39.824Z"
+        }
+      },
+      "lastPassing": {
+        "probe:ai": {
+          "status": "pass",
+          "exit": 0,
+          "ms": 11659,
+          "tail": [
+            "PASS  the provider answered -- 11.5s",
+            "PASS  it reported token usage, which is what the quota is billed against -- prompt 319, output 540",
+            "      wrote C:\\Users\\jcuad\\AppData\\Local\\Temp\\liko-ai-live-response.json",
+            "      now run: pnpm exec vitest run src/lib/slides/live-response.test.ts",
+            "2 passed, 0 failed"
+          ],
+          "at": "2026-10-12T09:19:35.657Z",
+          "recordedInRun": "2026-10-12T09:19:35.662Z",
+          "commit": "435f4bd"
+        }
+      },
+      "note": "Recorded by scripts/run-gates.mjs. A blocked gate measured nothing and never overwrites a previous pass; see lastPassing."
     }
   ]
 }

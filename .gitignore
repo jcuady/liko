@@ -109,3 +109,8 @@ Liko new landing/
 .completeness.mjs
 .live-*.png
 .shot-*.png
+
+# The completeness probe's own output. It was committed once by accident, which
+# put a stale "25 strings missing from the live page" report into the history of
+# a repo whose landing page no longer has that problem.
+.audit.txt
