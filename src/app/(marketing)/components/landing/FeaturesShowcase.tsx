@@ -61,7 +61,7 @@ export function FeaturesShowcase() {
   const [tab, setTab] = React.useState<SampleTab>('gradebook');
 
   return (
-    <section className="section page-width" id="features" aria-labelledby="features-heading">
+    <section className="section page-frame" id="features" aria-labelledby="features-heading">
       <div className="section-heading">
         <p className="section-tag">A calmer day starts here</p>
         <h2 className="section-title">

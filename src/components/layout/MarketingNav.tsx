@@ -68,14 +68,42 @@ function NavLink({
 
 export function MarketingNav() {
   const [open, setOpen] = React.useState(false);
+  const [scrolled, setScrolled] = React.useState(false);
   const pathname = usePathname();
   const isLanding = pathname === '/';
 
+  /*
+   * WHY THE HEADER LISTENS TO SCROLL.
+   *
+   * The design's header is a transparent row sitting on the page canvas, above
+   * an inset hero panel with a gap on either side. Anything opaque behind it, or
+   * a rule under it, draws a line the design never drew and turns one canvas
+   * into two stacked bands. So at the top of the page the header is nothing at
+   * all: no fill, no rule, no shadow, and the canvas runs straight through it.
+   *
+   * The surface arrives only once content is underneath it to be read against,
+   * and it arrives as a tint and a blur rather than a border, so the transition
+   * reads as the page getting a frosted panel instead of a box being added.
+   *
+   * A passive listener and a boolean, because the only question asked is "is
+   * the top of the document still visible", and asking it per frame would
+   * schedule work the layout does not need.
+   */
+  React.useEffect(() => {
+    const onScroll = () => setScrolled(window.scrollY > 8);
+    onScroll();
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, []);
+
   return (
-    <header className="sticky top-0 z-40 border-b border-border bg-[var(--surface)]/85 backdrop-blur-lg">
+    <header
+      data-scrolled={scrolled}
+      className="sticky top-0 z-40 transition-colors duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] data-[scrolled=true]:bg-[var(--glass-tint)] data-[scrolled=true]:backdrop-blur-xl"
+    >
       <nav
         aria-label="Main navigation"
-        className="container-marketing flex h-[74px] items-center justify-between gap-6 md:h-[88px]"
+        className="page-frame flex h-[74px] items-center justify-between gap-6 md:h-[88px]"
       >
         <Link href="/" className="shrink-0" aria-label="Liko home">
           <LikoLogo showWordmark />

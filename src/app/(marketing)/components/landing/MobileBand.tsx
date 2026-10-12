@@ -145,7 +145,7 @@ export function MobileBand() {
 
   return (
     <section className="mobile-band" id="mobile" aria-labelledby="mobile-heading">
-      <div className="page-width mobile-inner">
+      <div className="page-frame mobile-inner">
         <div className="mobile-copy">
           <p className="section-tag">A little Liko. Wherever you go.</p>
           <h2 className="section-title" id="mobile-heading">

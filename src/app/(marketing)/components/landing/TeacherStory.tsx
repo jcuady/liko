@@ -17,7 +17,7 @@ const VALUES = [
 
 export function TeacherStory() {
   return (
-    <section className="section page-width teacher-story" id="story" aria-labelledby="story-heading">
+    <section className="section page-frame teacher-story" id="story" aria-labelledby="story-heading">
       <Image
         src="/classroom.jpg"
         alt="A Filipino teacher helping students learn together in a classroom"

@@ -50,7 +50,7 @@ export function LandingPricing() {
   const [cycle, setCycle] = React.useState<Cycle>('monthly');
 
   return (
-    <section className="section page-width" id="pricing" aria-labelledby="pricing-heading">
+    <section className="section page-frame" id="pricing" aria-labelledby="pricing-heading">
       <div className="section-heading">
         <p className="section-tag">A small investment. A bigger impact.</p>
         <h2 className="section-title">

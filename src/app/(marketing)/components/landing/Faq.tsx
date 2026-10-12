@@ -72,7 +72,7 @@ const QUESTIONS: readonly { question: string; answer: React.ReactNode }[] = [
 
 export function Faq() {
   return (
-    <section className="section page-width faq-section" id="faq" aria-labelledby="faq-heading">
+    <section className="section page-frame faq-section" id="faq" aria-labelledby="faq-heading">
       <div className="section-heading mb-8">
         <p className="section-tag">A few things you might be wondering</p>
         <h2 className="section-title">

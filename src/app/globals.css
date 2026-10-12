@@ -529,6 +529,36 @@
    LAYOUT PRIMITIVES
    ========================================================================== */
 @layer components {
+  /*
+   * THE PAGE FRAME. The measure every marketing section and the marketing
+   * header are both built on.
+   *
+   * It exists because those two used to disagree, and the disagreement was
+   * visible: the header sat in `.container-marketing` at 1400px while every
+   * section under it sat in the design's 1200px frame, so the logo, the sign-up
+   * button and the first word of the hero all lined up on different vertical
+   * edges. One frame, used by both, cannot drift.
+   *
+   * The three steps are the supplied brand design's own: a fixed 1200px with an
+   * 88px gutter, tightening to 48px under 1000px and 36px under 700px.
+   */
+  .page-frame {
+    width: min(1200px, calc(100% - 88px));
+    margin-inline: auto;
+  }
+
+  @media (max-width: 1000px) {
+    .page-frame {
+      width: calc(100% - 48px);
+    }
+  }
+
+  @media (max-width: 700px) {
+    .page-frame {
+      width: calc(100% - 36px);
+    }
+  }
+
   .container-marketing {
     width: 100%;
     max-width: var(--container-marketing);
