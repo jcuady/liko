@@ -44,7 +44,7 @@ const FEATURES: readonly {
   {
     number: '02 / UNDERSTAND',
     title: 'Every student, seen.',
-    copy: 'Keep grades organized and see the story behind the numbers. Know who is thriving, and who needs a little more support.',
+    copy: 'Keep grades organized and see the story behind the numbers. Know who’s thriving, and who needs a little more support.',
     label: 'Get the whole picture',
     href: '/overview',
   },
@@ -108,7 +108,7 @@ export function FeaturesShowcase() {
           <p>Your next great teaching day, all in one place.</p>
           <Button asChild variant="link">
             <Link href="/register">
-              Open the workspace
+              Explore the demo
               <ArrowUpRight size={14} aria-hidden="true" />
             </Link>
           </Button>

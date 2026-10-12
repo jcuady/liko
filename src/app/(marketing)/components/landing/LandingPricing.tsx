@@ -57,7 +57,7 @@ export function LandingPricing() {
           <span id="pricing-heading">Made for teachers. Priced for you.</span>
         </h2>
         <p className="section-copy">
-          Start for free. Grow when you are ready.
+          Start for free. Grow when you’re ready.
           <br />
           Simple plans, in Philippine pesos.
         </p>

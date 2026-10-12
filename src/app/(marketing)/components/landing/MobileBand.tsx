@@ -82,10 +82,14 @@ function PhoneMock() {
           <strong>
             {classAverage(SAMPLE_STUDENTS)}% <span>class average</span>
           </strong>
+          <p className="mt-2">Looking good. Keep it growing.</p>
           <p className="mt-2">Sample data, shown for illustration.</p>
         </div>
 
-        <div className="phone-subheading">Your students</div>
+        <div className="phone-subheading">
+          Your students
+          <span className="float-right text-accent text-[9px]">View all →</span>
+        </div>
         <ul>
           {SAMPLE_STUDENTS.slice(0, 4).map((student) => (
             <li key={student.name} className="phone-student">
@@ -151,8 +155,8 @@ export function MobileBand() {
           </h2>
           <p className="section-copy">
             From the staff room to the school run, stay connected to your teaching day.
-            Liko installs to your home screen and keeps working when the connection does
-            not, so it goes where you do.
+            Liko goes where you do, because it installs to your home screen and keeps
+            working when the connection does not.
           </p>
 
           <ul className="mobile-list">

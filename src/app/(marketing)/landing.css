@@ -44,6 +44,41 @@
   font-size: 12px;
   font-weight: 400;
 }
+
+/*
+ * The design already solves the narrow viewport, inside its own 700px media
+ * query: `.hero-ctas button { padding-left:18px; padding-right:18px;
+ * font-size:12px }`, plus `.floating-label.second { display:none }`.
+ *
+ * It does not reach here. The design's calls to action are `<button>` elements
+ * because the prototype opens its own demo dialog from them. These are links,
+ * so they render as `<a>`, and a selector written for `button` matches nothing.
+ * The row stayed at its desktop width and both buttons were clipped by `.hero`'s
+ * own `overflow:hidden` at 390px, while the document still reported zero
+ * overflow at every width the scroll test measures.
+ *
+ * So the design's own rule is widened to the markup that actually exists,
+ * rather than replaced with a different layout. A rule scoped to one element
+ * name is a rule waiting to stop working.
+ */
+.hero-ctas button,
+.hero-ctas a {
+  padding-left: 18px;
+  padding-right: 18px;
+  font-size: 12px;
+}
+
+/*
+ * And they still cannot both fit at 320px. The design has no wrap, so the row
+ * is 264px wide with 315px of buttons inside it and both are pushed past the
+ * edge. Measured rather than assumed: at 375px the padding reduction above is
+ * enough and the row wraps to one line per button on its own; at 320px it is
+ * not. Wrapping is the minimal fix and changes nothing at desktop, where the
+ * two buttons fit comfortably on one line anyway.
+ */
+.hero-ctas {
+  flex-wrap: wrap;
+}
 html { scroll-behavior:smooth; scroll-padding-top:90px; }
 body { margin:0;background:var(--background);color:var(--foreground);font-family:var(--font-sans); -webkit-font-smoothing:antialiased; }
 h1,h2,h3,h4 { font-family:var(--font-display); } button,a { -webkit-tap-highlight-color:transparent; } button { cursor:pointer; } a { text-decoration:none; }

@@ -40,7 +40,7 @@ const QUESTIONS: readonly { question: string; answer: React.ReactNode }[] = [
       'Yes. Build a quiz once, then run it as a printable handout or an online activity. Scan the completed paper against the answer key and the marks go straight into the gradebook for that class.',
   },
   {
-    question: 'What can Liko make for a lesson?',
+    question: 'Can Liko create PowerPoint presentations?',
     answer:
       'Describe the lesson and Liko drafts a deck of slides you can edit, reorder and restyle yourself. You present from Liko, or print the deck to PDF from the browser. There is no PowerPoint file export, and that is deliberate rather than unfinished.',
   },

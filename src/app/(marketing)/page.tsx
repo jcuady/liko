@@ -33,7 +33,7 @@ import { BottomCta } from './components/landing/BottomCta';
 
 const TITLE = 'Liko. Less admin. More teaching.';
 const DESCRIPTION =
-  'Meet Liko. Your lessons, grades, quizzes and student insights, finally together. Built for preschool, grade school, high school and college teachers, with plans in Philippine pesos.';
+  'Make room for the teaching you love. Presentations, grades, insights and quizzes, in one teacher workspace. Made for every classroom, with plans in Philippine pesos.';
 
 export function generateMetadata(): Metadata {
   return {

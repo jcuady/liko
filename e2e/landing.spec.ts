@@ -128,6 +128,55 @@ test.describe('landing page', () => {
     }
   });
 
+  test.describe('nothing important is clipped', () => {
+    /*
+     * "No horizontal scroll" is not the same question as "nothing is cut off",
+     * and only one of the two was being asked. `.hero` carries
+     * `overflow:hidden`, so two call-to-action buttons that together are wider
+     * than a 390px phone were clipped at the panel edge while the document
+     * reported zero overflow at every width. The scroll check could never see
+     * it: the clipping happened inside a box that is not allowed to scroll.
+     *
+     * This asks the other question, of the elements that matter. Decorative
+     * overhang is exempt, because the design deliberately pushes the floating
+     * labels outside their container on a wide screen.
+     */
+    const widths = [320, 375, 768];
+
+    for (const width of widths) {
+      test(`primary calls to action stay inside the viewport at ${width}px`, async ({
+        page,
+      }) => {
+        await page.setViewportSize({ width, height: 900 });
+        await page.goto('/');
+        await page.waitForLoadState('networkidle');
+
+        const clipped = await page.evaluate((vw) => {
+          const names = [
+            'Start teaching with Liko',
+            'See Liko in action',
+            'Try Liko free',
+            'Get started for free',
+          ];
+          const bad: string[] = [];
+          for (const el of Array.from(document.querySelectorAll('a, button'))) {
+            const text = (el.textContent ?? '').trim();
+            if (!names.some((n) => text.includes(n))) continue;
+            const r = el.getBoundingClientRect();
+            if (r.width === 0 || r.height === 0) continue;
+            // 1px of tolerance for subpixel rounding at fractional widths.
+            if (r.left < -1 || r.right > vw + 1) {
+              bad.push(`${text.slice(0, 30)} [${Math.round(r.left)}..${Math.round(r.right)}]`);
+            }
+          }
+          return bad;
+        }, width);
+
+        expect(clipped, `clipped at ${width}px`).toEqual([]);
+      });
+    }
+  });
+
   test('the FAQ answers the money question, and says no card is taken', async ({ page }) => {
     await page.goto('/#faq');
     // Wait for hydration before clicking. The accordion is server-rendered, so
@@ -158,11 +207,18 @@ test.describe('landing page', () => {
      * product. The other half is still true and deliberate:
      * `slides/actions.ts` refuses to import or export `.pptx`. This pins both
      * halves so neither drifts again.
+     *
+     * The question is now the design's own wording, "Can Liko create PowerPoint
+     * presentations?", which asks the thing a visitor actually asks. The answer
+     * is unchanged and still the one the code supports.
      */
     await page.goto('/#faq');
     await page.waitForLoadState('networkidle');
 
-    await page.getByRole('button', { name: /What can Liko make for a lesson/i }).first().click();
+    await page
+      .getByRole('button', { name: /Can Liko create PowerPoint presentations/i })
+      .first()
+      .click();
 
     const panel = page.locator('#faq').getByRole('region').first();
     await expect(panel).toContainText('no PowerPoint file export');

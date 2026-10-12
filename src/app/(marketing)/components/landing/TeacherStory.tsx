@@ -38,7 +38,7 @@ export function TeacherStory() {
         </h2>
         <p className="section-copy">
           The question that sparks curiosity. The student who finally gets it. The
-          lesson that stays with them. That is what teaching is about.
+          lesson that stays with them. That’s what teaching is about.
         </p>
         <p className="section-copy mt-4">
           Liko takes care of the little things, so you can be there for the big ones,
