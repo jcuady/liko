@@ -25,7 +25,7 @@ import { LikoLogo } from '@/components/brand/LikoLogo';
 const LINKS: readonly { href: string; label: string }[] = [
   { href: '#features', label: 'Features' },
   { href: '#classrooms', label: 'For every teacher' },
-  { href: '#mobile', label: 'On the go' },
+  { href: '#mobile', label: 'Mobile app' },
   { href: '#pricing', label: 'Pricing' },
 ] as const;
 
@@ -101,9 +101,15 @@ export function MarketingNav() {
             </Link>
           </Button>
 
-          <Button asChild size="sm" className="rounded-pill">
+          {/*
+            * `max-sm` padding, not a shorter label. "Try Liko free" is five
+            * characters longer than the label it replaced and that was exactly
+            * the 5px of horizontal scroll it produced at 320px, with the whole
+            * nav row, not the landing sections, as the offender.
+            */}
+          <Button asChild size="sm" className="rounded-pill max-sm:px-2.5 max-sm:text-[13px]">
             <Link href="/register">
-              Start free
+              Try Liko free
               <ArrowUpRight aria-hidden="true" />
             </Link>
           </Button>
@@ -145,7 +151,7 @@ export function MarketingNav() {
               </ul>
               <Button asChild size="lg" className="mt-6">
                 <Link href="/register" onClick={() => setOpen(false)}>
-                  Start free
+                  Try Liko free
                 </Link>
               </Button>
             </SheetContent>

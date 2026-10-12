@@ -10,26 +10,22 @@ import {
   PLANS,
   formatPrice,
   priceFor,
+  priceNote,
   type Cycle,
 } from '@/app/pricing/plans';
-import { cn } from '@/lib/utils';
-import { SectionHeading } from '@/components/marketing/SectionHeading';
 
 /**
  * The landing page's pricing section, rendered from the same data as /pricing.
  *
- * THE DESIGN HAD ITS OWN PRICES. Three cards with peso figures and a caption
- * reading "Illustrative MVP pricing. No purchase or subscription is activated in
- * this demo", because in the prototype there was nothing behind them.
+ * THE DESIGN HAD ITS OWN PRICES AND ITS OWN DISCLAIMER. Three cards with peso
+ * figures and a caption reading "Illustrative MVP pricing. No purchase or
+ * subscription is activated in this demo", because in the prototype there was
+ * nothing behind them.
  *
  * That data is not copied. It reads `PLANS` from the pricing page, so there is
  * exactly one list of plans in the product and a change to a price reaches both
  * pages. Every card links to `/register?plan=<id>`, the same link the pricing
  * page uses, which is what `e2e/legal.spec.ts` checks are all legal ids.
- *
- * The annual figure is described honestly. A plan is charged once a year at the
- * annual rate, so the note says so rather than implying a monthly charge that is
- * not made.
  */
 
 const CYCLES: readonly { id: Cycle; label: string }[] = [
@@ -37,81 +33,71 @@ const CYCLES: readonly { id: Cycle; label: string }[] = [
   { id: 'annual', label: 'Yearly' },
 ] as const;
 
+/** The largest saving any plan offers, so the badge cannot disagree with the cards. */
+const BEST_SAVING = Math.max(
+  ...PLANS.map((plan) =>
+    plan.monthly <= 0 ? 0 : Math.round(((plan.monthly - plan.annual) / plan.monthly) * 100),
+  ),
+);
+
+const DESCRIPTIONS = [
+  'A fresh start for your classroom.',
+  'More possibility. Less busywork.',
+  'Better together, across your school.',
+] as const;
+
 export function LandingPricing() {
   const [cycle, setCycle] = React.useState<Cycle>('monthly');
-  const annual = cycle === 'annual';
 
   return (
-    <section id="pricing" aria-labelledby="pricing-heading" className="chapter">
-      <SectionHeading
-        eyebrow="A small investment. A bigger impact."
-        title={<span id="pricing-heading">Made for teachers. Priced for you.</span>}
-        copy="Start at no cost. Grow when you are ready. Plans are quoted in Philippine pesos, and no card is taken."
-      />
+    <section className="section page-width" id="pricing" aria-labelledby="pricing-heading">
+      <div className="section-heading">
+        <p className="section-tag">A small investment. A bigger impact.</p>
+        <h2 className="section-title">
+          <span id="pricing-heading">Made for teachers. Priced for you.</span>
+        </h2>
+        <p className="section-copy">
+          Start for free. Grow when you are ready.
+          <br />
+          Simple plans, in Philippine pesos.
+        </p>
+      </div>
 
-      <div className="my-7 flex flex-col items-center justify-center gap-3 sm:flex-row">
-        <div
-          role="group"
-          aria-label="Billing period"
-          className="flex rounded-full border border-border bg-surface-sunken p-1"
-        >
+      <div className="pricing-switch">
+        <div className="pricing-toggle" role="group" aria-label="Billing period">
           {CYCLES.map((option) => (
             <button
               key={option.id}
               type="button"
-              onClick={() => setCycle(option.id)}
+              data-active={option.id === cycle}
               aria-pressed={option.id === cycle}
-              className={cn(
-                'min-h-11 rounded-full px-4 text-[12px] lg:min-h-0 lg:h-9',
-                option.id === cycle
-                  ? 'bg-surface-raised text-ink shadow-sm'
-                  : 'text-ink-muted hover:text-ink',
-              )}
+              onClick={() => setCycle(option.id)}
             >
               {option.label}
             </button>
           ))}
         </div>
-        <span className="text-[11px] text-accent">Two months free on yearly</span>
+        <span className="save-label">Save {BEST_SAVING}% with yearly</span>
       </div>
 
-      <ul className="grid gap-5 md:grid-cols-3">
-        {PLANS.map((plan) => {
+      <div className="pricing-grid">
+        {PLANS.map((plan, index) => {
           const amount = priceFor(plan, cycle);
           const featured = Boolean(plan.recommended);
 
           return (
-            <li
-              key={plan.id}
-              className={cn(
-                'relative flex flex-col rounded-[8px] border p-7',
-                featured ? 'border-accent bg-accent-subtle' : 'border-border bg-surface-raised',
-              )}
-            >
-              {featured ? (
-                <span className="absolute right-5 top-6 text-[9px] font-bold uppercase tracking-[0.08em] text-accent">
-                  Teacher favorite
-                </span>
-              ) : null}
+            <article key={plan.id} className={`price-card${featured ? ' featured' : ''}`}>
+              {featured ? <span className="popular-label">Teacher favorite</span> : null}
 
-              <h3 className="mb-2 text-[18px]">{plan.name}</h3>
-              <p className="min-h-[22px] text-[12px] text-ink-muted">{plan.blurb}</p>
+              <h3>{plan.name}</h3>
+              <p className="price-description">{DESCRIPTIONS[index] ?? plan.blurb}</p>
 
-              <p className="my-4 font-display text-[42px] font-semibold leading-none">
+              <div className="price-amount">
                 {formatPrice(amount)}
-                <span className="font-sans text-[12px] font-normal text-ink-muted">
-                  {' '}
-                  / month
-                </span>
-              </p>
+                <span> / month</span>
+              </div>
 
-              <p className="mb-6 min-h-[16px] text-[10px] text-ink-muted">
-                {plan.unit === 'forever'
-                  ? 'Free, for as long as you need.'
-                  : annual
-                    ? `Charged ${formatPrice(amount * 12)} once a year.`
-                    : 'Charged every month. Leave whenever you like.'}
-              </p>
+              <p className="billing-note">{priceNote(plan, cycle)}</p>
 
               <Button asChild variant={featured ? 'primary' : 'secondary'} size="cta" block>
                 <Link href={`/register?plan=${plan.id}`}>
@@ -120,22 +106,20 @@ export function LandingPricing() {
                 </Link>
               </Button>
 
-              <ul className="mt-5 grid list-none gap-3.5 border-t border-border p-0 pt-5 text-[12px]">
+              <ul>
                 {plan.features.map((feature) => (
-                  <li key={feature} className="flex items-start gap-2">
-                    <Check size={13} className="mt-1 flex-none text-accent" aria-hidden="true" />
+                  <li key={feature}>
+                    <Check aria-hidden="true" />
                     {feature}
                   </li>
                 ))}
               </ul>
-            </li>
+            </article>
           );
         })}
-      </ul>
+      </div>
 
-      <p className="mx-auto mt-6 max-w-[640px] text-center text-[11px] leading-relaxed text-ink-muted">
-        {EARLY_ACCESS}
-      </p>
+      <p className="price-disclaimer">{EARLY_ACCESS}</p>
     </section>
   );
 }

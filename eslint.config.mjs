@@ -51,7 +51,7 @@ const eslintConfig = [
        * directory that should not be built, excluded from the module graph, or
        * kept out of version control, add it to all of them in the same commit.
        */
-      'Liko new landing design and branding/**',
+      'Liko new landing/**',
     ],
   },
 

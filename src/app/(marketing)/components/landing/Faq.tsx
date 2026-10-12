@@ -6,7 +6,6 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from '@/components/ui/accordion';
-import { SectionHeading } from '@/components/marketing/SectionHeading';
 
 /**
  * The questions a school actually asks before signing a teacher up.
@@ -73,13 +72,13 @@ const QUESTIONS: readonly { question: string; answer: React.ReactNode }[] = [
 
 export function Faq() {
   return (
-    <section id="faq" aria-labelledby="faq-heading" className="chapter mx-auto w-full max-w-[760px]">
-      <SectionHeading
-        align="start"
-        eyebrow="A few things you might be wondering"
-        title={<span id="faq-heading">Good questions. Clear answers.</span>}
-        className="mb-8"
-      />
+    <section className="section page-width faq-section" id="faq" aria-labelledby="faq-heading">
+      <div className="section-heading mb-8">
+        <p className="section-tag">A few things you might be wondering</p>
+        <h2 className="section-title">
+          <span id="faq-heading">Good questions. Clear answers.</span>
+        </h2>
+      </div>
 
       <Accordion type="single" collapsible>
         {QUESTIONS.map((item) => (

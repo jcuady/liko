@@ -1,7 +1,5 @@
 import Image from 'next/image';
 
-import { SectionHeading } from '@/components/marketing/SectionHeading';
-
 /**
  * The teacher story. The one photograph on the page, and the only place LIKO
  * talks about the job rather than the software.
@@ -19,46 +17,39 @@ const VALUES = [
 
 export function TeacherStory() {
   return (
-    <section
-      id="story"
-      aria-labelledby="story-heading"
-      className="chapter grid items-center gap-8 md:grid-cols-2 md:gap-[70px] md:pt-0"
-    >
+    <section className="section page-width teacher-story" id="story" aria-labelledby="story-heading">
       <Image
         src="/classroom.jpg"
-        alt="A teacher working through a lesson with a group of students in a classroom"
+        alt="A Filipino teacher helping students learn together in a classroom"
         width={1440}
         height={1024}
         loading="lazy"
-        className="h-[280px] w-full rounded-[8px] object-cover md:h-[370px]"
+        className="teacher-photo"
       />
 
       <div>
-        <SectionHeading
-          align="start"
-          eyebrow="Made for the moments that matter"
-          title={
-            <span id="story-heading">
-              Your best work happens
-              <br />
-              beyond the paperwork.
-            </span>
-          }
-        />
-        <p className="mt-4 max-w-[560px] text-[14px] leading-[1.75] text-ink-muted">
+        <p className="section-tag">Made for the moments that matter</p>
+        <h2 className="section-title">
+          <span id="story-heading">
+            Your best work happens
+            <br />
+            beyond the paperwork.
+          </span>
+        </h2>
+        <p className="section-copy">
           The question that sparks curiosity. The student who finally gets it. The
           lesson that stays with them. That is what teaching is about.
         </p>
-        <p className="mt-4 max-w-[560px] text-[14px] leading-[1.75] text-ink-muted">
+        <p className="section-copy mt-4">
           Liko takes care of the little things, so you can be there for the big ones,
           whatever age you teach.
         </p>
 
-        <dl className="mt-7 flex gap-7">
+        <dl className="teacher-values">
           {VALUES.map((value) => (
             <div key={value.strong}>
-              <dt className="font-display text-[21px] font-semibold">{value.strong}</dt>
-              <dd className="text-[11px] text-ink-muted">{value.span}</dd>
+              <strong>{value.strong}</strong>
+              <span>{value.span}</span>
             </div>
           ))}
         </dl>

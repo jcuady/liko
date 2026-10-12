@@ -100,4 +100,4 @@ sohne-font-family/
 # All four have to agree on this list. It was missing from eslint.config.mjs, so
 # `pnpm lint` had been reporting 18 errors and 7 warnings from files this product
 # never builds, serves or ships.
-Liko new landing design and branding/
+Liko new landing/

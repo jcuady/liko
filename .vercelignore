@@ -23,4 +23,4 @@ test-results
 # Large local artefacts that are not part of the application.
 *.tsbuildinfo
 # The supplied brand prototype. Not part of the deployed app.
-Liko new landing design and branding
+Liko new landing

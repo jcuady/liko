@@ -1,6 +1,8 @@
 import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 
+import './landing.css';
+
 import { MarketingNav } from '@/components/layout/MarketingNav';
 import { Footer } from '@/components/layout/Footer';
 import { getSession } from '@/lib/auth/guards';
@@ -86,7 +88,7 @@ export default async function LandingPage() {
         sticky nav inside it resolves against the nearest scrollport. A scrollport
         that never scrolls means sticky never sticks.
       */}
-      <main id="main" className="overflow-x-clip">
+      <main id="main">
         <Hero />
         <TeacherLevels />
         <FeaturesShowcase />

@@ -14,7 +14,7 @@ test.describe('landing page', () => {
     await expect(h1).toContainText('Less admin.');
     await expect(h1).toContainText('More teaching.');
 
-    const cta = page.getByRole('link', { name: 'Start free' }).first();
+    const cta = page.getByRole('link', { name: 'Try Liko free' }).first();
     await expect(cta).toBeVisible();
   });
 
@@ -61,7 +61,7 @@ test.describe('landing page', () => {
   test('the primary CTA routes to registration', async ({ page }) => {
     await page.goto('/');
     await page
-      .getByRole('link', { name: 'Start free' })
+      .getByRole('link', { name: 'Try Liko free' })
       .first()
       .click();
     await expect(page).toHaveURL(/\/register/);
