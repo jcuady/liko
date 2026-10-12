@@ -1,5 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 
+import { chooseOption, chosenValue } from './helpers/select';
+
 /**
  * The slide editor, on a real deck, with no AI call.
  *
@@ -84,9 +86,9 @@ async function changeWeight(page: Page): Promise<string> {
   const weight = page.getByLabel('Weight');
   await expect(weight).toBeVisible();
 
-  const current = await weight.inputValue();
+  const current = await chosenValue(page, weight);
   const target = current === 'bold' ? 'medium' : 'bold';
-  await weight.selectOption(target);
+  await chooseOption(page, weight, target);
   return target;
 }
 /*

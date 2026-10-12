@@ -1,5 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 
+import { optionEntries, optionLabels } from './helpers/select';
+
 /**
  * Bringing a real file into a real deck.
  *
@@ -125,7 +127,7 @@ test.describe('bringing a file into a deck', () => {
   test('keeps an image as an image and offers it on the slide', async ({ page }) => {
     const picker = page.getByLabel('Image', { exact: true });
     await expect(picker).toBeVisible();
-    const before = await picker.locator('option').count();
+    const before = (await optionEntries(page, picker)).length;
 
     await page.getByLabel('Choose a file').setInputFiles({
       name: 'leaf-cell.png',
@@ -137,11 +139,16 @@ test.describe('bringing a file into a deck', () => {
     await expect(page.getByText('leaf-cell.png uploaded. It is ready to place on a slide.')).toBeVisible();
 
     // The proof that the bytes were stored and not merely accepted: the deck's
-    // own image picker has gained the file it just uploaded.
+    // own image picker has gained the file it just uploaded. The listbox only
+    // exists while the picker is open, so each poll opens and reads it again
+    // rather than holding a snapshot of a listbox that has since unmounted.
     await expect
-      .poll(async () => picker.locator('option').count())
+      .poll(async () => (await optionEntries(page, picker)).length)
       .toBe(before + 1);
-    await expect(picker.locator('option', { hasText: 'leaf-cell.png' })).toHaveCount(1);
+    const uploaded = (await optionLabels(page, picker)).filter((label) =>
+      label.includes('leaf-cell.png'),
+    );
+    expect(uploaded).toHaveLength(1);
   });
 
   test('a scanned PDF is refused in words rather than imported empty', async ({ page }) => {

@@ -1,5 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 
+import { chooseOption } from './helpers/select';
+
 /**
  * The administration console.
  *
@@ -61,19 +63,27 @@ test.describe('the people list', () => {
       await expect(page.getByText(person, { exact: true })).toBeVisible();
     }
 
-    // Read from the control rather than from the page text: the option labels
-    // live inside a closed select and are not visible on their own.
+    // Read the control rather than the page text. This was written when the role
+    // picker was a native `<select>` and its options were invisible until it was
+    // opened; it is now a Radix select, so the closed trigger shows the label the
+    // admin is looking at and the slug is only reachable through the listbox. The
+    // labels are asserted because that is what a role is read as in the product,
+    // and `chooseOption` below still drives it by the stored slug.
     const row = (name: string) => page.getByRole('listitem').filter({ hasText: name });
-    await expect(row('Dev Ramanathan').getByLabel(/Role for/)).toHaveValue('admin');
-    await expect(row('Maya Okonkwo').getByLabel(/Role for/)).toHaveValue('instructor');
-    await expect(row('Noor Haddad').getByLabel(/Role for/)).toHaveValue('student');
-    await expect(row('Priya Raman').getByLabel(/Role for/)).toHaveValue('guardian');
+    await expect(row('Dev Ramanathan').getByLabel(/Role for/)).toHaveText('Administrator');
+    await expect(row('Maya Okonkwo').getByLabel(/Role for/)).toHaveText('Teacher');
+    await expect(row('Noor Haddad').getByLabel(/Role for/)).toHaveText('Student');
+    await expect(row('Priya Raman').getByLabel(/Role for/)).toHaveText('Parent or guardian');
   });
 
   test('a role change reaches the account it was applied to', async ({ page }) => {
     const row = page.getByRole('listitem').filter({ hasText: 'Ingrid Halvorsen' });
-    await row.getByLabel(/Role for/).selectOption('admin');
+    const roleForIngrid = row.getByLabel(/Role for/);
+    await chooseOption(page, roleForIngrid, 'admin');
 
+    // The label moves with the write, so the assertion is on what is now shown
+    // rather than on a toast that a previous mutation could also have produced.
+    await expect(roleForIngrid).toHaveText('Administrator');
     await expect(page.getByText('Role updated.')).toBeVisible();
 
     // The point of the change: Ingrid can now open the page a teacher cannot.
@@ -92,7 +102,8 @@ test.describe('the people list', () => {
     ).toBeVisible();
 
     // Put her back so the run does not depend on its own earlier mutation.
-    await row.getByLabel(/Role for/).selectOption('instructor');
+    await chooseOption(page, roleForIngrid, 'instructor');
+    await expect(roleForIngrid).toHaveText('Teacher');
     await expect(page.getByText('Role updated.')).toBeVisible();
     await asIngrid.close();
   });
@@ -105,7 +116,7 @@ test.describe('the people list', () => {
   test('the only administrator cannot be demoted or suspended', async ({ page }) => {
     const row = page.getByRole('listitem').filter({ hasText: 'Dev Ramanathan' });
 
-    await expect(row.getByLabel(/Role for/)).toHaveValue('admin');
+    await expect(row.getByLabel(/Role for/)).toHaveText('Administrator');
     await expect(row.getByRole('button', { name: 'Suspend' })).toBeDisabled();
     await expect(row.getByText('You')).toBeVisible();
   });

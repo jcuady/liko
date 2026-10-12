@@ -1,5 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 
+import { chooseOption } from './helpers/select';
+
 /**
  * First-run setup.
  *
@@ -37,7 +39,7 @@ test.describe('the three questions', () => {
     // Step 1: what do you teach.
     await page.getByLabel('School or institution').fill('Ravensmoor College');
     await page.getByLabel('Subjects').fill('Physics, AP Physics');
-    await page.getByLabel('Level you usually teach').selectOption('k12');
+    await chooseOption(page, page.getByLabel('Level you usually teach'), 'k12');
     await page.getByRole('button', { name: 'Continue' }).click();
 
     // Step 2: how do you grade. Each scale says what it actually awards, so a
@@ -85,7 +87,9 @@ test.describe('the three questions', () => {
     // The choice has to survive the trip to the gradebook, or a GWA transcript
     // quietly comes out as a percentage one.
     await page.goto('/grades');
-    await expect(page.getByLabel('Show as')).toHaveValue('gpa');
+    // The scale filter is a Radix select, so the choice it shows is the label on the
+    // closed trigger rather than a stored value on a form control.
+    await expect(page.getByLabel('Show as')).toHaveText('GPA');
   });
 
   test('progress is saved as it goes, so closing the tab loses nothing', async ({

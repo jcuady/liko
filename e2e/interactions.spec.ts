@@ -1,5 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 
+import { chooseOption, optionEntries, optionLabels } from './helpers/select';
+
 /**
  * The interactive surface, driven the way a teacher drives it.
  *
@@ -47,7 +49,7 @@ test.describe('roster management', () => {
 
     await page.getByLabel('Class name').fill('Test Physics, Period 6');
     await page.getByLabel('Short code').fill(code);
-    await page.getByLabel('Level').selectOption('university');
+    await chooseOption(page, page.getByLabel('Level'), 'university');
     await page.getByLabel('Lessons per week').fill('2');
 
     await page.getByRole('button', { name: 'Create class' }).click();
@@ -188,10 +190,12 @@ test.describe('gradebook', () => {
     await expect(scale).toBeVisible();
 
     const before = await page.locator('main').innerText();
-    const options = await scale.locator('option').allTextContents();
+    const options = await optionEntries(page, scale);
     expect(options.length).toBeGreaterThan(1);
 
-    await scale.selectOption({ index: 1 });
+    // The second option, chosen by the value the control stores rather than by a
+    // label copied here, so a reworded scale name does not break the selection.
+    await chooseOption(page, scale, options[1].value);
     await expect(page.locator('main')).not.toHaveText(before);
     await expect(page.getByRole('table')).toBeVisible();
   });
@@ -202,7 +206,7 @@ test.describe('gradebook', () => {
    * a constant list in code.
    */
   test('the scale selector offers every grading system', async ({ page }) => {
-    const options = await page.getByLabel('Show as').locator('option').allTextContents();
+    const options = await optionLabels(page, page.getByLabel('Show as'));
 
     expect(options).toContain('Percentage');
     expect(options).toContain('Letter');
@@ -212,7 +216,7 @@ test.describe('gradebook', () => {
   });
 
   test('choosing GWA relabels the marks and the totals', async ({ page }) => {
-    await page.getByLabel('Show as').selectOption('gwa');
+    await chooseOption(page, page.getByLabel('Show as'), 'gwa');
     // The header states the scale in use, so the change is not silent.
     await expect(page.getByText(/values shown as gwa/i)).toBeVisible();
 
@@ -227,7 +231,7 @@ test.describe('gradebook', () => {
     // Disabled while the selection already matches what the class is using.
     await expect(apply).toBeDisabled();
 
-    await page.getByLabel('Show as').selectOption('letter');
+    await chooseOption(page, page.getByLabel('Show as'), 'letter');
     await expect(apply).toBeEnabled();
     await apply.click();
 
@@ -258,16 +262,16 @@ test.describe('gradebook', () => {
     await create.click();
 
     await expect(page.getByText('created.')).toBeVisible();
-    await expect(page.getByLabel('Show as').locator('option')).toContainText([
-      'Distinction Pass Refer',
-    ]);
+    // The new scale is authored into the same list, so it has to appear there as
+    // a selectable entry rather than only as a success toast.
+    const scales = await optionLabels(page, page.getByLabel('Show as'));
+    expect(scales).toContain('Distinction Pass Refer');
   });
 
   test('the class filter is present and selectable', async ({ page }) => {
     const select = page.getByLabel('Class');
     await expect(select).toBeVisible();
-    const options = await select.locator('option').count();
-    expect(options).toBeGreaterThan(0);
+    expect((await optionEntries(page, select)).length).toBeGreaterThan(0);
   });
 });
 
@@ -294,7 +298,9 @@ test.describe('history timeline', () => {
 
     const kind = page.getByLabel('Kind');
     await expect(kind).toBeVisible();
-    const options = await kind.locator('option').allTextContents();
+    // Asserted as an exact list because a severity added without a thought is a
+    // severity a teacher can file against but nobody has agreed to.
+    const options = await optionLabels(page, kind);
     expect(options).toEqual(['Note', 'Praise', 'Concern', 'Intervention']);
   });
 
@@ -304,7 +310,7 @@ test.describe('history timeline', () => {
 
     const entry = `Rewrote the lab method ${Date.now().toString().slice(-5)}`;
     await page.getByLabel('Entry').fill(entry);
-    await page.getByLabel('Kind').selectOption('praise');
+    await chooseOption(page, page.getByLabel('Kind'), 'praise');
     await page.getByRole('button', { name: 'Add entry' }).click();
 
     await expect(page.getByText('Entry added.')).toBeVisible();
@@ -349,8 +355,10 @@ test.describe('profile', () => {
     await expect(page.getByLabel('Subjects')).toHaveValue(
       'Chemistry, Environmental Science',
     );
-    await expect(page.getByLabel('Level you usually teach')).toHaveValue('k12');
-    await expect(page.getByLabel('Default scale')).toHaveValue('percentage');
+    // The level and the scale are Radix selects, so what the profile shows is the
+    // label on the closed trigger rather than a stored value on a form control.
+    await expect(page.getByLabel('Level you usually teach')).toHaveText('K to 12');
+    await expect(page.getByLabel('Default scale')).toHaveText('Percentage');
   });
 
   test('the save button is inert until something changes', async ({ page }) => {
@@ -375,7 +383,7 @@ test.describe('profile', () => {
     await signIn(page);
     await page.goto('/settings/profile');
 
-    const options = await page.getByLabel('Default scale').locator('option').allTextContents();
+    const options = await optionLabels(page, page.getByLabel('Default scale'));
     expect(options).toContain('GWA');
     expect(options).toContain('GPA');
   });

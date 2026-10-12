@@ -1,5 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 
+import { chooseOption, optionEntries } from './helpers/select';
+
 /**
  * The quiz maker and the sheet reader.
  *
@@ -207,14 +209,17 @@ test.describe('the quiz maker', () => {
     await expect(page.getByText('Question 1', { exact: true }).first()).toBeVisible();
     // Both kinds have to be present, because they are marked by different rules
     // and a builder that only ever produced one of them would be untested on
-    // the other half of the feature. The kind is a per-question select, so read
-    // the values: the option text is on every question's dropdown whether or not
-    // that question is a multiple select, and asserting on it proves nothing.
-    const kinds = await page
-      .getByLabel(/^Question \d+ type$/)
-      .evaluateAll((nodes) => nodes.map((node) => (node as HTMLSelectElement).value));
+    // the other half of the feature. The kind is a per-question Radix select, so
+    // it is read from the closed trigger, which shows only the kind that
+    // question currently holds. Reading the listbox instead would prove nothing,
+    // because every question's listbox offers both labels whether or not that
+    // question is a multiple select.
+    const kinds = await page.getByLabel(/^Question \d+ type$/).allInnerTexts();
 
-    expect([...new Set(kinds)].sort()).toEqual(['multiple', 'single']);
+    expect([...new Set(kinds.map((text) => text.trim()))].sort()).toEqual([
+      'Multiple select',
+      'Single choice',
+    ]);
   });
 
   test('a question can be written, answered and saved', async ({ page }) => {
@@ -283,13 +288,20 @@ test.describe('reading a marked sheet', () => {
      * it was, and the mark is still saved only after the teacher confirms it.
      */
     const preSelected = page.getByLabel('Whose sheet is this?');
-    await expect(preSelected).toHaveValue(/.+/);
-    await expect(preSelected.locator('option:checked')).toHaveText('Dmitri Volkov');
+    // Two separate assertions, because they fail differently. The placeholder is
+    // gone means a student was picked at all; the name means the code picked the
+    // right one. Collapsing them into one would hide which half broke.
+    await expect(preSelected).not.toHaveText('Choose a student');
+    await expect(preSelected).toHaveText('Dmitri Volkov');
     await expect(page.getByText(/Code 03 on the sheet picked this/)).toBeVisible();
 
-    const student = await page.getByLabel('Whose sheet is this?').locator('option').nth(1);
-    const studentName = (await student.innerText()).trim();
-    await page.getByLabel('Whose sheet is this?').selectOption(await student.getAttribute('value'));
+    // The roster is read from the open listbox because a closed Radix select has
+    // no option elements in the DOM, and the teacher is moved off the automatic
+    // pick to prove the corrected selection is the one that gets saved.
+    const roster = await optionEntries(page, preSelected);
+    const studentName = roster[1].label;
+    await chooseOption(page, preSelected, roster[1].value);
+    await expect(preSelected).toHaveText(studentName);
 
     await page.getByRole('button', { name: /Save result/i }).click();
     await expect(page.getByText(new RegExp(`${score} out of ${max} recorded`))).toBeVisible();
