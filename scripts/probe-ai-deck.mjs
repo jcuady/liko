@@ -76,40 +76,60 @@ try {
 
   if (!response.ok) {
     const body = await response.json().catch(() => null);
-    process.stdout.write(
-      `FAIL  the provider answered ${response.status}: ${String(body?.error?.message ?? '').slice(0, 240)}\n`,
-    );
+    const detail = `HTTP ${response.status} ${String(body?.error?.message ?? '').slice(0, 200)}`;
+    /*
+     * Register it with `check`, not a bare write.
+     *
+     * The first version of this fix printed the failure and set
+     * `process.exitCode = 1`, then fell through to the summary, which does
+     * `process.exitCode = failed === 0 ? 0 : 1`. Nothing had been added to
+     * `results`, so `failed` was 0 and the summary reset the code to 0. A probe
+     * that refused the provider printed a clear FAIL and then exited 0, which is
+     * worse than the crash it replaced: the crash at least failed the command.
+     * Every path has to go through `check` so the tally sees it.
+     */
+    check('the provider answered', false, detail);
+
     if (response.status === 429) {
       process.stdout.write('      429 is a quota or rate refusal, which is a NORMAL state on a free tier.\n');
     }
-    process.exit(1);
+    if (response.status === 503) {
+      process.stdout.write(
+        '      503 means the model is listed but at capacity. Being listed is not the\n' +
+          '      same as being able to answer; probe:gemini reports the same thing.\n',
+      );
+    }
+  } else {
+    const body = await response.json();
+    const raw = body?.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
+    const elapsed = Date.now() - started;
+
+    check('the provider answered', Boolean(raw.trim()), `${Math.round(elapsed / 100) / 10}s`);
+    check(
+      'it reported token usage, which is what the quota is billed against',
+      typeof body?.usageMetadata?.candidatesTokenCount === 'number',
+      `prompt ${body?.usageMetadata?.promptTokenCount ?? '?'}, output ${body?.usageMetadata?.candidatesTokenCount ?? '?'}`,
+    );
+
+    /*
+     * Hand the raw answer to the real validator.
+     *
+     * Everything that decides whether a model response is usable lives in
+     * `buildDeckFromOutline`, behind an alias Node cannot resolve. Checking it
+     * here would mean a second copy of the rules, and a second copy is a second
+     * thing to be wrong. So the response is written out and
+     * `src/lib/slides/live-response.test.ts` runs the REAL function over it.
+     */
+    mkdirSync(tmpdir(), { recursive: true });
+    writeFileSync(
+      CACHE,
+      JSON.stringify({ raw, elapsedMs: elapsed, usage: body?.usageMetadata ?? null }, null, 2),
+    );
+    process.stdout.write(`      wrote ${CACHE}\n`);
+    process.stdout.write(
+      `      now run: pnpm exec vitest run src/lib/slides/live-response.test.ts\n`,
+    );
   }
-
-  const body = await response.json();
-  const raw = body?.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
-  const elapsed = Date.now() - started;
-
-  check('the provider answered', Boolean(raw.trim()), `${Math.round(elapsed / 100) / 10}s`);
-  check(
-    'it reported token usage, which is what the quota is billed against',
-    typeof body?.usageMetadata?.candidatesTokenCount === 'number',
-    `prompt ${body?.usageMetadata?.promptTokenCount ?? '?'}, output ${body?.usageMetadata?.candidatesTokenCount ?? '?'}`,
-  );
-
-
-  /*
-   * Hand the raw answer to the real validator.
-   *
-   * Everything that decides whether a model response is usable lives in
-   * `buildDeckFromOutline`, behind an alias Node cannot resolve. Checking it
-   * here would mean a second copy of the rules, and a second copy is a second
-   * thing to be wrong. So the response is written out and
-   * `src/lib/slides/live-response.test.ts` runs the REAL function over it.
-   */
-  mkdirSync(tmpdir(), { recursive: true });
-  writeFileSync(CACHE, JSON.stringify({ raw, elapsedMs: elapsed, usage: body?.usageMetadata ?? null }, null, 2));
-  process.stdout.write(`      wrote ${CACHE}\n`);
-  process.stdout.write(`      now run: pnpm exec vitest run src/lib/slides/live-response.test.ts\n`);
 } catch (error) {
   check('the probe ran to completion', false, String(error).slice(0, 200));
 }

@@ -81,6 +81,7 @@ sohne-font-family/
 .class-check.mjs
 .fix-displayname.mjs
 .probe-radix.mjs
+.probe-models.mjs
 
 # Commit message written to a file and piped in with `git commit -F`. PowerShell
 # mangles backticks and quotes inside a double-quoted argument, and this
