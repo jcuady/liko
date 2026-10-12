@@ -101,3 +101,10 @@ sohne-font-family/
 # `pnpm lint` had been reporting 18 errors and 7 warnings from files this product
 # never builds, serves or ships.
 Liko new landing/
+
+# Session scratch: screenshot and completeness probes.
+.live-shots.mjs
+
+# Session scratch: screenshot and completeness probes.
+.completeness.mjs
+.live-*.png
