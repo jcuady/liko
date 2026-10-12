@@ -114,6 +114,102 @@ acknowledged a save it never performed, and it was reachable and authenticated
 while telling a teacher their register had been written. Attendance is a server
 action instead, so the write and the session that authorised it travel together.
 
+## Gate results are recorded, not just claimed
+
+`pnpm gates` runs every gate as the package script and writes
+`docs/evidence/gates.json`: each gate's real exit code, how long it took, a
+short redacted tail of its output, and whether it passed, failed or was
+blocked. Thirty runs are kept.
+
+It exists because gate results were living only in a chat transcript. A
+transcript cannot be re-read by somebody with no database credentials and no
+time for a three minute Playwright run, and it cannot be diffed between one
+run and the next. A result nobody can inspect is a claim.
+
+**Blocked is not failed, and a blocked run never replaces a pass.**
+`probe:ai` depends on a third party's free tier. When that tier is exhausted the
+gate measures nothing, and a blocked run is not a weaker measurement, it is *no*
+measurement. Writing it over a previous pass would destroy the proof of the
+last run that actually proved something. So a blocked or failed gate leaves any
+earlier pass for that gate intact under `lastPassing`, the run as a whole is
+still reported as not clean, and the script exits non-zero.
+
+**The recorder is held to the same rule as everything else here.** Three bugs
+in it are worth recording, because each one had it reporting a result about the
+product while running something else entirely:
+
+- Pointing at `pnpm` on Windows spawns nothing, because `pnpm` is a `.ps1` shim
+  that `execFileSync` refuses. Every gate "failed" in zero milliseconds.
+- Pointing at `pnpm.cmd` gives `spawnSync EINVAL`, because a batch script is not
+  a native executable.
+- Quoting the arguments, which looks safer, is what finally made it wrong in an
+  interesting way: `pnpm.cmd "lint"` is not the lint script, it is a request to
+  pnpm to execute a command called `lint`. cmd fell through to whatever else
+  named `lint` was on PATH, here Android's `lint.bat`, and the recorder filed
+  that as a failure of this project's lint gate.
+
+The third one is the general shape. `check:sql` was failing for exactly the same
+reason at the same time, which is the detail that makes it obvious it was the
+recorder rather than the product: two unrelated gates do not break together. A
+gate that fails in a suspiciously uniform, very short time is a gate that never
+ran, and `error` is recorded separately from `fail` so that case is visible
+rather than inferred.
+
+**The scrubber that keeps keys out of the committed file is itself a gate.**
+`docs/evidence/gates.json` records output from gates that run with the
+Supabase service role key and the Gemini API key, so `scripts/lib/redact.mjs`
+is the only thing between that output and permanent git history. It was a
+private function inside the recorder, which meant it could not be tested at
+all: importing that module runs every gate. It is now its own module, and
+`pnpm check:redaction` proves it still scrubs.
+
+It exists because the original check of it was worse than no check. The pattern
+`(sb_secret|sbp_[A-Za-z0-9]{20,})` matched only the literal word `sb_secret`,
+so a written-out service key came out as `[redacted-key]_abcdef01...`: forty
+characters of the live key still in the file. The test that should have caught
+it searched the output for the *whole* original secret, which that partial
+replacement had already destroyed, so it passed over the leak. The test now
+looks for any surviving ten character fragment, because no partial
+replacement can satisfy that. Reintroducing the defect makes the gate name 32
+surviving fragments and exit 1.
+
+The general rule is the one the anchor check below also got wrong: **a check
+that searches for the thing it meant to remove will confirm its own partial
+removal.** Ask what fragment could survive, not what string you expected to
+see.
+
+**A blocked run was proven to keep the previous pass, not assumed to.**
+`lastPassing` was written, reviewed and reasoned about without ever firing,
+because no earlier run happened to include `probe:ai`. A seeded synthetic pass
+followed by a real blocked run confirmed the prior pass survives into
+`lastPassing` with its own timestamp and commit, and the synthetic record was
+then removed so it never shipped as if it were a real measurement. Structural
+guarantees in code are worth reading; behaviour in code is worth running.
+
+**Three footer links were dead in production and the anchor check was green
+throughout.** Rebuilding the landing page on the supplied design renamed its
+sections to `flow`, `classrooms`, `features`, `story`, `mobile`, `pricing` and
+`faq`. The footer still pointed at `#modules` and `#proof`, which had never been
+the name of anything and were already dead once before. The end-to-end test
+`every in-page anchor resolves to a real section` selects `a[href^="#"]`.
+
+It missed them because the footer writes `/#modules`, not `#modules`. That is
+deliberate and correct: bare `#flow` resolves against whatever page it renders
+on, so one footer can serve `/`, `/pricing` and the legal pages. The fix that
+made the footer correct is what moved its links outside the selector the test
+was written against.
+
+The test now matches `a[href^="/#"]` as well, reduces both spellings to a
+fragment, and asserts it looked at something rather than passing vacuously on
+zero anchors. Pointing it at `/#nowhere-exists` makes it name the fragment and
+fail.
+
+**A check scoped to the syntax it was written for stops covering the links the
+moment somebody fixes them a different way.** Nothing about the footer's
+behaviour changed; only its spelling did, and that was enough to take it out of
+sight. Ask what shape the thing can take, not the shape it had when the check
+was written.
+
 ## The API seam
 
 The masterplan places persistence behind an external API and explicitly forbids

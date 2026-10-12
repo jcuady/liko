@@ -25,6 +25,22 @@ import { LikoLogo } from '@/components/brand/LikoLogo';
  * pretending to be compliance information is worse than no footer links, so they
  * now point at documents that exist, and the compliance claim links to the
  * document that actually makes it.
+ *
+ * WHY THE PRODUCT ANCHORS NOW POINT AT SECTIONS THAT EXIST. Removing that
+ * Company column fixed two dead links and left the same two dead targets sitting
+ * in the Product column, because `modules` and `proof` were never the names of
+ * anything. When the landing page was rebuilt on the supplied design its sections
+ * became `flow`, `classrooms`, `features`, `story`, `mobile`, `pricing` and
+ * `faq`, and the footer was not updated to match. "Modules" now points at the
+ * feature tabs and "Why teachers switch" at the teacher's own account of the
+ * work, which is what those sections actually say.
+ *
+ * These three shipped dead to production and the end-to-end anchor check passed
+ * throughout, because it selects `a[href^="#"]` and the switch to absolute
+ * anchors above moved every one of them out of that selector. A check scoped to
+ * the syntax it was written for stops covering the links the moment someone
+ * fixes them a different way. `e2e/landing.spec.ts` now matches `a[href^="/#"]`
+ * as well, and resolves it against the landing page.
  */
 
 type FooterContext = 'marketing' | 'legal';
@@ -59,8 +75,8 @@ const PRODUCT: Column = {
   heading: 'Product',
   links: [
     { href: '/#flow', label: 'The Flow' },
-    { href: '/#modules', label: 'Modules' },
-    { href: '/#proof', label: 'Why teachers switch' },
+    { href: '/#features', label: 'Modules' },
+    { href: '/#story', label: 'Why teachers switch' },
     { href: '/pricing', label: 'Pricing' },
   ],
 };

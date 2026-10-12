@@ -46,7 +46,17 @@ function FloatingLabel({
 
 export function Hero() {
   return (
-    <section className="mx-2.5 mt-2.5 overflow-hidden rounded-[14px] md:mx-6 md:rounded-[20px]">
+    /*
+     * `id="flow"` is what the footer's "The Flow" link points at. The old page
+     * had a section by that name; the rebuilt one did not, so the link went
+     * nowhere. "Every teaching task, in one flow" is still the product's own
+     * tagline, and this section is where that promise is made, so the anchor
+     * belongs here rather than the link being repointed at something unrelated.
+     */
+    <section
+      id="flow"
+      className="mx-2.5 mt-2.5 overflow-hidden rounded-[14px] md:mx-6 md:rounded-[20px]"
+    >
       <div className="forest-panel forest-grid min-h-[690px] md:min-h-[720px]">
         <div className="relative z-10 mx-auto max-w-[850px] px-5 pt-11 md:pt-12">
           <p className="inline-flex items-center gap-2 rounded-full border border-hero-border px-3 py-[7px] text-[10px] font-semibold uppercase tracking-[0.11em]">

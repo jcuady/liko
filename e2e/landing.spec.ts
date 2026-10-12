@@ -79,14 +79,33 @@ test.describe('landing page', () => {
   test('every in-page anchor resolves to a real section', async ({ page }) => {
     await page.goto('/');
 
-    const anchors = await page.locator('a[href^="#"]').evaluateAll((nodes) =>
-      nodes
-        .map((node) => node.getAttribute('href') ?? '')
-        .filter((href) => href.length > 1),
-    );
+    /*
+     * Both spellings, not just the bare one. `a[href^="#"]` matches only
+     * `#features`, and the footer deliberately writes `/#features` so the same
+     * footer works from `/pricing` and the legal pages. That deliberate change
+     * moved every footer anchor outside this selector, which is how three dead
+     * footer links (`/#flow`, `/#modules`, `/#proof`) reached production while
+     * this test stayed green through every run. A check scoped to the syntax it
+     * was written for stops covering the links the moment someone fixes them a
+     * different way.
+     *
+     * On `/`, a `/#anchor` resolves against this same page, so both forms are
+     * reduced to a fragment and looked up here.
+     */
+    const anchors = await page
+      .locator('a[href^="#"], a[href^="/#"]')
+      .evaluateAll((nodes) =>
+        nodes
+          .map((node) => node.getAttribute('href') ?? '')
+          .filter((href) => href.length > 1),
+      );
 
-    for (const href of new Set(anchors)) {
-      await expect(page.locator(href)).toHaveCount(1);
+    const fragments = new Set(anchors.map((href) => href.replace(/^\//, '')));
+
+    expect(fragments.size).toBeGreaterThan(0);
+
+    for (const fragment of fragments) {
+      await expect(page.locator(fragment), `${fragment} should resolve`).toHaveCount(1);
     }
   });
 
