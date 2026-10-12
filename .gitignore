@@ -108,3 +108,4 @@ Liko new landing/
 # Session scratch: screenshot and completeness probes.
 .completeness.mjs
 .live-*.png
+.shot-*.png
