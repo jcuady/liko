@@ -74,7 +74,7 @@ export function MarketingNav() {
   return (
     <header className="sticky top-0 z-40 border-b border-border bg-[var(--surface)]/85 backdrop-blur-lg">
       <nav
-        aria-label="Main"
+        aria-label="Main navigation"
         className="container-marketing flex h-[74px] items-center justify-between gap-6 md:h-[88px]"
       >
         <Link href="/" className="shrink-0" aria-label="Liko home">
@@ -120,13 +120,13 @@ export function MarketingNav() {
                 variant="ghost"
                 size="icon"
                 className="md:hidden"
-                aria-label={open ? 'Close menu' : 'Open menu'}
+                aria-label={open ? 'Close navigation' : 'Open navigation'}
               >
                 {open ? <X size={20} aria-hidden="true" /> : <List size={20} aria-hidden="true" />}
               </Button>
             </SheetTrigger>
             <SheetContent side="bottom" className="rounded-t-[20px] pb-8">
-              <SheetTitle className="sr-only">Menu</SheetTitle>
+              <SheetTitle className="sr-only">Mobile navigation</SheetTitle>
               <ul className="flex flex-col">
                 {LINKS.map((link) => (
                   <li key={link.href}>

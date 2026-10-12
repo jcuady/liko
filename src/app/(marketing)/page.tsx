@@ -33,7 +33,10 @@ import { BottomCta } from './components/landing/BottomCta';
 
 const TITLE = 'Liko. Less admin. More teaching.';
 const DESCRIPTION =
-  'Make room for the teaching you love. Presentations, grades, insights and quizzes, in one teacher workspace. Made for every classroom, with plans in Philippine pesos.';
+  'The teacher workspace for lessons, grades, student insights and paper or online quizzes. Made for every classroom, with plans in Philippine pesos.';
+
+const OG_DESCRIPTION =
+  'Make room for the teaching you love. Presentations, grades, insights and quizzes, in one teacher workspace.';
 
 export function generateMetadata(): Metadata {
   return {
@@ -48,11 +51,11 @@ export function generateMetadata(): Metadata {
     alternates: { canonical: '/' },
     openGraph: {
       title: TITLE,
-      description: DESCRIPTION,
+      description: OG_DESCRIPTION,
       url: '/',
       type: 'website',
     },
-    twitter: { card: 'summary_large_image', title: TITLE, description: DESCRIPTION },
+    twitter: { card: 'summary_large_image', title: TITLE, description: OG_DESCRIPTION },
   };
 }
 
