@@ -21,18 +21,57 @@ import { buildDeckFromOutline } from './generate';
  * rather than passing quietly over a file it never read. Run
  * `pnpm probe:ai` to produce the response and then this file validates it for
  * real.
+ *
+ * WHY IT ALSO CHECKS WHICH MODEL AND WHEN. A cached answer used to be an
+ * anonymous blob, so a response captured sixteen hours earlier produced exactly
+ * the same "9 passed" as one captured a minute ago. The model and the capture
+ * time are now part of the evidence, and a response from a model the product no
+ * longer calls is skipped with a reason instead of standing in for a
+ * verification nobody just performed.
  */
 
 const CACHE = join(tmpdir(), 'liko-ai-live-response.json');
 
-function loadLive(): { raw: string; elapsedMs: number } | null {
+/** The model `src/lib/ai/gemini.ts` calls. Mirrored, not imported, for the same reason the probe mirrors it. */
+const PRODUCT_MODEL = 'gemini-3.5-flash';
+
+/** Beyond this, the answer is a historical record rather than a current result. */
+const STALE_AFTER_HOURS = 24;
+
+interface LiveCache {
+  raw: string;
+  model?: string;
+  capturedAt?: string;
+  elapsedMs: number;
+}
+
+function loadLive(): LiveCache | null {
   if (!existsSync(CACHE)) return null;
-  return JSON.parse(readFileSync(CACHE, 'utf8')) as { raw: string; elapsedMs: number };
+  return JSON.parse(readFileSync(CACHE, 'utf8')) as LiveCache;
 }
 
 const live = loadLive();
 
-describe.skipIf(!live)('a live model response', () => {
+const ageHours = live?.capturedAt
+  ? (Date.now() - Date.parse(live.capturedAt)) / 3_600_000
+  : null;
+
+/** Why the live checks are not running, or an empty string when they are. */
+const skipReason = !live
+  ? 'no cached response. Produce one with: pnpm probe:ai'
+  : !live.model || !live.capturedAt
+    ? // A response with no recorded model and no capture time is an anonymous
+      // blob. Its age is not zero, it is unknown, and unknown is not fresh.
+      // Treating a missing field as "fine" is what let a 16 hour old response
+      // keep reporting nine passing live checks.
+      'the cached response records neither a model nor a capture time, so it cannot be shown to be current. Re-run pnpm probe:ai'
+    : live.model !== PRODUCT_MODEL
+      ? `the cached response came from ${live.model}, and the product calls ${PRODUCT_MODEL}`
+      : ageHours !== null && ageHours > STALE_AFTER_HOURS
+        ? `the cached response is ${Math.round(ageHours)} hours old, past the ${STALE_AFTER_HOURS} hour freshness window`
+        : '';
+
+describe.skipIf(Boolean(skipReason))('a live model response', () => {
   const deck = live ? buildDeckFromOutline(live.raw, 'Bonding') : null;
 
   it('becomes a deck', () => {
@@ -97,10 +136,19 @@ describe.skipIf(!live)('a live model response', () => {
 });
 
 describe('the live response cache', () => {
-  it.skipIf(live !== null)(
-    'is absent, so the live checks did not run. Produce one with: pnpm probe:ai',
-    () => {
-      expect(existsSync(CACHE)).toBe(false);
-    },
-  );
+  it.skipIf(live !== null)('is absent, so the live checks did not run. Produce one with: pnpm probe:ai', () => {
+    expect(existsSync(CACHE)).toBe(false);
+  });
+
+  /*
+   * The cache exists but the live checks did not run anyway. `pnpm test` prints a
+   * count and a count cannot say why, so this states it in words, and fails if
+   * the reason disappears: a green line claiming nine passing checks with none
+   * of them run is the exact failure this file exists to prevent.
+   */
+  it.skipIf(!live || !skipReason)('says why the live checks did not run', () => {
+    expect(skipReason).not.toBe('');
+    // The reason has to be actionable, not a shrug.
+    expect(skipReason).toMatch(/probe:ai|product calls|hours old/i);
+  });
 });

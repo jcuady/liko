@@ -120,10 +120,35 @@ try {
      * thing to be wrong. So the response is written out and
      * `src/lib/slides/live-response.test.ts` runs the REAL function over it.
      */
+    /*
+     * The model and the time go into the file with the answer.
+     *
+     * Without them the cache is an anonymous blob, and `live-response.test.ts`
+     * has no way to tell a response captured five minutes ago from one captured
+     * yesterday. It reported "9 passed" for a 16 hour old response in exactly
+     * the same words it would use for a fresh one, which is a green result
+     * standing in for a measurement nobody made now.
+     *
+     * `capturedAt` also matters because the model reasons: the response that
+     * produced the cached answer spent 1696 tokens thinking before emitting 561
+     * of text. A prompt that needs more thinking than `MAX_OUTPUT_TOKENS` allows
+     * comes back MAX_TOKENS with no text at all, and an answer's age is the
+     * difference between "this works" and "this worked once".
+     */
     mkdirSync(tmpdir(), { recursive: true });
     writeFileSync(
       CACHE,
-      JSON.stringify({ raw, elapsedMs: elapsed, usage: body?.usageMetadata ?? null }, null, 2),
+      JSON.stringify(
+        {
+          raw,
+          model: MODEL,
+          capturedAt: new Date().toISOString(),
+          elapsedMs: elapsed,
+          usage: body?.usageMetadata ?? null,
+        },
+        null,
+        2,
+      ),
     );
     process.stdout.write(`      wrote ${CACHE}\n`);
     process.stdout.write(
