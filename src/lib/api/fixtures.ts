@@ -58,6 +58,12 @@ import type {
   StudentRecord,
 } from './types';
 import type { WorkspaceData, DeckAssetRecord } from './client';
+import type {
+  CalendarEventRecord,
+  NotificationRecord,
+  ScheduleEntryRecord,
+  TermRecord,
+} from './types';
 
 /*
  * Values, not types: both are compared against, and an unknown value read from
@@ -125,6 +131,10 @@ interface FixtureStore {
   slides: SlideRecord[];
   /** Files brought into a deck. Seeded so the editor and the suite have something to render. */
   assets: DeckAssetRecord[];
+  schedule: ScheduleEntryRecord[];
+  terms: TermRecord[];
+  events: CalendarEventRecord[];
+  notifications: NotificationRecord[];
   /**
    * Generation history, per person.
    *
@@ -225,6 +235,15 @@ function createStore(): FixtureStore {
       elements: normaliseElements(slide.elements),
     })),
     assets: demoDeckAssets.map((asset) => ({ ...asset })),
+    /*
+     * The demo week is deliberately full enough to look like a real one rather
+     * than a row of placeholders, because the grid is the screen a student
+     * judges the product by and an almost-empty week reads as a broken feature.
+     */
+    schedule: demoSchedule.map((entry) => ({ ...entry })),
+    terms: [],
+    events: demoCalendarEvents.map((event) => ({ ...event })),
+    notifications: [],
     /*
      * Three recent generations against the demo teacher, so the meter renders a
      * part-spent bar rather than a full one. A demo workspace that always reads
@@ -332,6 +351,87 @@ const globalScope = globalThis as typeof globalThis & {
   __likoFixtureStore?: FixtureStore;
 };
 
+/**
+ * The demo student's week.
+ *
+ * WHY THIS IS NOT EMPTY. The weekly grid is the screen a student judges the
+ * product by. A demo with one class on it reads as a feature that does not work,
+ * so the week below is shaped like a real one: five days, back to back, with a
+ * gap and a double slot, because a grid that has never rendered a collision is
+ * a grid whose collision styling has never been seen either.
+ *
+ * Times are minutes from midnight, the same unit the database stores, because
+ * the fixtures are not allowed to be more forgiving than Postgres about it.
+ */
+const demoSchedule: ScheduleEntryRecord[] = [
+  entry(1, 7 * 60, 'Filipino', 'Dela Cruz', 'Room 201'),
+  entry(1, 8 * 60 + 30, 'Mathematics', 'Santos', 'Room 204'),
+  entry(1, 10 * 60, 'English', 'Reyes', 'Room 118'),
+  entry(2, 7 * 60 + 30, 'Science', 'Lopez', 'Lab 2'),
+  entry(2, 9 * 60, 'Mathematics', 'Santos', 'Room 204'),
+  entry(2, 10 * 60 + 30, 'History', 'Aquino', 'Room 210'),
+  entry(3, 8 * 60, 'Science', 'Lopez', 'Lab 2'),
+  entry(3, 9 * 60 + 30, 'English', 'Reyes', 'Room 118'),
+  entry(3, 13 * 60, 'Technology', 'Cruz', 'Lab 1'),
+  entry(4, 7 * 60 + 30, 'Filipino', 'Dela Cruz', 'Room 201'),
+  entry(4, 9 * 60, 'Mathematics', 'Santos', 'Room 204'),
+  entry(4, 10 * 60 + 30, 'Physical Education', 'Ramos', 'Gym'),
+  entry(5, 8 * 60, 'English', 'Reyes', 'Room 118'),
+  entry(5, 10 * 60, 'Values Education', 'Torres', 'Room 105'),
+];
+
+function entry(
+  dayOfWeek: number,
+  startMinute: number,
+  title: string,
+  teacherName: string | null,
+  room: string | null,
+): ScheduleEntryRecord {
+  return {
+    id: `sch_demo_${dayOfWeek}_${startMinute}`,
+    studentId: LINKED_STUDENT_ID,
+    ownerId: OWNER,
+    dayOfWeek,
+    startMinute,
+    endMinute: startMinute + 60,
+    title,
+    teacherName,
+    room,
+    source: 'manual',
+    createdAt: '2026-01-05T00:00:00.000Z',
+  };
+}
+
+/** Two dated things, so the calendar is not empty on first sight either. */
+const demoCalendarEvents: CalendarEventRecord[] = [
+  {
+    id: 'evt_demo_1',
+    ownerId: OWNER,
+    studentId: LINKED_STUDENT_ID,
+    title: 'Science quiz: electricity',
+    notes: 'Chapters 4 to 6. Bring a calculator.',
+    startsAt: '2026-03-12T09:00:00.000Z',
+    endsAt: null,
+    allDay: false,
+    kind: 'assessment',
+    createdByRole: 'instructor',
+    createdAt: '2026-03-02T00:00:00.000Z',
+  },
+  {
+    id: 'evt_demo_2',
+    ownerId: OWNER,
+    studentId: LINKED_STUDENT_ID,
+    title: 'Project draft due',
+    notes: null,
+    startsAt: '2026-03-18T00:00:00.000Z',
+    endsAt: null,
+    allDay: true,
+    kind: 'deadline',
+    createdByRole: 'student',
+    createdAt: '2026-03-05T00:00:00.000Z',
+  },
+];
+
 const store: FixtureStore = (globalScope.__likoFixtureStore ??= createStore());
 
 /**
@@ -365,6 +465,26 @@ function studentForUser(userId: string): StudentRecord | null {
   return (
     store.students.find((row) => row.accountId === userId && row.archivedAt === null) ?? null
   );
+}
+
+/**
+ * Resolves a roster row a caller is allowed to act on, or throws NOT_FOUND.
+ *
+ * WHY THIS EXISTS RATHER THAN A BARE LOOKUP. The Supabase adapter deliberately
+ * ignores `userId` on the student's own rows because RLS answers the access
+ * question in the database. Fixture mode has no RLS, so it has to answer it
+ * here, or a demo would happily show one student another student's week. A
+ * missing row and a forbidden row both raise NOT_FOUND on purpose: a caller who
+ * probes ids should not be able to tell the two apart.
+ */
+function requireStudentFor(userId: string, studentId: string): StudentRecord {
+  const row = store.students.find((candidate) => candidate.id === studentId);
+  const isThatStudent = row !== undefined && row.accountId === userId && row.archivedAt === null;
+  const isOwningTeacher = row !== undefined && row.ownerId === userId;
+  if (!row || (!isThatStudent && !isOwningTeacher)) {
+    throw new DataError('NOT_FOUND', 'That student is no longer on a roster.');
+  }
+  return row;
 }
 
 /** One student's attempts at one assessment, newest first. */
@@ -1636,6 +1756,156 @@ export const fixtures: WorkspaceData = {
 
     const deck = store.decks.find((row) => row.id === asset.deckId);
     if (deck) deck.updatedAt = new Date().toISOString();
+  },
+
+  /*
+   * Schedule, terms, dated events and notifications.
+   *
+   * THE SAME RESOLUTION CHAIN AS THE DATABASE. A student's own rows are reached
+   * through `students.account_id`, which is what `studentForUser` resolves and
+   * what the RLS policies resolve in Postgres. The Supabase adapter ignores the
+   * `userId` on these methods because RLS already answered the question; this one
+   * has no RLS, so it has to answer it, or fixture mode would show a student
+   * somebody else's week.
+   */
+  async listSchedule(userId, studentId) {
+    guard('listSchedule');
+    requireStudentFor(userId, studentId);
+    return store.schedule
+      .filter((row) => row.studentId === studentId)
+      .sort((a, b) => a.dayOfWeek - b.dayOfWeek || a.startMinute - b.startMinute);
+  },
+
+  async saveScheduleEntry(userId, input) {
+    guard('saveScheduleEntry');
+    const student = requireStudentFor(userId, input.studentId);
+    const row: ScheduleEntryRecord = {
+      id: input.id ?? `sch_${store.schedule.length + 1}_${input.studentId}`,
+      studentId: input.studentId,
+      ownerId: student.ownerId,
+      dayOfWeek: input.dayOfWeek,
+      startMinute: input.startMinute,
+      endMinute: input.endMinute,
+      title: input.title,
+      teacherName: input.teacherName ?? null,
+      room: input.room ?? null,
+      source: input.source ?? 'manual',
+      createdAt: new Date().toISOString(),
+    };
+    const at = store.schedule.findIndex((entry) => entry.id === row.id);
+    if (at === -1) store.schedule.push(row);
+    else store.schedule[at] = row;
+    return row;
+  },
+
+  async replaceSchedule(userId, studentId, entries) {
+    guard('replaceSchedule');
+    const student = requireStudentFor(userId, studentId);
+    // Wholesale, matching the adapter: confirming a photograph is a statement of
+    // what the week is, not an edit to one row of it.
+    store.schedule = store.schedule.filter((row) => row.studentId !== studentId);
+    const rows = entries.map((entry, index) => ({
+      id: `sch_${studentId}_${index}`,
+      studentId,
+      ownerId: student.ownerId,
+      dayOfWeek: entry.dayOfWeek,
+      startMinute: entry.startMinute,
+      endMinute: entry.endMinute,
+      title: entry.title,
+      teacherName: entry.teacherName ?? null,
+      room: entry.room ?? null,
+      source: entry.source ?? 'manual',
+      createdAt: new Date().toISOString(),
+    }));
+    store.schedule.push(...rows);
+    return rows;
+  },
+
+  async deleteScheduleEntry(userId, entryId) {
+    guard('deleteScheduleEntry');
+    const entry = store.schedule.find((row) => row.id === entryId);
+    if (entry) requireStudentFor(userId, entry.studentId);
+    store.schedule = store.schedule.filter((row) => row.id !== entryId);
+  },
+
+  async listTerms(userId) {
+    guard('listTerms');
+    return store.terms
+      .filter((row) => row.ownerId === userId)
+      .sort((a, b) => a.startsOn.localeCompare(b.startsOn));
+  },
+
+  async saveTerm(userId, input) {
+    guard('saveTerm');
+    const row: TermRecord = {
+      id: input.id ?? `term_${store.terms.length + 1}_${userId}`,
+      ownerId: userId,
+      name: input.name,
+      kind: input.kind,
+      startsOn: input.startsOn,
+      endsOn: input.endsOn,
+      createdAt: new Date().toISOString(),
+    };
+    const at = store.terms.findIndex((term) => term.id === row.id);
+    if (at === -1) store.terms.push(row);
+    else store.terms[at] = row;
+    return row;
+  },
+
+  async deleteTerm(userId, termId) {
+    guard('deleteTerm');
+    store.terms = store.terms.filter((row) => !(row.id === termId && row.ownerId === userId));
+  },
+
+  async listCalendarEvents(userId, studentId, from, to) {
+    guard('listCalendarEvents');
+    if (studentId) requireStudentFor(userId, studentId);
+    return store.events
+      .filter((row) => row.studentId === studentId)
+      .filter((row) => row.startsAt >= from && row.startsAt <= to)
+      .sort((a, b) => a.startsAt.localeCompare(b.startsAt));
+  },
+
+  async saveCalendarEvent(userId, input) {
+    guard('saveCalendarEvent');
+    if (input.studentId) requireStudentFor(userId, input.studentId);
+    const row: CalendarEventRecord = {
+      id: input.id ?? `evt_${store.events.length + 1}_${userId}`,
+      ownerId: userId,
+      studentId: input.studentId ?? null,
+      title: input.title,
+      notes: input.notes ?? null,
+      startsAt: input.startsAt,
+      endsAt: input.endsAt ?? null,
+      allDay: input.allDay ?? false,
+      kind: input.kind,
+      createdByRole: input.createdByRole,
+      createdAt: new Date().toISOString(),
+    };
+    const at = store.events.findIndex((event) => event.id === row.id);
+    if (at === -1) store.events.push(row);
+    else store.events[at] = row;
+    return row;
+  },
+
+  async deleteCalendarEvent(userId, eventId) {
+    guard('deleteCalendarEvent');
+    store.events = store.events.filter((row) => row.id !== eventId);
+  },
+
+  async listNotifications(userId) {
+    guard('listNotifications');
+    return store.notifications
+      .filter((row) => row.userId === userId)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  },
+
+  async markNotificationRead(userId, notificationId) {
+    guard('markNotificationRead');
+    const row = store.notifications.find(
+      (note) => note.id === notificationId && note.userId === userId,
+    );
+    if (row) row.readAt = new Date().toISOString();
   },
 };
 

@@ -23,6 +23,8 @@ import type {
   AttemptRecord,
   AttemptSummary,
   BehaviourLogRecord,
+  CalendarEventInput,
+  CalendarEventRecord,
   ClassLevel,
   ClassRecord,
   DeckInput,
@@ -41,6 +43,7 @@ import type {
   LessonPlanRecord,
   MemberRecord,
   MembershipStatus,
+  NotificationRecord,
   OnlineAnswer,
   OrgInput,
   OrgPlan,
@@ -49,6 +52,10 @@ import type {
   OrgVerificationStatus,
   ProfileInput,
   ProfileRecord,
+  ScheduleEntryInput,
+  ScheduleEntryRecord,
+  TermInput,
+  TermRecord,
   QuestionRecord,
   Role,
   ScannedAnswer,
@@ -472,6 +479,39 @@ export interface WorkspaceData {
   listDeckAssets(userId: string, deckId: string): Promise<DeckAssetRecord[]>;
   /** Removes the row and the stored image. The row, so the object is only removed for a proven owner. */
   deleteDeckAsset(userId: string, assetId: string): Promise<void>;
+
+  /*
+   * A student's week, and the dated things on top of it.
+   *
+   * WHY SCHEDULE READS TAKE A STUDENT RATHER THAN A CLASS. `listClasses` is
+   * scoped to `owner_id`, and a student's `owner_id` is their teacher's, so a
+   * student calling it gets an empty array. These take the roster row directly,
+   * which is the thing a student can actually be resolved to.
+   */
+  listSchedule(userId: string, studentId: string): Promise<ScheduleEntryRecord[]>;
+  /** Writes one row, or replaces it when the input carries an id. */
+  saveScheduleEntry(userId: string, input: ScheduleEntryInput): Promise<ScheduleEntryRecord>;
+  /** Replaces a whole week in one call, which is what confirming a photo does. */
+  replaceSchedule(userId: string, studentId: string, entries: ScheduleEntryInput[]): Promise<ScheduleEntryRecord[]>;
+  deleteScheduleEntry(userId: string, entryId: string): Promise<void>;
+
+  listTerms(userId: string): Promise<TermRecord[]>;
+  saveTerm(userId: string, input: TermInput): Promise<TermRecord>;
+  deleteTerm(userId: string, termId: string): Promise<void>;
+
+  /**
+   * Dated things, for one student or for the caller themselves.
+   *
+   * `studentId` of null means the caller's own events, which is where a personal
+   * deadline lives; naming a roster row is how a teacher writes a deadline for a
+   * student and how that student then sees it.
+   */
+  listCalendarEvents(userId: string, studentId: string | null, from: string, to: string): Promise<CalendarEventRecord[]>;
+  saveCalendarEvent(userId: string, input: CalendarEventInput): Promise<CalendarEventRecord>;
+  deleteCalendarEvent(userId: string, eventId: string): Promise<void>;
+
+  listNotifications(userId: string): Promise<NotificationRecord[]>;
+  markNotificationRead(userId: string, notificationId: string): Promise<void>;
 }
 
 /**
@@ -2239,7 +2279,296 @@ const supabaseAdapter: WorkspaceData = {
 
     await touchDeck(supabase, deckId);
   },
+
+  /*
+   * Schedule, terms, dated events and notifications.
+   *
+   * WHY THESE DO NOT FILTER ON `userId` THE WAY THE TEACHER READS DO. They are
+   * the student's own rows, and a student has no `owner_id` of their own to
+   * filter on: their `owner_id` is the teacher's. Identity here comes from RLS,
+   * which resolves `students.account_id = auth.uid()` in the database. Filtering
+   * as well would add a second, weaker source of identity sitting next to the
+   * one that is enforced, which is the arrangement the teacher reads avoid.
+   */
+
+  async listSchedule(userId, studentId) {
+    void userId;
+    const supabase = await requireClient();
+    const { data, error } = await supabase
+      .from('weekly_schedule_entries')
+      .select('*')
+      .eq('student_id', studentId)
+      .order('day_of_week')
+      .order('start_minute');
+    throwIf(error);
+    return (data as Row[]).map(mapScheduleEntry);
+  },
+
+  async saveScheduleEntry(userId, input) {
+    const supabase = await requireClient();
+    const row: Row = {
+      student_id: input.studentId,
+      day_of_week: input.dayOfWeek,
+      start_minute: input.startMinute,
+      end_minute: input.endMinute,
+      title: input.title,
+      teacher_name: input.teacherName ?? null,
+      room: input.room ?? null,
+      source: input.source ?? 'manual',
+    };
+    if (input.id) {
+      const { data, error } = await supabase
+        .from('weekly_schedule_entries')
+        .update(row)
+        .eq('id', input.id)
+        .select('*')
+        .maybeSingle();
+      throwIf(error);
+      if (!data) throw new DataError('NOT_FOUND', 'That class is no longer on your timetable.');
+      return mapScheduleEntry(data as Row);
+    }
+    // owner_id is never taken from the caller: it is the teacher who owns the
+    // class, and the student's own write still lands on their teacher's roster.
+    const ownerId = await rosterOwner(supabase, input.studentId);
+    const { data, error } = await supabase
+      .from('weekly_schedule_entries')
+      .insert({ ...row, owner_id: ownerId })
+      .select('*')
+      .single();
+    throwIf(error);
+    return mapScheduleEntry(data as Row);
+  },
+
+  async replaceSchedule(userId, studentId, entries) {
+    const supabase = await requireClient();
+    // Delete then insert rather than a diff. Confirming a photograph is a
+    // wholesale statement of what the week is, and a diff would have to decide
+    // which rows the student meant to keep, which the model never said.
+    const { error: removed } = await supabase
+      .from('weekly_schedule_entries')
+      .delete()
+      .eq('student_id', studentId);
+    throwIf(removed);
+
+    const ownerId = await rosterOwner(supabase, studentId);
+    const rows = entries.map((entry) => ({
+      student_id: studentId,
+      owner_id: ownerId,
+      day_of_week: entry.dayOfWeek,
+      start_minute: entry.startMinute,
+      end_minute: entry.endMinute,
+      title: entry.title,
+      teacher_name: entry.teacherName ?? null,
+      room: entry.room ?? null,
+      source: entry.source ?? 'manual',
+    }));
+    if (rows.length === 0) return [];
+
+    const { data, error } = await supabase.from('weekly_schedule_entries').insert(rows).select('*');
+    throwIf(error);
+    return (data as Row[]).map(mapScheduleEntry);
+  },
+
+  async deleteScheduleEntry(userId, entryId) {
+    void userId;
+    const supabase = await requireClient();
+    const { error } = await supabase.from('weekly_schedule_entries').delete().eq('id', entryId);
+    throwIf(error);
+  },
+
+  async listTerms(userId) {
+    const supabase = await requireClient();
+    const { data, error } = await supabase
+      .from('academic_terms')
+      .select('*')
+      .eq('owner_id', userId)
+      .order('starts_on');
+    throwIf(error);
+    return (data as Row[]).map(mapTerm);
+  },
+
+  async saveTerm(userId, input) {
+    const supabase = await requireClient();
+    const row: Row = {
+      name: input.name,
+      kind: input.kind,
+      starts_on: input.startsOn,
+      ends_on: input.endsOn,
+    };
+    const { data, error } = input.id
+      ? await supabase.from('academic_terms').update(row).eq('id', input.id).select('*').maybeSingle()
+      : await supabase.from('academic_terms').insert({ ...row, owner_id: userId }).select('*').single();
+    throwIf(error);
+    if (!data) throw new DataError('NOT_FOUND', 'That term is no longer there.');
+    return mapTerm(data as Row);
+  },
+
+  async deleteTerm(userId, termId) {
+    const supabase = await requireClient();
+    const { error } = await supabase.from('academic_terms').delete().eq('id', termId).eq('owner_id', userId);
+    throwIf(error);
+  },
+
+  async listCalendarEvents(userId, studentId, from, to) {
+    void userId;
+    const supabase = await requireClient();
+    let query = supabase
+      .from('calendar_events')
+      .select('*')
+      .gte('starts_at', from)
+      .lte('starts_at', to)
+      .order('starts_at');
+    // A null studentId is the caller's own events, which is where a personal
+    // deadline lives. Naming a roster row is how a teacher writes one for a
+    // student and how that student then sees it.
+    query = query.is('student_id', studentId);
+    const { data, error } = await query;
+    throwIf(error);
+    return (data as Row[]).map(mapCalendarEvent);
+  },
+
+  async saveCalendarEvent(userId, input) {
+    const supabase = await requireClient();
+    const row: Row = {
+      student_id: input.studentId ?? null,
+      title: input.title,
+      notes: input.notes ?? null,
+      starts_at: input.startsAt,
+      ends_at: input.endsAt ?? null,
+      all_day: input.allDay ?? false,
+      kind: input.kind,
+      created_by_role: input.createdByRole,
+    };
+    if (input.id) {
+      const { data, error } = await supabase
+        .from('calendar_events')
+        .update(row)
+        .eq('id', input.id)
+        .select('*')
+        .maybeSingle();
+      throwIf(error);
+      if (!data) throw new DataError('NOT_FOUND', 'That event is no longer on the calendar.');
+      return mapCalendarEvent(data as Row);
+    }
+    const { data, error } = await supabase
+      .from('calendar_events')
+      .insert({ ...row, owner_id: userId })
+      .select('*')
+      .single();
+    throwIf(error);
+    return mapCalendarEvent(data as Row);
+  },
+
+  async deleteCalendarEvent(userId, eventId) {
+    void userId;
+    const supabase = await requireClient();
+    const { error } = await supabase.from('calendar_events').delete().eq('id', eventId);
+    throwIf(error);
+  },
+
+  async listNotifications(userId) {
+    const supabase = await requireClient();
+    const { data, error } = await supabase
+      .from('notifications')
+      .select('*')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false })
+      .limit(50);
+    throwIf(error);
+    return (data as Row[]).map(mapNotification);
+  },
+
+  async markNotificationRead(userId, notificationId) {
+    const supabase = await requireClient();
+    const { error } = await supabase
+      .from('notifications')
+      .update({ read_at: new Date().toISOString() })
+      .eq('id', notificationId)
+      .eq('user_id', userId);
+    throwIf(error);
+  },
 };
+
+/**
+ * The teacher who owns the roster row a schedule entry hangs off.
+ *
+ * Resolved rather than taken from the caller so that a student writing their own
+ * week still lands it on their teacher's roster, which is what the ownership
+ * policy keys on.
+ */
+async function rosterOwner(
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>> | null,
+  studentId: string,
+): Promise<string> {
+  const client = supabase ?? (await createSupabaseServerClient());
+  if (!client) throw new DataError('CONFLICT', 'This environment cannot reach the database.');
+  const { data, error } = await client
+    .from('students')
+    .select('owner_id')
+    .eq('id', studentId)
+    .maybeSingle();
+  throwIf(error);
+  const row = data as Row | null;
+  if (!row) throw new DataError('NOT_FOUND', 'That student is no longer on a roster.');
+  return str(row.owner_id);
+}
+
+function mapScheduleEntry(row: Row): ScheduleEntryRecord {
+  return {
+    id: str(row.id),
+    studentId: str(row.student_id),
+    ownerId: str(row.owner_id),
+    dayOfWeek: num(row.day_of_week, 1),
+    startMinute: num(row.start_minute, 0),
+    endMinute: num(row.end_minute, 0),
+    title: str(row.title),
+    teacherName: (row.teacher_name as string | null) ?? null,
+    room: (row.room as string | null) ?? null,
+    source: row.source === 'photo' ? 'photo' : 'manual',
+    createdAt: iso(row.created_at),
+  };
+}
+
+function mapTerm(row: Row): TermRecord {
+  return {
+    id: str(row.id),
+    ownerId: str(row.owner_id),
+    name: str(row.name),
+    kind: str(row.kind, 'term') as TermRecord['kind'],
+    startsOn: str(row.starts_on),
+    endsOn: str(row.ends_on),
+    createdAt: iso(row.created_at),
+  };
+}
+
+function mapCalendarEvent(row: Row): CalendarEventRecord {
+  return {
+    id: str(row.id),
+    ownerId: str(row.owner_id),
+    studentId: (row.student_id as string | null) ?? null,
+    title: str(row.title),
+    notes: (row.notes as string | null) ?? null,
+    startsAt: iso(row.starts_at),
+    endsAt: (row.ends_at as string | null) ?? null,
+    allDay: row.all_day === true,
+    kind: str(row.kind, 'event') as CalendarEventRecord['kind'],
+    createdByRole: str(row.created_by_role, 'student') as CalendarEventRecord['createdByRole'],
+    createdAt: iso(row.created_at),
+  };
+}
+
+function mapNotification(row: Row): NotificationRecord {
+  return {
+    id: str(row.id),
+    userId: str(row.user_id),
+    kind: str(row.kind, 'schedule_updated') as NotificationRecord['kind'],
+    title: str(row.title),
+    body: str(row.body),
+    url: (row.url as string | null) ?? null,
+    readAt: (row.read_at as string | null) ?? null,
+    createdAt: iso(row.created_at),
+  };
+}
 
 function mapClass(row: Row): ClassRecord {
   return {

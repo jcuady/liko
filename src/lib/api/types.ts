@@ -421,6 +421,116 @@ export interface PushSubscriptionRecord {
   createdAt: string;
 }
 
+/**
+ * One recurring class in a student's week.
+ *
+ * `startMinute` and `endMinute` are minutes since local midnight rather than
+ * clock strings, for the same reason the column is: a recurring weekly class has
+ * no date, and anything carrying a date would make the row depend on a time
+ * zone. `dayOfWeek` is ISO, so 1 is Monday and 7 is Sunday.
+ *
+ * `source` is provenance, not a verdict. `'photo'` records that a model read the
+ * row off an image, which is something a teacher or a guardian can be shown; it
+ * does not assert the read was correct, because nothing here knows that.
+ */
+export interface ScheduleEntryRecord {
+  id: string;
+  studentId: string;
+  ownerId: string;
+  dayOfWeek: number;
+  startMinute: number;
+  endMinute: number;
+  title: string;
+  teacherName: string | null;
+  room: string | null;
+  source: 'manual' | 'photo';
+  createdAt: string;
+}
+
+/** What a caller supplies when writing a row. The id and stamps are the store's. */
+export interface ScheduleEntryInput {
+  id?: string;
+  studentId: string;
+  dayOfWeek: number;
+  startMinute: number;
+  endMinute: number;
+  title: string;
+  teacherName?: string | null;
+  room?: string | null;
+  source?: 'manual' | 'photo';
+}
+
+/**
+ * An academic period: a semester, a quarter, a term, a trimester.
+ *
+ * The `kind` is descriptive only. Nothing in the product treats a semester
+ * differently from a quarter, because the two differ by label and by length and
+ * a school that runs quarters would otherwise need a second code path for
+ * everything downstream of it.
+ */
+export interface TermRecord {
+  id: string;
+  ownerId: string;
+  name: string;
+  kind: 'semester' | 'quarter' | 'term' | 'trimester';
+  startsOn: string;
+  endsOn: string;
+  createdAt: string;
+}
+
+export interface TermInput {
+  id?: string;
+  name: string;
+  kind: TermRecord['kind'];
+  startsOn: string;
+  endsOn: string;
+}
+
+/**
+ * A dated thing on a calendar: an assignment, a deadline, a reminder, anything
+ * a person typed in.
+ *
+ * `startsAt` and `endsAt` are ISO datetimes rather than minutes, because a one
+ * off event genuinely does have a date. `allDay` carries a deadline that has no
+ * meaningful time of day, which is most of them.
+ */
+export interface CalendarEventRecord {
+  id: string;
+  ownerId: string;
+  studentId: string | null;
+  title: string;
+  notes: string | null;
+  startsAt: string;
+  endsAt: string | null;
+  allDay: boolean;
+  kind: 'assignment' | 'assessment' | 'exam' | 'deadline' | 'reminder' | 'event';
+  createdByRole: 'student' | 'instructor' | 'admin';
+  createdAt: string;
+}
+
+export interface CalendarEventInput {
+  id?: string;
+  studentId?: string | null;
+  title: string;
+  notes?: string | null;
+  startsAt: string;
+  endsAt?: string | null;
+  allDay?: boolean;
+  kind: CalendarEventRecord['kind'];
+  createdByRole: CalendarEventRecord['createdByRole'];
+}
+
+export interface NotificationRecord {
+  id: string;
+  userId: string;
+  kind: 'schedule_updated' | 'class_linked';
+  title: string;
+  body: string;
+  url: string | null;
+  readAt: string | null;
+  createdAt: string;
+}
+
 /** One student's mark in a date, as posted by the attendance grid. */
 export interface AttendanceMark {
   studentId: string;

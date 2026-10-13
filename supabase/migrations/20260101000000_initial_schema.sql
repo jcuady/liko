@@ -1901,3 +1901,107 @@ end $$;
 alter table public.ai_generations drop constraint if exists ai_generations_purpose_check;
 alter table public.ai_generations
   add constraint ai_generations_purpose_check check (purpose in ('deck', 'schedule'));
+
+-- ---------------------------------------------------------------------------
+-- Academic periods
+--
+-- WHY `kind` IS DESCRIPTIVE ONLY. A semester, a quarter and a term differ by
+-- label and by length and by nothing else the product cares about. Treating them
+-- as three cases would mean every screen downstream had to know which one it was
+-- looking at, and a school that runs quarters would need a second code path for
+-- all of it. One row, one meaning, whatever the school calls it.
+--
+-- `ends_on >= starts_on` rather than `>`: a one day term is real, and refusing it
+-- would reject the shortest period a school can have.
+-- ---------------------------------------------------------------------------
+create table if not exists public.academic_terms (
+  id          uuid primary key default gen_random_uuid(),
+  owner_id    uuid not null references auth.users (id) on delete cascade,
+  name        text not null check (char_length(name) between 1 and 120),
+  kind        text not null check (kind in ('semester', 'quarter', 'term', 'trimester')),
+  starts_on   date not null,
+  ends_on     date not null,
+  created_at  timestamptz not null default now(),
+  constraint academic_terms_ordered check (ends_on >= starts_on)
+);
+
+create index if not exists academic_terms_owner_idx on public.academic_terms (owner_id, starts_on);
+
+alter table public.academic_terms enable row level security;
+
+drop policy if exists "own academic terms" on public.academic_terms;
+create policy "own academic terms" on public.academic_terms
+  for all to authenticated
+  using (owner_id = (select auth.uid()))
+  with check (owner_id = (select auth.uid()));
+
+-- ---------------------------------------------------------------------------
+-- Anything dated on a calendar
+--
+-- WHY THIS IS SEPARATE FROM THE WEEKLY TIMETABLE. The timetable is recurring and
+-- has no date; these have a date and do not recur. Modelling both as one table
+-- would mean a recurring row carries a fake date and a dated row carries a
+-- meaningless weekday, and every read would have to filter one of them out.
+--
+-- WHY student_id IS NULLABLE. A person keeps their own deadlines, which belong
+-- to nobody's roster. A teacher writing a deadline for a student names them.
+--
+-- WHY created_by_role IS STORED. A student seeing "Assessment due Friday" wants
+-- to know whether their teacher set it or they did. Deriving that from who owns
+-- the row would be wrong the moment a student owns a row their teacher cares
+-- about.
+-- ---------------------------------------------------------------------------
+create table if not exists public.calendar_events (
+  id                uuid primary key default gen_random_uuid(),
+  owner_id          uuid not null references auth.users (id) on delete cascade,
+  student_id        uuid references public.students (id) on delete cascade,
+  title             text not null check (char_length(title) between 1 and 160),
+  notes             text check (notes is null or char_length(notes) <= 2000),
+  starts_at         timestamptz not null,
+  ends_at           timestamptz,
+  all_day           boolean not null default false,
+  kind              text not null
+                    check (kind in ('assignment', 'assessment', 'exam', 'deadline', 'reminder', 'event')),
+  created_by_role   text not null check (created_by_role in ('student', 'instructor', 'admin')),
+  created_at        timestamptz not null default now(),
+  constraint calendar_events_ordered check (ends_at is null or ends_at >= starts_at)
+);
+
+create index if not exists calendar_events_owner_idx
+  on public.calendar_events (owner_id, starts_at);
+
+create index if not exists calendar_events_student_idx
+  on public.calendar_events (student_id, starts_at);
+
+alter table public.calendar_events enable row level security;
+
+-- The person it belongs to, and the student it is about. A teacher writing a
+-- deadline for a student owns the row; the student needs to see it, and the
+-- same inline roster join the schedule policy above uses answers "is this
+-- account on this roster row" without a role test that would be true of every
+-- student in every school.
+drop policy if exists "events visible to owner and student"
+  on public.calendar_events;
+create policy "events visible to owner and student"
+  on public.calendar_events
+  for all to authenticated
+  using (
+    owner_id = (select auth.uid())
+    or exists (
+      select 1
+      from public.students s
+      where s.id = calendar_events.student_id
+        and s.account_id = (select auth.uid())
+        and s.archived_at is null
+    )
+  )
+  with check (
+    owner_id = (select auth.uid())
+    or exists (
+      select 1
+      from public.students s
+      where s.id = calendar_events.student_id
+        and s.account_id = (select auth.uid())
+        and s.archived_at is null
+    )
+  );
