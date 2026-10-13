@@ -87,9 +87,8 @@ const TableRow = React.forwardRef<
 TableRow.displayName = 'TableRow';
 
 /*
- * `text-label` rather than a hand-written size, weight and colour. It is the
- * uppercase, tracked, ink-subtle treatment the roster and the permission matrix
- * already used, and the pricing comparison had no header treatment at all.
+ * A COLUMN header, so the tracked uppercase label treatment by default.
+ *
  * `scope` is passed through rather than set here: a header cell is `th` only
  * when it labels something, and that is the caller's decision to make.
  */
@@ -105,6 +104,42 @@ const TableHead = React.forwardRef<
   />
 ));
 TableHead.displayName = 'TableHead';
+
+/*
+ * A ROW header, which is a different thing from a column header.
+ *
+ * IT IS NOT `TableHead` WITH A `scope`. Both are `th` with role `rowheader` or
+ * `columnheader`, but a column header names a field ("STUDENT", "GUARDIAN") and a
+ * row header names the row itself, which in every table here is a value: a
+ * student's name, a role, a feature. Rendering one as the other shouts a
+ * person's name at them in tracked capitals.
+ *
+ * That is not hypothetical. The roster shipped "ANA FERREIRA" off this exact
+ * confusion, and nothing caught it: the primitives gate only proves a kit part
+ * was used, the unit suite runs without a DOM, and the e2e row assertion matches
+ * `hasText` against the DOM, which still held the original casing. Only the
+ * screenshot did. Three call sites had been quietly overridden to work around it,
+ * which is how the next person would have copied the bug rather than the fix.
+ *
+ * So the distinction lives here, where the mistake is available to make.
+ */
+const TableRowHead = React.forwardRef<
+  HTMLTableCellElement,
+  React.ThHTMLAttributes<HTMLTableCellElement>
+>(({ className, scope = 'row', ...props }, ref) => (
+  <th
+    ref={ref}
+    scope={scope}
+    data-slot="table-row-head"
+    className={cn(
+      'px-4 py-3 text-[0.9375rem] font-medium tracking-normal text-ink',
+      'whitespace-nowrap align-middle',
+      className,
+    )}
+    {...props}
+  />
+));
+TableRowHead.displayName = 'TableRowHead';
 
 const TableCell = React.forwardRef<
   HTMLTableCellElement,
@@ -139,6 +174,7 @@ export {
   TableFooter,
   TableRow,
   TableHead,
+  TableRowHead,
   TableCell,
   TableCaption,
 };

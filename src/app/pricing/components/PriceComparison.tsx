@@ -11,6 +11,7 @@ import {
   TableCell,
   TableHead,
   TableHeader,
+  TableRowHead,
   TableRow,
 } from '@/components/ui/table';
 import { COMPARISON, PLANS, type Cell } from '../plans';
@@ -117,12 +118,12 @@ export function PriceComparison() {
                   </TableRow>
                   {group.rows.map((row) => (
                     <TableRow key={row.label} className="last:border-b">
-                      <TableHead
+                      <TableRowHead
                         scope="row"
-                        className="py-4 pr-6 align-top text-[0.9375rem] font-medium normal-case text-ink"
+                        className="py-4 pr-6 align-top font-medium"
                       >
                         {row.label}
-                      </TableHead>
+                      </TableRowHead>
                       {row.cells.map((cell, index) => (
                         <TableCell
                           key={`${row.label}-${PLANS[index].id}`}

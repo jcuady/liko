@@ -26,6 +26,7 @@ import {
   TableCell,
   TableHead,
   TableHeader,
+  TableRowHead,
   TableRow,
 } from '@/components/ui/table';
 import {
@@ -255,7 +256,7 @@ function RosterPanel({ classRecord }: { classRecord: ClassSummary }) {
               <TableBody>
                 {classRecord.students.map((student) => (
                   <TableRow key={student.id}>
-                    <TableHead scope="row" className="font-medium">
+                    <TableRowHead scope="row">
                       <span className="flex items-center gap-2.5">
                         <span
                           aria-hidden="true"
@@ -265,7 +266,7 @@ function RosterPanel({ classRecord }: { classRecord: ClassSummary }) {
                         </span>
                         {student.fullName}
                       </span>
-                    </TableHead>
+                    </TableRowHead>
                     <TableCell className="text-ink-muted">
                       {student.guardianName ?? <span className="text-ink-subtle">Not recorded</span>}
                     </TableCell>

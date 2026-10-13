@@ -25,6 +25,7 @@ import {
   TableCell,
   TableHead,
   TableHeader,
+  TableRowHead,
   TableRow,
 } from '@/components/ui/table';
 import {
@@ -1153,9 +1154,9 @@ export function AdminConsole({
                 <TableBody>
                   {matrix.map((row) => (
                     <TableRow key={row.role} className="align-top">
-                      <TableHead scope="row" className="w-[11rem] align-top text-[0.9375rem] font-medium normal-case text-ink">
+                      <TableRowHead scope="row" className="w-[11rem] whitespace-normal align-top">
                         {row.label}
-                      </TableHead>
+                      </TableRowHead>
                       <TableCell className="align-top">
                         <ul className="flex flex-col gap-1.5">
                           {row.grants.map((grant) => (
