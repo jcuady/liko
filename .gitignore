@@ -109,6 +109,7 @@ Liko new landing/
 .completeness.mjs
 .live-*.png
 .shot-*.png
+.shots/
 
 # The completeness probe's own output. It was committed once by accident, which
 # put a stale "25 strings missing from the live page" report into the history of
