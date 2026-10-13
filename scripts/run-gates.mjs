@@ -77,8 +77,23 @@ function launcherFor(command) {
   return { exe: 'pnpm.cmd', args: ['exec', ...argv], viaCmd: true };
 }
 
-/** How much of each gate's output to keep. Enough to diagnose, not enough to bloat. */
-const TAIL_LINES = 12;
+/**
+ * How much of each gate's output to keep. Enough to diagnose, not enough to bloat.
+ *
+ * THIS WAS 12 LINES, AND THAT WAS A DEFECT RATHER THAN A SAVING. A failing e2e
+ * gate runs 197 tests, and the summary sits below roughly forty lines of passing
+ * output. Every failing run recorded the last twelve lines, which were the
+ * trace.zip path and "1 failed", so the recorded evidence never once contained
+ * the assertion that failed. An intermittent slide-editor failure went four runs
+ * undiagnosed because of it: the file could say which test had failed, but not
+ * what it had said.
+ *
+ * 60 is chosen because it covers a Playwright failure block, which runs to about
+ * forty lines including the error, the locator, the call log and the source
+ * excerpt, plus the summary beneath it. It is a cap rather than a whole log, so
+ * a gate that prints thousands of lines still cannot bloat the file.
+ */
+const TAIL_LINES = 60;
 
 /**
  * Gates, by the package.json script that defines them.

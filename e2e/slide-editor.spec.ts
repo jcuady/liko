@@ -243,10 +243,36 @@ test.describe.serial('the slide editor', () => {
      */
     const editorCanvas = STAGE(page);
     await editorCanvas.waitFor();
+
+    /*
+     * WAIT FOR THE TEXT TO SETTLE, NOT MERELY TO BE NON-EMPTY.
+     *
+     * These tests share one demo deck and three of them write to it, so this
+     * test can start while an earlier write is still landing. Checking that the
+     * canvas had any text at all passed on a half-rendered slide, captured it,
+     * and compared a partial string against present mode's complete one. The
+     * condition that matters is not "is there text" but "has the text stopped
+     * changing", so two reads a beat apart have to agree before the value is
+     * taken. Under a loaded parallel run the old version failed about one run in
+     * four and passed in isolation, which is the signature of a race rather than
+     * of a broken renderer.
+     */
+    let inEditor = '';
     await expect
-      .poll(async () => (await editorCanvas.innerText()).trim().length)
-      .toBeGreaterThan(0);
-    const inEditor = await editorCanvas.innerText();
+      .poll(
+        async () => {
+          const first = await editorCanvas.innerText();
+          await page.waitForTimeout(150);
+          const second = await editorCanvas.innerText();
+          if (first.length > 0 && first === second) {
+            inEditor = first;
+            return true;
+          }
+          return false;
+        },
+        { intervals: [200, 300, 500, 800, 1200], timeout: 20_000 },
+      )
+      .toBe(true);
 
     await page.getByRole('button', { name: /present/i }).click();
 
@@ -255,7 +281,9 @@ test.describe.serial('the slide editor', () => {
 
     const presentCanvas = STAGE(page);
     await expect(presentCanvas).toBeVisible();
-    await expect.poll(async () => presentCanvas.innerText()).toBe(inEditor);
+    await expect
+      .poll(async () => presentCanvas.innerText(), { timeout: 20_000 })
+      .toBe(inEditor);
   });
 
   test('the canvas fits a phone without horizontal overflow', async ({ page }) => {
