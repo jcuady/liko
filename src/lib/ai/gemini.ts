@@ -55,8 +55,67 @@ export const GEMINI_MODEL = 'gemini-3.5-flash';
  */
 export const AI_PURPOSE_DECK = 'deck';
 
+/**
+ * The second generation the product makes.
+ *
+ * Reading a timetable out of a photograph is a generation exactly as a deck
+ * outline is, so it is metered against the same hourly limit and appears in the
+ * same console. `schedule` is the value the migration's
+ * `check (purpose in ('deck', 'schedule'))` pins.
+ */
+export const AI_PURPOSE_SCHEDULE = 'schedule';
+
 /** Ceiling on one prompt, so a pasted document cannot become an unbounded bill. */
 const MAX_PROMPT_CHARS = 4000;
+
+/**
+ * Ceiling on one image.
+ *
+ * A modern phone camera produces a 4 to 12 megapixel file, which is several
+ * megabytes of base64 in the request body. Reading a grid of printed times does
+ * not improve past a couple of million pixels, so the ceiling is generous for
+ * the job and still bounds the bill and the function's memory.
+ */
+const MAX_IMAGE_BASE64_CHARS = 6_000_000;
+
+/**
+ * The image types the model accepts.
+ *
+ * An allowlist rather than a shape check, because a caller that sends
+ * `application/pdf` or `text/html` to an image field fails at the provider with
+ * a message that names the field rather than the file. Refusing here turns that
+ * into a sentence a student can act on.
+ */
+const ALLOWED_IMAGE_MIME = new Set([
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+  'image/heic',
+  'image/heif',
+]);
+
+/** A photograph the student supplied, as raw base64 with no data: prefix. */
+export interface ImageInput {
+  mimeType: string;
+  base64: string;
+}
+
+export interface GenerateOptions {
+  /** What the teacher asked for. */
+  prompt: string;
+  /** Extra instruction that is not the teacher's to edit, such as the shape. */
+  system: string;
+  /** The floor plan the answer has to fit into, described in words. */
+  schemaHint: string;
+  /**
+   * An image to read. Omitted for a text-only generation.
+   *
+   * Optional rather than a second function because the transport, the quota, the
+   * timeout, the error classification and the token accounting are identical
+   * either way, and two copies of those is two places for them to drift.
+   */
+  image?: ImageInput;
+}
 
 /** Rough ceiling on the response, which is what actually decides the cost. */
 const MAX_OUTPUT_TOKENS = 4096;
@@ -131,6 +190,18 @@ export function aiConfigured(): boolean {
 }
 
 export async function generateDeckOutline(options: GenerateOptions): Promise<GenerateResult> {
+  return generate(options);
+}
+
+/**
+ * One call to the model, with or without an image.
+ *
+ * The image, when there is one, goes into its own part and goes FIRST. The
+ * instruction follows it, so the model reads the page before being told what to
+ * make of it, rather than being handed a shape to fill and looking for something
+ * that fits.
+ */
+export async function generate(options: GenerateOptions): Promise<GenerateResult> {
   const apiKey = readApiKey();
   if (!apiKey) {
     throw new AiUnavailable(
@@ -144,6 +215,27 @@ export async function generateDeckOutline(options: GenerateOptions): Promise<Gen
     throw new AiUnavailable('Type what the slides should be about first.', 'malformed');
   }
 
+  const parts: Record<string, unknown>[] = [];
+
+  if (options.image) {
+    const { mimeType, base64 } = options.image;
+    if (!ALLOWED_IMAGE_MIME.has(mimeType)) {
+      throw new AiUnavailable(
+        'That photo could not be read. Take the picture again as a JPEG or PNG.',
+        'malformed',
+      );
+    }
+    if (!base64 || base64.length > MAX_IMAGE_BASE64_CHARS) {
+      throw new AiUnavailable(
+        'That photo is too large to read. Take it closer, without the whole room in it.',
+        'malformed',
+      );
+    }
+    parts.push({ inline_data: { mime_type: mimeType, data: base64 } });
+  }
+
+  parts.push({ text: `${prompt}\n\n${options.schemaHint}` });
+
   let response: Response;
   try {
     response = await fetch(`${GENERATIVE_LANGUAGE}/models/${GEMINI_MODEL}:generateContent`, {
@@ -151,7 +243,7 @@ export async function generateDeckOutline(options: GenerateOptions): Promise<Gen
       headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
       body: JSON.stringify({
         systemInstruction: { parts: [{ text: options.system }] },
-        contents: [{ role: 'user', parts: [{ text: `${prompt}\n\n${options.schemaHint}` }] }],
+        contents: [{ role: 'user', parts }],
         generationConfig: {
           temperature: 0.4,
           maxOutputTokens: MAX_OUTPUT_TOKENS,

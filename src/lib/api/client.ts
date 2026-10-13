@@ -442,7 +442,7 @@ export interface WorkspaceData {
     userId: string,
     input: {
       model: string;
-      purpose: 'deck';
+      purpose: 'deck' | 'schedule';
       promptTokens: number;
       outputTokens: number;
     },

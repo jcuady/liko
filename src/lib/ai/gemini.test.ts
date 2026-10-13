@@ -83,3 +83,152 @@ describe('refusing before the network', () => {
     expect((failure as AiUnavailable).kind).toBe('not-configured');
   });
 });
+
+/**
+ * Sending a photograph.
+ *
+ * WHY THIS IS ASSERTED AGAINST THE REQUEST BODY AND NOT AGAINST THE OPTIONS. A
+ * caller can pass an image and have it silently dropped, and every other gate
+ * still passes: the option type allows it, the function is called, the refusal
+ * path works, and the response parses. What proves the picture travels is the
+ * body that leaves. This is the same class of bug as a verdict computed and then
+ * assigned from a different variable, which is indistinguishable in the output
+ * from a correct pass.
+ */
+describe('sending a photograph', () => {
+  const captured: { url?: string; body?: Record<string, unknown> } = {};
+
+  function stubFetch() {
+    const original = globalThis.fetch;
+    globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+      captured.url = String(url);
+      captured.body = JSON.parse(String(init?.body ?? '{}'));
+      return new Response(
+        JSON.stringify({
+          candidates: [{ content: { parts: [{ text: '{"entries":[]}' }] } }],
+          usageMetadata: { promptTokenCount: 10, candidatesTokenCount: 5 },
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    }) as typeof fetch;
+    return () => {
+      globalThis.fetch = original;
+    };
+  }
+
+  /** The `contents[0].parts` array, typed so the assertions read as prose. */
+  function parts(): { inline_data?: { mime_type: string; data: string }; text?: string }[] {
+    const contents = captured.body?.contents as { role: string; parts: never[] }[];
+    return contents[0]!.parts as never;
+  }
+
+  it('sends the image as inline data when one is supplied', async () => {
+    process.env.GEMINI_API_KEY = 'test-key-000000000000';
+    const restore = stubFetch();
+
+    try {
+      await generateDeckOutline({
+        prompt: 'Read this timetable',
+        system: 'Return JSON.',
+        schemaHint: 'A shape.',
+        image: { mimeType: 'image/jpeg', base64: 'QUJD' },
+      });
+    } finally {
+      restore();
+    }
+
+    const image = parts().find((part) => part.inline_data);
+    expect(image?.inline_data).toEqual({ mime_type: 'image/jpeg', data: 'QUJD' });
+  });
+
+  it('puts the image before the instruction, so the page is read before it is labelled', async () => {
+    process.env.GEMINI_API_KEY = 'test-key-000000000000';
+    const restore = stubFetch();
+
+    try {
+      await generateDeckOutline({
+        prompt: 'Read this timetable',
+        system: 'Return JSON.',
+        schemaHint: 'A shape.',
+        image: { mimeType: 'image/png', base64: 'QUJD' },
+      });
+    } finally {
+      restore();
+    }
+
+    expect(parts()[0]?.inline_data).toBeDefined();
+    expect(parts().at(-1)?.text).toContain('Read this timetable');
+  });
+
+  it('sends no image part at all for a text-only generation', async () => {
+    process.env.GEMINI_API_KEY = 'test-key-000000000000';
+    const restore = stubFetch();
+
+    try {
+      await generateDeckOutline({
+        prompt: 'Five slides on the collision theory',
+        system: 'Return JSON.',
+        schemaHint: 'A shape.',
+      });
+    } finally {
+      restore();
+    }
+
+    expect(parts().some((part) => part.inline_data)).toBe(false);
+  });
+
+  /*
+   * The negative cases. An allowlist that quietly accepts everything is an
+   * allowlist that has not been written, and the provider's own error for a
+   * misused field names the field rather than the file, so it is not something a
+   * student can act on.
+   */
+  it('refuses a file type the model cannot read, before the network', async () => {
+    process.env.GEMINI_API_KEY = 'test-key-000000000000';
+    const original = globalThis.fetch;
+    let called = false;
+    globalThis.fetch = (async () => {
+      called = true;
+      return new Response('{}', { status: 200 });
+    }) as typeof fetch;
+
+    try {
+      const failure = await generateDeckOutline({
+        prompt: 'Read this',
+        system: 'Return JSON.',
+        schemaHint: 'A shape.',
+        image: { mimeType: 'application/pdf', base64: 'QUJD' },
+      }).catch((error: unknown) => error);
+
+      expect(failure).toBeInstanceOf(AiUnavailable);
+      expect((failure as AiUnavailable).kind).toBe('malformed');
+      expect(called).toBe(false);
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
+  it('refuses an empty image rather than sending a blank part', async () => {
+    process.env.GEMINI_API_KEY = 'test-key-000000000000';
+    const original = globalThis.fetch;
+    let called = false;
+    globalThis.fetch = (async () => {
+      called = true;
+      return new Response('{}', { status: 200 });
+    }) as typeof fetch;
+
+    try {
+      const failure = await generateDeckOutline({
+        prompt: 'Read this',
+        system: 'Return JSON.',
+        schemaHint: 'A shape.',
+        image: { mimeType: 'image/jpeg', base64: '' },
+      }).catch((error: unknown) => error);
+
+      expect((failure as AiUnavailable).kind).toBe('malformed');
+      expect(called).toBe(false);
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+});

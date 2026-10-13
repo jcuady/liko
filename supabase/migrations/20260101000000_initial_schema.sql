@@ -1748,3 +1748,156 @@ begin
     alter publication supabase_realtime add table public.grades;
   end if;
 end $$;
+
+-- ---------------------------------------------------------------------------
+-- A student's week, read off a photograph of their own timetable
+--
+-- WHY MINUTES AND NOT TIMESTAMPS. A recurring weekly class has no date. A
+-- timestamp would make the row depend on a time zone, so a student in Manila and
+-- a teacher in Cebu would see Tuesday begin at different minutes for a week that
+-- never changes. `start_minute` is minutes since local midnight, so the row is
+-- the same object everywhere and "Tuesday 08:30" cannot drift.
+--
+-- WHY day_of_week IS ISO. 1 is Monday and 7 is Sunday, matching ISO 8601, so a
+-- library that orders days agrees with this table instead of disagreeing with it
+-- in a way that shows up as a week sorted from Sunday.
+--
+-- WHY end_minute MUST EXCEED start_minute. A zero or negative length row is not
+-- a class. It would render as an invisible entry on the student's week and read
+-- as a gap in their timetable rather than as a bad row.
+--
+-- WHY THERE IS NO UNIQUE CONSTRAINT ON THE SLOT. A student can genuinely be
+-- double-booked, and a photo can misread one row into an overlap. The parser
+-- reports a clash to the student instead of silently dropping or reshuffling a
+-- row, which is the same safety property the paper OMR screen has.
+-- ---------------------------------------------------------------------------
+create table if not exists public.weekly_schedule_entries (
+  id            uuid primary key default gen_random_uuid(),
+  student_id    uuid not null references public.students (id) on delete cascade,
+  owner_id      uuid not null references auth.users (id) on delete cascade,
+  day_of_week   smallint not null check (day_of_week between 1 and 7),
+  start_minute  smallint not null check (start_minute between 0 and 1439),
+  end_minute    smallint not null check (end_minute between 0 and 1439),
+  title         text not null check (char_length(title) between 1 and 120),
+  teacher_name  text check (teacher_name is null or char_length(teacher_name) <= 120),
+  room          text check (room is null or char_length(room) <= 120),
+  -- 'photo' records that a model read this row off an image. It is provenance a
+  -- teacher or a guardian can be shown, and it is deliberately not a claim that
+  -- the read was correct.
+  source        text not null default 'manual' check (source in ('manual', 'photo')),
+  created_at    timestamptz not null default now(),
+  updated_at    timestamptz not null default now(),
+  constraint weekly_schedule_entries_ordered check (end_minute > start_minute)
+);
+
+create index if not exists weekly_schedule_entries_student_idx
+  on public.weekly_schedule_entries (student_id, day_of_week, start_minute);
+
+create index if not exists weekly_schedule_entries_owner_idx
+  on public.weekly_schedule_entries (owner_id);
+
+drop trigger if exists weekly_schedule_entries_set_updated_at
+  on public.weekly_schedule_entries;
+create trigger weekly_schedule_entries_set_updated_at
+  before update on public.weekly_schedule_entries
+  for each row execute function public.set_updated_at();
+
+alter table public.weekly_schedule_entries enable row level security;
+
+-- The teacher who owns the class, and the student the row is about, and nobody
+-- else. The same inline join the `linked read classes` policy above uses: the
+-- question "is this account on this roster row" is answered by the database
+-- rather than by a role test that would be true of every student everywhere.
+drop policy if exists "schedule visible to owner and student"
+  on public.weekly_schedule_entries;
+create policy "schedule visible to owner and student"
+  on public.weekly_schedule_entries
+  for all to authenticated
+  using (
+    owner_id = (select auth.uid())
+    or exists (
+      select 1
+      from public.students s
+      where s.id = weekly_schedule_entries.student_id
+        and s.account_id = (select auth.uid())
+        and s.archived_at is null
+    )
+  )
+  with check (
+    owner_id = (select auth.uid())
+    or exists (
+      select 1
+      from public.students s
+      where s.id = weekly_schedule_entries.student_id
+        and s.account_id = (select auth.uid())
+        and s.archived_at is null
+    )
+  );
+
+-- ---------------------------------------------------------------------------
+-- Notifications a person has not dismissed yet
+--
+-- WHY THERE IS NO INSERT POLICY. Deliberate, and the same reasoning as
+-- `ai_generations`: if the authenticated role could write this table, a client
+-- could manufacture a notification that then renders as though the server sent
+-- it. Only the service role writes, and only the reader may mark it read.
+-- ---------------------------------------------------------------------------
+create table if not exists public.notifications (
+  id          uuid primary key default gen_random_uuid(),
+  user_id     uuid not null references auth.users (id) on delete cascade,
+  kind        text not null check (kind in ('schedule_updated', 'class_linked')),
+  title       text not null check (char_length(title) between 1 and 120),
+  body        text not null check (char_length(body) between 1 and 300),
+  url         text,
+  read_at     timestamptz,
+  created_at  timestamptz not null default now()
+);
+
+create index if not exists notifications_user_recent_idx
+  on public.notifications (user_id, created_at desc);
+
+alter table public.notifications enable row level security;
+
+drop policy if exists "own notifications readable" on public.notifications;
+create policy "own notifications readable" on public.notifications
+  for select to authenticated
+  using (user_id = (select auth.uid()));
+
+drop policy if exists "own notifications dismissable" on public.notifications;
+create policy "own notifications dismissable" on public.notifications
+  for update to authenticated
+  using (user_id = (select auth.uid()))
+  with check (user_id = (select auth.uid()));
+
+drop policy if exists "own notifications deletable" on public.notifications;
+create policy "own notifications deletable" on public.notifications
+  for delete to authenticated
+  using (user_id = (select auth.uid()));
+
+-- Realtime for the notification bell. It has to be a separate guarded block
+-- rather than another arm of the one above, because that one executes before
+-- this table exists and PostgreSQL reads a migration top to bottom.
+do $$
+begin
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime'
+      and schemaname = 'public'
+      and tablename = 'notifications'
+  ) then
+    alter publication supabase_realtime add table public.notifications;
+  end if;
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- A second reason for the AI meter to exist.
+--
+-- Reading a timetable is a generation like any other, so it is charged the same
+-- way and shows up in the same meter. The purpose is widened by dropping and
+-- recreating the constraint, because PostgreSQL cannot alter a check in place.
+-- The `if exists` keeps a re-apply safe, which is the apply that happens when
+-- someone has to recover.
+-- ---------------------------------------------------------------------------
+alter table public.ai_generations drop constraint if exists ai_generations_purpose_check;
+alter table public.ai_generations
+  add constraint ai_generations_purpose_check check (purpose in ('deck', 'schedule'));
