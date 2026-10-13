@@ -20,6 +20,15 @@ import { Switch } from '@/components/ui/switch';
 import { Badge, Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { EmptyState } from '@/components/ui/feedback';
 import {
+  Table,
+  TableBody,
+  TableCaption,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -229,30 +238,24 @@ function RosterPanel({ classRecord }: { classRecord: ClassSummary }) {
           </p>
         ) : (
           <div className="relative overflow-x-auto">
-            <table className="w-full border-collapse text-left">
-              <caption className="sr-only">
+            <Table>
+              <TableCaption className="sr-only">
                 Students in {classRecord.name}, with guardian contact details
-              </caption>
-              <thead>
-                <tr className="border-b border-border">
-                  <th scope="col" className="px-2 py-2 text-[0.75rem] font-medium text-ink-subtle">
-                    Student
-                  </th>
-                  <th scope="col" className="px-2 py-2 text-[0.75rem] font-medium text-ink-subtle">
-                    Guardian
-                  </th>
-                  <th scope="col" className="px-2 py-2 text-[0.75rem] font-medium text-ink-subtle">
-                    Contact
-                  </th>
-                  <th scope="col" className="px-2 py-2 text-right text-[0.75rem] font-medium text-ink-subtle">
+              </TableCaption>
+              <TableHeader>
+                <TableRow>
+                  <TableHead scope="col">Student</TableHead>
+                  <TableHead scope="col">Guardian</TableHead>
+                  <TableHead scope="col">Contact</TableHead>
+                  <TableHead scope="col" className="text-right">
                     <span className="sr-only">Actions</span>
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
+                  </TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 {classRecord.students.map((student) => (
-                  <tr key={student.id} className="border-b border-border last:border-0">
-                    <th scope="row" className="px-2 py-2.5 text-[0.9375rem] font-medium text-ink">
+                  <TableRow key={student.id}>
+                    <TableHead scope="row" className="font-medium">
                       <span className="flex items-center gap-2.5">
                         <span
                           aria-hidden="true"
@@ -262,11 +265,11 @@ function RosterPanel({ classRecord }: { classRecord: ClassSummary }) {
                         </span>
                         {student.fullName}
                       </span>
-                    </th>
-                    <td className="px-2 py-2.5 text-[0.875rem] text-ink-muted">
+                    </TableHead>
+                    <TableCell className="text-ink-muted">
                       {student.guardianName ?? <span className="text-ink-subtle">Not recorded</span>}
-                    </td>
-                    <td className="px-2 py-2.5 text-[0.875rem] text-ink-muted">
+                    </TableCell>
+                    <TableCell className="text-ink-muted">
                       {student.guardianEmail ? (
                         <a
                           href={`mailto:${student.guardianEmail}`}
@@ -284,8 +287,8 @@ function RosterPanel({ classRecord }: { classRecord: ClassSummary }) {
                           {student.guardianPhone}
                         </span>
                       ) : null}
-                    </td>
-                    <td className="px-2 py-2.5 text-right">
+                    </TableCell>
+                    <TableCell className="text-right">
                       <Button
                         variant="ghost"
                         size="sm"
@@ -296,11 +299,11 @@ function RosterPanel({ classRecord }: { classRecord: ClassSummary }) {
                         <Archive size={15} aria-hidden="true" />
                         <span aria-hidden="true">Archive</span>
                       </Button>
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
         )}
 
@@ -509,27 +512,23 @@ function ImportRosterDialog({ classId }: { classId: string }) {
 
             {(result.problems.length > 0 || result.duplicates.length > 0) && (
               <div className="max-h-56 overflow-y-auto rounded-[12px] border border-border">
-                <table className="w-full text-left text-[0.9375rem]">
-                  <caption className="sr-only">Rows left out of this import</caption>
-                  <thead>
-                    <tr className="border-b border-border">
-                      <th scope="col" className="px-3 py-2 text-label">
-                        Row
-                      </th>
-                      <th scope="col" className="px-3 py-2 text-label">
-                        Why
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
+                <Table>
+                  <TableCaption className="sr-only">Rows left out of this import</TableCaption>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead scope="col">Row</TableHead>
+                      <TableHead scope="col">Why</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
                     {[...result.duplicates, ...result.problems].map((problem) => (
-                      <tr key={`${problem.row}-${problem.message}`} className="border-b border-border last:border-0">
-                        <td className="tabular px-3 py-2 align-top text-ink-muted">{problem.row}</td>
-                        <td className="px-3 py-2 align-top text-ink">{problem.message}</td>
-                      </tr>
+                      <TableRow key={`${problem.row}-${problem.message}`}>
+                        <TableCell className="tabular text-ink-muted">{problem.row}</TableCell>
+                        <TableCell>{problem.message}</TableCell>
+                      </TableRow>
                     ))}
-                  </tbody>
-                </table>
+                  </TableBody>
+                </Table>
               </div>
             )}
 

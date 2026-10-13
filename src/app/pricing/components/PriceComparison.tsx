@@ -4,6 +4,15 @@ import { Check } from 'lucide-react';
 
 import { Reveal } from '@/components/marketing/Reveal';
 import { SectionHeading } from '@/components/marketing/SectionHeading';
+import {
+  Table,
+  TableBody,
+  TableCaption,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
 import { COMPARISON, PLANS, type Cell } from '../plans';
 
 /**
@@ -57,7 +66,7 @@ export function PriceComparison() {
             scrolls, so the first column is never cut off by the page gutter.
           */}
           <div className="-mx-6 mt-12 overflow-x-auto md:mx-0">
-            <table className="w-full min-w-[44rem] border-collapse text-left">
+            <Table className="min-w-[44rem]">
               {/*
                 Built from PLANS rather than written out. This caption said
                 "Starter" while the plan it named was called "Solo", and a
@@ -65,62 +74,68 @@ export function PriceComparison() {
                 two vocabularies in the first place. Both tiers are now called
                 the same thing everywhere.
               */}
-              <caption className="sr-only">
+              <TableCaption className="sr-only">
                 Feature comparison across the{' '}
                 {PLANS.map((plan) => plan.name).join(', ')} plans
-              </caption>
-              <thead>
-                <tr>
-                  <th
-                    scope="col"
-                    className="w-[34%] border-b border-border pb-4 pr-6 align-bottom"
-                  >
+              </TableCaption>
+              <TableHeader>
+                <TableRow>
+                  <TableHead scope="col" className="w-[34%] pb-6 pr-6">
                     <span className="text-label">Feature</span>
-                  </th>
+                  </TableHead>
                   {PLANS.map((plan) => (
-                    <th
+                    <TableHead
                       key={plan.id}
                       scope="col"
-                      className="border-b border-border px-4 pb-4 align-bottom text-[0.9375rem] font-medium text-ink"
+                      className="pb-6 text-[0.9375rem] font-medium normal-case text-ink"
                     >
                       {plan.name}
-                    </th>
+                    </TableHead>
                   ))}
-                </tr>
-              </thead>
+                </TableRow>
+              </TableHeader>
 
               {COMPARISON.map((group) => (
-                <tbody key={group.title}>
-                  <tr>
-                    <th
+                <TableBody key={group.title}>
+                  {/*
+                    `border-b-0` on the group heading and `last:border-b` on the
+                    rows are deliberate and they are the only two border overrides
+                    in the product. This table is several `<tbody>` elements in
+                    one table, so the primitive's `last:border-b-0`, which is per
+                    row group, would strip the rule off the end of every group
+                    and run the sections together. The rule under a group's last
+                    row is the section separator here.
+                  */}
+                  <TableRow className="border-b-0">
+                    <TableHead
                       scope="colgroup"
                       colSpan={PLANS.length + 1}
-                      className="pb-4 pt-10 text-left"
+                      className="border-b-0 pb-4 pt-10 text-left"
                     >
                       <span className="text-label">{group.title}</span>
-                    </th>
-                  </tr>
+                    </TableHead>
+                  </TableRow>
                   {group.rows.map((row) => (
-                    <tr key={row.label} className="border-b border-border">
-                      <th
+                    <TableRow key={row.label} className="last:border-b">
+                      <TableHead
                         scope="row"
-                        className="py-4 pr-6 align-top text-[0.9375rem] font-medium text-ink"
+                        className="py-4 pr-6 align-top text-[0.9375rem] font-medium normal-case text-ink"
                       >
                         {row.label}
-                      </th>
+                      </TableHead>
                       {row.cells.map((cell, index) => (
-                        <td
+                        <TableCell
                           key={`${row.label}-${PLANS[index].id}`}
-                          className="px-4 py-4 align-top text-[0.9375rem] leading-snug"
+                          className="py-4 align-top leading-snug"
                         >
                           <Value cell={cell} />
-                        </td>
+                        </TableCell>
                       ))}
-                    </tr>
+                    </TableRow>
                   ))}
-                </tbody>
+                </TableBody>
               ))}
-            </table>
+            </Table>
           </div>
         </Reveal>
       </div>

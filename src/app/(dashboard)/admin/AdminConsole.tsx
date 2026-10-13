@@ -19,6 +19,15 @@ import {
 } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
+  Table,
+  TableBody,
+  TableCaption,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
+import {
   INVITE_TTL_DAYS,
   ORG_PLANS,
   ORG_PLAN_LABELS,
@@ -1133,28 +1142,21 @@ export function AdminConsole({
             </p>
 
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[40rem] border-collapse text-left">
-                <caption className="sr-only">Permissions granted to each role</caption>
-                <thead>
-                  <tr>
-                    <th scope="col" className="border-b border-border py-2 pr-4 text-label">
-                      Role
-                    </th>
-                    <th scope="col" className="border-b border-border py-2 pr-4 text-label">
-                      Can
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
+              <Table className="min-w-[40rem]">
+                <TableCaption className="sr-only">Permissions granted to each role</TableCaption>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead scope="col">Role</TableHead>
+                    <TableHead scope="col">Can</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
                   {matrix.map((row) => (
-                    <tr key={row.role} className="align-top">
-                      <th
-                        scope="row"
-                        className="w-[11rem] border-b border-border py-3 pr-4 text-[0.9375rem] font-medium text-ink"
-                      >
+                    <TableRow key={row.role} className="align-top">
+                      <TableHead scope="row" className="w-[11rem] align-top text-[0.9375rem] font-medium normal-case text-ink">
                         {row.label}
-                      </th>
-                      <td className="border-b border-border py-3 pr-4">
+                      </TableHead>
+                      <TableCell className="align-top">
                         <ul className="flex flex-col gap-1.5">
                           {row.grants.map((grant) => (
                             <li key={grant.permission} className="flex items-center gap-2 text-meta">
@@ -1188,11 +1190,11 @@ export function AdminConsole({
                             </li>
                           ))}
                         </ul>
-                      </td>
-                    </tr>
+                      </TableCell>
+                    </TableRow>
                   ))}
-                </tbody>
-              </table>
+                </TableBody>
+              </Table>
             </div>
           </CardContent>
         </Card>
