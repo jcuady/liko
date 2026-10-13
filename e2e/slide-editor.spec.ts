@@ -227,16 +227,35 @@ test.describe.serial('the slide editor', () => {
      * One renderer, three places. If present mode ever gets its own markup this
      * fails, because the two canvases are compared on the same slide rather than
      * asserted separately, which would let both drift in the same way.
+     *
+     * WHY EVERY STEP HERE WAITS INSTEAD OF SAMPLING ONCE. This compared two
+     * `innerText` reads taken a click apart and passed 3 times in isolation
+     * while failing under a loaded parallel run, so it was measuring how fast
+     * the machine was. Two races hide in it. The editor's canvas is visible a
+     * beat before it has painted its text, so the first read could be empty. And
+     * `STAGE` is `.first()`, so during the swap it can still be pointing at the
+     * editor's canvas while present mode is arriving.
+     *
+     * The guard on the count is what removes the second one: in present mode
+     * exactly one canvas is not `aria-hidden`, and until that is true, `.first()`
+     * is a guess. Polling the text rather than sampling it keeps the assertion
+     * exactly as strict, because text that never matches still fails the poll.
      */
     const editorCanvas = STAGE(page);
     await editorCanvas.waitFor();
+    await expect
+      .poll(async () => (await editorCanvas.innerText()).trim().length)
+      .toBeGreaterThan(0);
     const inEditor = await editorCanvas.innerText();
 
     await page.getByRole('button', { name: /present/i }).click();
+
+    const unhidden = page.locator('[data-slide-canvas]:not([aria-hidden="true"])');
+    await expect(unhidden, 'present mode should show exactly one canvas').toHaveCount(1);
+
     const presentCanvas = STAGE(page);
     await expect(presentCanvas).toBeVisible();
-
-    expect(await presentCanvas.innerText()).toBe(inEditor);
+    await expect.poll(async () => presentCanvas.innerText()).toBe(inEditor);
   });
 
   test('the canvas fits a phone without horizontal overflow', async ({ page }) => {

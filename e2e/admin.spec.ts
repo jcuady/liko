@@ -84,7 +84,11 @@ test.describe('the people list', () => {
     // The label moves with the write, so the assertion is on what is now shown
     // rather than on a toast that a previous mutation could also have produced.
     await expect(roleForIngrid).toHaveText('Administrator');
-    await expect(page.getByText('Role updated.')).toBeVisible();
+    // `.last()` because this test writes twice, so more than one "Role updated."
+    // toast can be alive at once and a bare match is ambiguous. It passed
+    // because the first toast happened to have expired before the second write,
+    // which is toast timing rather than anything about the product.
+    await expect(page.getByText('Role updated.').last()).toBeVisible();
 
     // The point of the change: Ingrid can now open the page a teacher cannot.
     const asIngrid = await page.context().browser()!.newContext();
@@ -104,7 +108,7 @@ test.describe('the people list', () => {
     // Put her back so the run does not depend on its own earlier mutation.
     await chooseOption(page, roleForIngrid, 'instructor');
     await expect(roleForIngrid).toHaveText('Teacher');
-    await expect(page.getByText('Role updated.')).toBeVisible();
+    await expect(page.getByText('Role updated.').last()).toBeVisible();
     await asIngrid.close();
   });
 
