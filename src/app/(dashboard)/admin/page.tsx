@@ -32,6 +32,7 @@ const PERMISSION_LABELS: Record<Permission, string> = {
   'quiz:take': 'Sit a quiz',
   'analytics:read': 'View the overview',
   'history:read': 'View student history',
+  'history:write': 'Record behaviour notes',
   'user:manage': 'Manage people',
   'org:manage': 'Manage the organisation',
 };

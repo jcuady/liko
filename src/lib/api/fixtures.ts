@@ -468,6 +468,21 @@ function studentForUser(userId: string): StudentRecord | null {
 }
 
 /**
+ * A fixture id that has never been issued before.
+ *
+ * WHY NOT `store.x.length + 1`. Because the array shrinks. Archive a row and the
+ * next insert reuses the id of the row that just went, and since the write path
+ * treats a colliding id as an update, the new row silently overwrote an
+ * unrelated existing one instead of raising anything. The counter only ever goes
+ * up, so a fixture id can be deleted and never reissued.
+ */
+let fixtureSequence = 0;
+function fixtureId(prefix: string, scope: string): string {
+  fixtureSequence += 1;
+  return `${prefix}_${fixtureSequence}_${scope}`;
+}
+
+/**
  * Resolves a roster row a caller is allowed to act on, or throws NOT_FOUND.
  *
  * WHY THIS EXISTS RATHER THAN A BARE LOOKUP. The Supabase adapter deliberately
@@ -671,8 +686,28 @@ export const fixtures: WorkspaceData = {
      * themselves, which is both what really happens and what lets first-run
      * onboarding mean anything: otherwise a brand new teacher appears to own a
      * full roster and the wizard skips itself as already answered.
+     *
+     * "THE DEMO ACCOUNTS" IS NOT ONE KIND OF ACCOUNT. The seeded users include a
+     * student and a guardian as well as the teachers, and this used to hand all
+     * of them the entire class store. Two things were wrong with that at once.
+     *
+     * It told a student they were enrolled in a class they are not on: only the
+     * first class has a linked account, so `stu_001` was shown the second class
+     * as well. And it MASKED the production bug of the same name. The Supabase
+     * adapter was filtering `owner_id` and returning an empty array to every
+     * student, while this one returned two classes, so fixture mode, the demo
+     * and the whole Playwright suite all looked healthy while the real student
+     * landing page rendered empty. A fixture that is more permissive than the
+     * database does not just differ from it; it hides the failures in it.
+     *
+     * So a student or guardian now sees the one class they are actually on, the
+     * same answer the `linked read classes` policy gives.
      */
-    if (isDemoAccount(userId)) return store.classes;
+    if (isDemoAccount(userId)) {
+      const enrolled = studentForUser(userId);
+      if (enrolled) return store.classes.filter((row) => row.id === enrolled.classId);
+      return store.classes;
+    }
     return store.classes.filter((row) => row.ownerId === userId);
   },
 
@@ -1779,8 +1814,24 @@ export const fixtures: WorkspaceData = {
   async saveScheduleEntry(userId, input) {
     guard('saveScheduleEntry');
     const student = requireStudentFor(userId, input.studentId);
+
+    /*
+     * THE EXISTING ROW IS RESOLVED BEFORE THE INPUT IS TRUSTED, WHICH IT WAS NOT
+     * AT FIRST. `requireStudentFor` proved the caller may act on
+     * `input.studentId`, and then the row found by `input.id` was overwritten
+     * whatever student it belonged to. So a caller who passed their own student
+     * id and somebody else's row id wrote over that other student's week.
+     * Supabase never had this, because `.eq('id', input.id)` runs under RLS.
+     */
+    if (input.id) {
+      const existing = store.schedule.find((entry) => entry.id === input.id);
+      if (existing && existing.studentId !== input.studentId) {
+        throw new DataError('NOT_FOUND', 'That class is no longer on your timetable.');
+      }
+    }
+
     const row: ScheduleEntryRecord = {
-      id: input.id ?? `sch_${store.schedule.length + 1}_${input.studentId}`,
+      id: input.id ?? fixtureId('sch', input.studentId),
       studentId: input.studentId,
       ownerId: student.ownerId,
       dayOfWeek: input.dayOfWeek,
@@ -1838,7 +1889,7 @@ export const fixtures: WorkspaceData = {
   async saveTerm(userId, input) {
     guard('saveTerm');
     const row: TermRecord = {
-      id: input.id ?? `term_${store.terms.length + 1}_${userId}`,
+      id: input.id ?? fixtureId('term', userId),
       ownerId: userId,
       name: input.name,
       kind: input.kind,
@@ -1870,7 +1921,7 @@ export const fixtures: WorkspaceData = {
     guard('saveCalendarEvent');
     if (input.studentId) requireStudentFor(userId, input.studentId);
     const row: CalendarEventRecord = {
-      id: input.id ?? `evt_${store.events.length + 1}_${userId}`,
+      id: input.id ?? fixtureId('evt', userId),
       ownerId: userId,
       studentId: input.studentId ?? null,
       title: input.title,
@@ -1890,14 +1941,39 @@ export const fixtures: WorkspaceData = {
 
   async deleteCalendarEvent(userId, eventId) {
     guard('deleteCalendarEvent');
+    const event = store.events.find((row) => row.id === eventId);
+    /*
+     * CHECKED, WHICH IT WAS NOT AT FIRST. This originally filtered on the id
+     * alone and ignored `userId`, so any signed-in fixture user could delete any
+     * calendar event by guessing its id. Production is protected by the
+     * `calendar_events` RLS policy, which means fixture mode was strictly more
+     * permissive than the database it stands in for, and the two sibling
+     * deletes beside this one already checked. A fixture adapter that is looser
+     * than production is not a convenience, it is a place where a real
+     * authorisation bug stays invisible.
+     */
+    if (event) {
+      if (event.studentId) requireStudentFor(userId, event.studentId);
+      else if (event.ownerId !== userId) {
+        throw new DataError('NOT_FOUND', 'That event is no longer on the calendar.');
+      }
+    }
     store.events = store.events.filter((row) => row.id !== eventId);
   },
 
   async listNotifications(userId) {
     guard('listNotifications');
+    /*
+     * CAPPED AT 50, MATCHING THE SUPABASE ADAPTER. The production read has had a
+     * `.limit(50)` on it and this one did not, so fixture mode would show a
+     * longer list than production can ever return. The usual seam failure is the
+     * fixtures being looser; here they were stricter about nothing and looser
+     * about the ceiling, in the same place.
+     */
     return store.notifications
       .filter((row) => row.userId === userId)
-      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .slice(0, 50);
   },
 
   async markNotificationRead(userId, notificationId) {

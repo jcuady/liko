@@ -606,12 +606,36 @@ function strArray(value: unknown): string[] {
 // ---------------------------------------------------------------------------
 
 const supabaseAdapter: WorkspaceData = {
-  async listClasses(userId) {
+  /*
+   * NO `.eq('owner_id', userId)` HERE, AND THAT IS THE POINT.
+   *
+   * This filter used to sit on the query. RLS admitted a student's class through
+   * the `linked read classes` policy, and then this line removed it, because a
+   * student's `owner_id` is their teacher's account id rather than their own.
+   * The two did not fail open, which is what made it expensive to find: RLS
+   * granted the row and the application threw it away, so the student's landing
+   * page rendered successfully and empty. PostgREST applies the policy and the
+   * filter and intersects them, and an intersection of "permitted" and "mine"
+   * is "mine", which for a student is nothing.
+   *
+   * Every caller passes `session.userId` and then resolves the record it wants
+   * out of what comes back, so none of them was relying on this filter to
+   * authorise anything; they were relying on it to authorise, and getting the
+   * wrong answer for two of the four roles.
+   *
+   * What the policies on `classes` actually cover, which is why dropping the
+   * filter widens nothing:
+   *   - `own rows`               the teacher who owns it
+   *   - `linked read classes`    a student on the roster of it
+   *   - `admin reads classes`    an admin sharing the owner's organisation
+   * That is the same set the adapter was trying to approximate, and it is
+   * computed by the one place that cannot be bypassed.
+   */
+  async listClasses() {
     const supabase = await requireClient();
     const { data, error } = await supabase
       .from('classes')
       .select('*')
-      .eq('owner_id', userId)
       .is('archived_at', null)
       .order('name');
     throwIf(error);

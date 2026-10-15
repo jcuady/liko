@@ -137,7 +137,19 @@ export async function createFirstClass(input: {
   level: string;
   gradingPolicyId: string;
 }): Promise<StepResult> {
-  const session = await requirePermission('class:read');
+  /*
+   * `class:write`, NOT `class:read`. This action creates a class row.
+   *
+   * It was gated on `class:read`, which the matrix grants a student at scope
+   * `own` and a guardian at `linked`, and `can()` counts an ownership scope as
+   * permitted. So both roles passed the check and went on to insert a row with
+   * their own id as `owner_id`, which the "own rows" RLS policy on `classes`
+   * accepts. A student could therefore create persistent classes. The sibling
+   * that does the same thing in `classes/actions.ts` already required
+   * `class:write`, so the correct gate was present in the codebase and this
+   * file had drifted away from it.
+   */
+  const session = await requirePermission('class:write');
 
   const name = input.name.trim().slice(0, 120);
   const code = input.code.trim().slice(0, 24);

@@ -10,6 +10,7 @@ import { SectionHeading } from '@/components/marketing/SectionHeading';
 import {
   EARLY_ACCESS,
   PLANS,
+  formatPrice,
   priceFor,
   priceNote,
   savingPercent,
@@ -35,9 +36,24 @@ const CYCLES: { id: Cycle; label: string }[] = [
   { id: 'annual', label: 'Annual' },
 ];
 
-function formatPrice(value: number): string {
-  return `$${value}`;
-}
+/*
+ * NO LOCAL `formatPrice`, AND THAT IS THE POINT.
+ *
+ * This file used to declare its own:
+ *
+ *     function formatPrice(value: number) { return `$${value}` }
+ *
+ * which shadowed the peso formatter exported from `../plans` and rendered
+ * `$299` on `/pricing` while the landing page, which imports the real one,
+ * rendered `₱299` for the same plan. Two pages selling the same product at two
+ * different currencies is the kind of defect no unit test catches and every
+ * screenshot does, because both screenshots look correct on their own.
+ *
+ * The import list at the top of this file brought in `priceFor` and
+ * `priceNote` but not `formatPrice`, and the peso formatter had replaced a
+ * dollar one in `plans.ts` precisely because the product is sold in the
+ * Philippines. So the shadow was re-added after the fact.
+ */
 
 export function PricingTiers() {
   const [cycle, setCycle] = React.useState<Cycle>('annual');

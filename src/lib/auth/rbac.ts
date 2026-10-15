@@ -17,9 +17,22 @@ export const PERMISSIONS = [
   'assess:write',
   'grade:read',
   'grade:write',
+  /*
+   * Writing a behaviour note is not reading history.
+   *
+   * These were separate permissions only after a write was found sitting behind
+   * `history:read`. A student holds that at scope `own` and a guardian at
+   * `linked`, and `can()` counts an ownership scope as permitted, so both
+   * reached a handler that appended a behaviour log against any `student_id`
+   * they named. The rows landed in their own owner partition and never reached
+   * the teacher's view, so nothing visible was tampered with, but an
+   * unauthorised write is still an unauthorised write and the record was
+   * unbounded.
+   */
+  'history:read',
+  'history:write',
   'quiz:take',
   'analytics:read',
-  'history:read',
   'user:manage',
   'org:manage',
 ] as const;
@@ -45,6 +58,7 @@ const MATRIX: Record<Role, Record<Permission, Scope>> = {
     'quiz:take': 'no',
     'analytics:read': 'yes',
     'history:read': 'yes',
+    'history:write': 'yes',
     'user:manage': 'no',
     'org:manage': 'no',
   },
@@ -59,6 +73,7 @@ const MATRIX: Record<Role, Record<Permission, Scope>> = {
     'quiz:take': 'no',
     'analytics:read': 'yes',
     'history:read': 'yes',
+    'history:write': 'yes',
     'user:manage': 'yes',
     'org:manage': 'yes',
   },
@@ -73,6 +88,7 @@ const MATRIX: Record<Role, Record<Permission, Scope>> = {
     'quiz:take': 'own',
     'analytics:read': 'no',
     'history:read': 'own',
+    'history:write': 'no',
     'user:manage': 'no',
     'org:manage': 'no',
   },
@@ -87,6 +103,7 @@ const MATRIX: Record<Role, Record<Permission, Scope>> = {
     'quiz:take': 'no',
     'analytics:read': 'no',
     'history:read': 'linked',
+    'history:write': 'no',
     'user:manage': 'no',
     'org:manage': 'no',
   },

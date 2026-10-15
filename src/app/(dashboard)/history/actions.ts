@@ -33,7 +33,18 @@ export async function addBehaviourLog(input: {
   entry: string;
   severity: Severity;
 }): Promise<BehaviourResult> {
-  const session = await requirePermission('history:read');
+  /*
+   * `history:write`, NOT `history:read`. This appends a row.
+   *
+   * It was gated on the read grant, which a student holds at `own` and a
+   * guardian at `linked`, and `can()` counts an ownership scope as permitted.
+   * Both could therefore write a behaviour note against any `student_id` they
+   * named. The note never reached the teacher's view, because the read filters
+   * on `owner_id` and the insert stamped the writer's own id, so no visible
+   * record was altered. The record was still being written by someone with no
+   * right to write it, without limit, and that is the part worth closing.
+   */
+  const session = await requirePermission('history:write');
 
   const entry = input.entry.trim();
 

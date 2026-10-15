@@ -134,3 +134,40 @@ describe('route mapping', () => {
     }
   });
 });
+
+/**
+ * Writing is not reading.
+ *
+ * WHY THIS GROUP EXISTS. Three handlers wrote while holding a READ grant:
+ * `addBehaviourLog` on `history:read`, and `createFirstClass` and `saveProfile`
+ * on `class:read`. A student holds both of those at scope `own` and a guardian
+ * at `linked`, and `can()` deliberately counts an ownership scope as permitted,
+ * so the checks passed and the writes went through.
+ *
+ * The assertions below are deliberately about the DENIAL rather than the grant.
+ * Asserting only that a teacher may write something would still pass with the
+ * matrix cell set to `own`, which is the shape the bug had.
+ */
+describe('write grants are separate from read grants', () => {
+  it('refuses a behaviour note to a student and a guardian', () => {
+    expect(can('student', 'history:write')).toBe(false);
+    expect(can('guardian', 'history:write')).toBe(false);
+  });
+
+  it('allows a behaviour note to staff', () => {
+    expect(can('instructor', 'history:write')).toBe(true);
+    expect(can('admin', 'history:write')).toBe(true);
+  });
+
+  it('still lets a student read their own history', () => {
+    // The fix must not have closed the read the student legitimately has.
+    expect(can('student', 'history:read')).toBe(true);
+    expect(scopeFor('student', 'history:read')).toBe('own');
+  });
+
+  it('refuses class creation to a student and a guardian', () => {
+    // `createFirstClass` used to require `class:read`, which both hold.
+    expect(can('student', 'class:write')).toBe(false);
+    expect(can('guardian', 'class:write')).toBe(false);
+  });
+});

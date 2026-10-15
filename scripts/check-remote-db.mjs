@@ -1,3 +1,6 @@
+import { readFileSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
+
 /**
  * Has the migration been applied to the real project?
  *
@@ -32,27 +35,24 @@
  * Run: node --env-file=.env.local scripts/check-remote-db.mjs
  */
 
-const TABLES = [
-  'profiles',
-  'classes',
-  'grading_policies',
-  'students',
-  'attendance',
-  'assessments',
-  'questions',
-  'grades',
-  'quiz_attempts',
-  'lesson_plans',
-  'behaviour_logs',
-  'student_history',
-  'push_subscriptions',
-  'organizations',
-  'memberships',
-  'decks',
-  'slides',
-  'consent_events',
-  'organization_invites',
-];
+/**
+ * The tables that must exist in the remote database.
+ *
+ * DERIVED FROM THE MIGRATION, NOT TYPED OUT HERE.
+ *
+ * This list used to be a literal, and that was a standing invitation for the two
+ * to drift apart. They did: four tables were added to the migration for the
+ * calendar module and never applied, and this check kept reporting "all 19
+ * tables and their security-relevant columns exist" because 19 is what the
+ * literal said. A green gate that cannot see the change it is gating is not
+ * evidence the change landed.
+ *
+ * Reading the migration means a table cannot be added to the schema without also
+ * becoming something the live database is asked about, which is the one property
+ * this script exists to provide. The migration is the single source of truth for
+ * what the schema is; this file is the check that the database agrees with it.
+ */
+const TABLES = tablesFromMigrations();
 
 /**
  * Columns the security fixes depend on. A table can be present and still be
@@ -69,6 +69,31 @@ const CANARIES = ['zzz_liko_probe_canary_a', 'zzz_liko_probe_canary_b'];
 
 const MISSING_TABLE = /could not find the table|not found in the schema cache|42P01|PGRST205/i;
 const MISSING_COLUMN = /does not exist|column .* not found|42703|PGRST100/i;
+
+/**
+ * Every `public.*` table the migration creates.
+ *
+ * Read at startup rather than embedded, so the expectation follows the schema.
+ * Only `public` counts: `auth.users` is supplied by Supabase and is deliberately
+ * not created here.
+ */
+function tablesFromMigrations() {
+  const dir = 'supabase/migrations';
+  const names = new Set();
+  for (const file of readdirSync(dir).filter((name) => name.endsWith('.sql')).sort()) {
+    const sql = readFileSync(join(dir, file), 'utf8');
+    for (const match of sql.matchAll(
+      /create\s+table\s+(?:if\s+not\s+exists\s+)?public\.([a-z_][a-z0-9_]*)/gi,
+    )) {
+      names.add(match[1].toLowerCase());
+    }
+  }
+  if (names.size === 0) {
+    console.error('No tables found in the migrations, so this check would pass vacuously.');
+    process.exit(1);
+  }
+  return [...names].sort();
+}
 
 function config() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
