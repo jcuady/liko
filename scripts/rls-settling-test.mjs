@@ -317,6 +317,144 @@ async function main() {
       Array.isArray(ownRows) && ownRows.length === 1,
       `saw ${Array.isArray(ownRows) ? ownRows.length : '?'} rows`,
     );
+  // ---- flashcards ----------------------------------------------------
+    /*
+     * The flashcard policies were applied to the live database and had never
+     * been run against it. `check:sql` proves they parse, that RLS is enabled on
+     * all three tables, and that every policy is dropped before it is created.
+     * None of that is the claim that matters. The claim is that a student's
+     * study record is invisible to everybody else, and that claim is exactly
+     * what reading SQL cannot tell you: `check:sql` would pass just as happily
+     * against a policy that granted everything to `authenticated`.
+     *
+     * So the claims are asserted here, and asserted in both directions. A test
+     * that only proves the grant would pass if the table were simply readable
+     * by everyone, which is the failure mode that matters.
+     */
+    console.log('\nFlashcards: a study record belongs to one student');
+
+    const rosterRows = await admin(`students?select=id&account_id=eq.${studentId}`);
+    const rosterId = rosterRows.ok ? (await rosterRows.json())?.[0]?.id : undefined;
+    if (!rosterId) throw new Error('could not read back the student roster row');
+
+    const otherRoster = await admin('students', {
+      method: 'POST',
+      body: JSON.stringify({
+        class_id: classB,
+        owner_id: ownerA,
+        full_name: `${STAMP} other student`,
+        initials: 'OS',
+        account_id: null,
+      }),
+    });
+    const otherRosterId = otherRoster.ok ? (await otherRoster.json())?.[0]?.id : undefined;
+    if (!otherRosterId) throw new Error(`other roster row: ${await otherRoster.text()}`);
+
+    const deck = await admin('flashcard_decks', {
+      method: 'POST',
+      body: JSON.stringify({
+        owner_id: ownerA,
+        class_id: classA,
+        title: `${STAMP} deck`,
+        subject: '',
+        description: '',
+        shared_at: new Date().toISOString(),
+      }),
+    });
+    const deckId = deck.ok ? (await deck.json())?.[0]?.id : undefined;
+    if (!deckId) throw new Error(`deck: ${await deck.text()}`);
+
+    const card = await admin('flashcards', {
+      method: 'POST',
+      body: JSON.stringify({
+        deck_id: deckId,
+        owner_id: ownerA,
+        front: `${STAMP} front`,
+        back: `${STAMP} back`,
+      }),
+    });
+    const cardId = card.ok ? (await card.json())?.[0]?.id : undefined;
+    if (!cardId) throw new Error(`card: ${await card.text()}`);
+
+    // Grants first. Without these, every denial below would also pass against a
+    // table nobody can read at all, which is how a policy that is wrong in the
+    // safe direction still manages to break the product.
+    const deckRead = await asUser(`flashcard_decks?id=eq.${deckId}&select=title`, token);
+    const deckRows = deckRead.ok ? await deckRead.json() : [];
+    check(
+      'a student CAN read a deck shared into their class',
+      Array.isArray(deckRows) && deckRows.length === 1,
+      `status ${deckRead.status}, saw ${Array.isArray(deckRows) ? deckRows.length : '?'} rows`,
+    );
+
+    const cardRead = await asUser(`flashcards?deck_id=eq.${deckId}&select=front`, token);
+    const cardRows = cardRead.ok ? await cardRead.json() : [];
+    check(
+      'a student CAN read the cards in it',
+      Array.isArray(cardRows) && cardRows.length === 1,
+      `status ${cardRead.status}, saw ${Array.isArray(cardRows) ? cardRows.length : '?'} rows`,
+    );
+
+    const ownProgress = await asUser('flashcard_progress', token, {
+      method: 'POST',
+      headers: { Prefer: 'return=representation' },
+      body: JSON.stringify({ card_id: cardId, student_id: rosterId, status: 'learning' }),
+    });
+    check(
+      'a student CAN record a review against their own record',
+      ownProgress.ok,
+      ownProgress.ok
+        ? `wrote ${ownProgress.status}`
+        : `REFUSED THEIR OWN REVIEW: ${ownProgress.status} ${(await ownProgress.text()).slice(0, 140)}. A study record nobody can write is a broken product.`,
+    );
+
+    // The denial the whole three-table design exists for.
+    const stolenProgress = await asUser('flashcard_progress', {
+      token,
+      method: 'POST',
+      headers: { Prefer: 'return=representation' },
+      body: JSON.stringify({ card_id: cardId, student_id: otherRosterId, status: 'review' }),
+    });
+    check(
+      'a student CANNOT record a review against another student',
+      !stolenProgress.ok,
+      stolenProgress.ok
+        ? `THE WRITE SUCCEEDED with ${stolenProgress.status}. A student can write another student's study record.`
+        : `refused: ${stolenProgress.status}`,
+    );
+
+    // A row that genuinely belongs to somebody else, so the read below is a
+    // read and not an empty table.
+    await admin('flashcard_progress', {
+      method: 'POST',
+      body: JSON.stringify({ card_id: cardId, student_id: otherRosterId, status: 'review' }),
+    });
+    const othersProgress = await asUser('flashcard_progress?select=student_id', token);
+    const seenProgress = othersProgress.ok ? await othersProgress.json() : [];
+    const leaked = Array.isArray(seenProgress)
+      ? seenProgress.filter((row) => row.student_id === otherRosterId)
+      : [true];
+    check(
+      "a student CANNOT read another student's study record",
+      Array.isArray(seenProgress) && leaked.length === 0,
+      Array.isArray(seenProgress) && leaked.length === 0
+        ? `saw only their own ${seenProgress.length} row(s)`
+        : `SAW ${JSON.stringify(seenProgress).slice(0, 160)}. Another student's review history is visible.`,
+    );
+
+    const stolenCard = await asUser('flashcards', {
+      token,
+      method: 'POST',
+      headers: { Prefer: 'return=representation' },
+      body: JSON.stringify({ deck_id: deckId, front: 'mine', back: 'mine' }),
+    });
+    check(
+      "a student CANNOT add a card to a deck they do not own",
+      !stolenCard.ok,
+      stolenCard.ok
+        ? `THE INSERT SUCCEEDED with ${stolenCard.status}. Editing does not stay with the deck's author.`
+        : `refused: ${stolenCard.status}`,
+    );
   } catch (error) {
     failures += 1;
     console.error(`\nSetup failed: ${error.message}`);

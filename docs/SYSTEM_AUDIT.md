@@ -577,3 +577,132 @@ notification bell.
 **Not 100%.** The objective asks for every page, button and workflow to be
 functional and audited. The largest remaining pieces are the rest of the
 calendar module and a redesign of sign-in and sign-up on the new branding.
+
+---
+
+## Round four: a feature nobody had ever driven
+
+The flashcards feature (decks, cards, and a per-student review schedule) was
+built into this working tree by a second process between 23:02 and 00:12 while
+this audit was gating an earlier commit. It landed uncommitted, on top of the
+commits this audit had already made, and it was **not** reviewed by anyone: its
+own author had never seen it run.
+
+It arrived with fifty-odd unit tests, a clean typecheck and a clean lint. It
+also had **no browser test at all**, which is the same gap `/history` came
+through in round one. Everything below was found by driving the route.
+
+### A test that passed once and failed forever after
+
+`e2e/interactions.spec.ts` had two adjacent tests believed to be racing on the
+class default grading scale. They were not racing. I held one fixture server
+across two runs to test it directly:
+
+| | Run 1 | Run 2, same store |
+|---|---|---|
+| before | pass, 2.8s | **fail**, button stuck `disabled` through 43 retries |
+| after | 25/25 | 25/25 |
+
+`Gradebook.tsx:89-90` is why. The override map is component state, so a reload
+opens on `classPolicyId`, and the apply button is disabled precisely when the
+selection already matches the class. The old test chose `letter`, applied it and
+never put it back; the next run opened *already* on `letter`, so `chooseOption`
+clicked the value that was already selected, Radix fired no change, and the
+button never enabled.
+
+**The coupling was across runs, not within one.** Under `fullyParallel` that is
+exactly how a cross-run coupling looks: whichever test happened to load the
+gradebook after the mutation saw the dirt. Serialising the file had hidden the
+cause while making all thirteen tests four times slower to protect one.
+
+The same defect was latent one describe down. `the save button is inert until
+something changes` left `Ravensmoor College` on the profile permanently while
+the test above it asserts `Northfield Science Academy`. Under `fullyParallel`
+those two can land in either order across workers.
+
+**Rule: a test that writes must put the world back.** Not "serialise the file",
+which treats the symptom and slows every other test for it. Read what you found,
+move it somewhere else, prove the move off a reload, and restore it.
+
+### Sharing was unreachable, and the two adapters disagreed about why
+
+`loadShareableClasses` called `listClasses` and then filtered the result *again*
+on `ownerId === session.userId`. `listClasses` already answers the question, so
+that second filter re-implemented a rule rather than sharing one.
+
+Invisible on the real project, where a teacher's classes genuinely are owned by
+their own id. In fixture mode the seeded classes are owned by a synthetic
+`demo-owner`, so the filter returned empty, and the component that draws the
+share picker renders nothing when its list is empty. A teacher could not share a
+deck at all, so the whole sharing path was unreachable and therefore untested.
+The production answer was right and the local one was wrong: the same lie as
+the too-permissive fixture in P1-07, pointing the other way.
+
+The fixture had the matching half: `createFlashcardDeck` re-derived ownership
+with a raw `cls.ownerId === userId`, so even once the picker appeared the save
+failed with `FORBIDDEN`. It now uses `isDemoStaff`, the escape `ownedClass` and
+`ownedDeck` already use, and deliberately **not** the wider `isDemoAccount`:
+the demo set includes a student and a guardian, a student owns no class, and
+widening it would hand them a publish the database refuses. Staff is exactly
+the set that owns a class.
+
+A third piece fell out of that. Gating the picker on `flashcard:write` was not
+enough, because a student holds it at `own` scope and their `listClasses`
+answer is classes they are *enrolled* in rather than ones they own. That built
+a share control whose every save was refused. The gate is now `class:write`,
+the permission that actually means "may own a class", rather than a role name.
+
+### Mojibake, visible to every student, in a green build
+
+The review session rendered its counter as `1 left Â· 0 reviewed`. This is the
+second time this class has reached this product, after the weekly grid. The
+typechecker, the linter and several hundred unit tests were all green, because
+a mojibake character is a perfectly well-formed string.
+
+Fixed at the bytes, then guarded by `src/lib/encoding.test.ts`, which scans the
+source for UTF-8 read as Latin-1 and names the file, line and both codepoints.
+It is mutation-proven: injecting the sequence turns it red. Its only allow-list
+entry is `schedule.spec.ts`, which names the mojibake on purpose in a
+regression assertion, and a second test fails if that entry goes stale. The
+guard does not allow-list itself; it describes the characters instead of
+reproducing them, because a guard that exempts itself is not obviously still a
+guard.
+
+**A caveat worth carrying.** When reading Playwright output on this machine, a
+correct `·` (UTF-8 bytes `C2 B7`) displays as `Â·` if the output is decoded as
+Latin-1. The same pipeline turned Playwright's `×` into `Ã—`. Verify a byte
+claim by reading the bytes, never by reading rendered output.
+
+### The admin matrix test was counting literals
+
+Adding three permissions broke a test that had nothing to do with them: it
+asserted a student holds exactly four own-records-only grants, and a parent
+exactly three. Both are now derived from `PERMISSIONS` and `scopeFor`, which is
+what the test already claimed to prove.
+
+My first correction to it was wrong in a way worth recording. I asserted a
+parent cannot author a deck by expecting the label to be **absent**. The page
+renders every permission for every role, refusals included and bare. That
+assertion would have passed on a table that silently dropped the row instead of
+refusing it, which is the opposite of what has to be true. It now asserts the
+refusal carries no scope annotation.
+
+### Two findings that were not findings
+
+Recorded so the next reader does not repeat the search.
+
+**Three identical interval hints on a new card is not a defect.** Hard, Good
+and Easy all advance one rung on a first sighting, and `scheduler.test.ts`
+asserts it deliberately. It looks like a violation of `formatInterval`'s own
+promise that two buttons never share a label, but that promise governs
+graduated cards, not the ladder.
+
+**`flashcard_decks` read policy not excluding an archived deck is not a
+defect.** `listFlashcardDecks` filters `.is('archived_at', null)`, so no surface
+reads one. Worth hardening in RLS as defence in depth, not a bug a person can
+hit.
+
+One real comment defect was in the same module: `scheduler.ts:131` claimed
+`hard` graduated "a day early" against a `good` that graduated later, and both
+branches were `1`. The dead ternary is gone, the comment now matches, and a
+test pins the real behaviour.
