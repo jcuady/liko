@@ -715,9 +715,73 @@ export const demoDecks: DeckRecord[] = [
     createdAt: '2026-01-07T09:00:00.000Z',
     updatedAt: '2026-01-08T09:00:00.000Z',
   },
+  /*
+   * A SECOND DECK, BECAUSE ONE MUTABLE DECK WAS BEING SHARED BY TWO SPEC FILES.
+   *
+   * `slides.spec.ts` renames slides and reorders them; `slide-editor.spec.ts`
+   * asserts that the editor and present mode render the same slide. They ran in
+   * different workers against the same deck, because Playwright is configured
+   * `fullyParallel` with four workers, and an assertion that reads a slide while
+   * another worker rewrites it fails with two sets of text that both look
+   * perfectly correct on screen.
+   *
+   * Serialising the files would fix it by making the suite four times slower for
+   * every run. Giving the editor its own deck fixes it by construction: two specs
+   * that mutate state do not share the state. Nothing archives this deck, so it
+   * is as stable as the other one, and it has three slides rather than five so
+   * that the "5 slides" label stays unambiguous on the list.
+   */
+  {
+    id: 'deck_demo_collision_recap',
+    ownerId: OWNER,
+    title: 'Collision theory recap',
+    description: 'The short version, for the lesson before the practical.',
+    archivedAt: null,
+    createdAt: '2026-01-09T09:00:00.000Z',
+    updatedAt: '2026-01-10T09:00:00.000Z',
+  },
 ];
 
 export const demoSlides: SlideRecord[] = [
+  {
+    id: 'sld_recap_01',
+    deckId: 'deck_demo_collision_recap',
+    ownerId: OWNER,
+    position: 0,
+    layout: 'title',
+    theme: 'viridian',
+    elements: null,
+    title: 'Collision theory recap',
+    body: '',
+    notes: 'Five minutes, then straight to the practical.',
+    updatedAt: '2026-01-10T09:00:00.000Z',
+  },
+  {
+    id: 'sld_recap_02',
+    deckId: 'deck_demo_collision_recap',
+    ownerId: OWNER,
+    position: 1,
+    layout: 'bullets',
+    theme: 'viridian',
+    elements: null,
+    title: 'Three things at once',
+    body: 'Enough energy to break bonds\nThe right particles facing each other\nA contact that actually happens',
+    notes: 'Ask which of the three a catalyst changes.',
+    updatedAt: '2026-01-10T09:00:00.000Z',
+  },
+  {
+    id: 'sld_recap_03',
+    deckId: 'deck_demo_collision_recap',
+    ownerId: OWNER,
+    position: 2,
+    layout: 'bullets',
+    theme: 'viridian',
+    elements: null,
+    title: 'What the rate equation hides',
+    body: 'Temperature and concentration act on the collision count\nA catalyst acts on the energy\nSurface area acts on both',
+    notes: 'The recap is the setup for why the rate equation looks the way it does.',
+    updatedAt: '2026-01-10T09:00:00.000Z',
+  },
   {
     id: 'sld_demo_01',
     deckId: 'deck_demo_reaction_rates',

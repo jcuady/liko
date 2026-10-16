@@ -102,9 +102,14 @@ test.describe('bringing a file into a deck', () => {
   test.beforeEach(async ({ page }) => {
     await signIn(page);
     await page.goto('/slides');
-    // Matched on the href shape rather than on position: the sidebar's first
-    // link is Overview, and clicking it walks away from the deck.
-    await page.locator('a[href^="/slides/"]').first().click();
+    /*
+     * By NAME. This used to take the first `a[href^="/slides/"]`, which is a
+     * position on a list ordered by `updatedAt` descending, so it retargets
+     * itself every time a deck is seeded, created or renamed. Adding a second
+     * seeded deck made it open a different one and the image picker these tests
+     * drive was not on the slide it landed on.
+     */
+    await page.getByRole('link', { name: 'Reaction rates' }).click();
     await page.waitForURL(/\/slides\/[^/]+$/);
   });
 

@@ -28,23 +28,21 @@ async function signIn(page: Page) {
 }
 
 /**
- * Opens the seeded deck.
+ * Opens this spec's own deck.
  *
- * Matched by NAME, never by position. `a[href^="/slides/"]` first() takes whichever
- * deck sorts to the top, and the list is ordered by `updatedAt` descending, so any
- * deck another spec creates jumps straight to the front. `slides.spec.ts` creates a
- * throwaway deck and then archives it by deleting its only slide, and with four
- * workers running that archive can land between this helper reading the list and
- * following the href. The editor then opened a deck that had just been archived
- * and the page answered 404, which reads as a broken editor and says nothing about
- * the editor.
+ * By NAME, and specifically NOT the one `slides.spec.ts` edits. Both files ran in
+ * different workers against the same seeded deck, because Playwright runs
+ * `fullyParallel` with four of them, and this file asserts that the editor and
+ * present mode render the same slide while `slides.spec.ts` renames and reorders
+ * slides underneath it. That fails with two sets of text that are both perfectly
+ * correct on screen.
  *
- * The seeded deck is named, is never archived by any spec, and is the one the
- * assertions below are written against.
+ * The seeded recap deck exists so that the two specs own one deck each. Serialising
+ * the files would have fixed it by making every run four times slower.
  */
 async function openFirstDeck(page: Page) {
   await page.goto('/slides');
-  await page.getByRole('link', { name: 'Reaction rates' }).click();
+  await page.getByRole('link', { name: 'Collision theory recap' }).click();
   await page.waitForURL(/\/slides\/[^/]+$/);
 }
 
