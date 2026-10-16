@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 
 import { chooseOption, optionEntries } from './helpers/select';
+import { toastText } from './helpers/toast';
 
 /**
  * The quiz maker and the sheet reader.
@@ -355,7 +356,7 @@ test.describe('reading a marked sheet', () => {
       buffer: Buffer.from(blank.split(',')[1]!, 'base64'),
     });
 
-    await expect(page.getByText(/No answer bubbles were found/i)).toBeVisible();
+    await expect(toastText(page, /No answer bubbles were found/i)).toBeVisible();
     await expect(page.getByRole('button', { name: /Save result/i })).toHaveCount(0);
   });
 });

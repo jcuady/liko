@@ -3,6 +3,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { PERMISSIONS, scopeFor } from '@/lib/auth/rbac';
 
 import { chooseOption } from './helpers/select';
+import { toastText } from './helpers/toast';
 
 /**
  * The administration console.
@@ -163,7 +164,9 @@ test.describe('organisation settings', () => {
     await page.getByLabel('Seats').fill('0');
     await page.getByRole('button', { name: 'Save organisation' }).click();
 
-    await expect(page.getByText('Seats must be a whole number between 1 and 10,000.')).toBeVisible();
+    await expect(
+      toastText(page, 'Seats must be a whole number between 1 and 10,000.'),
+    ).toBeVisible();
   });
 });
 

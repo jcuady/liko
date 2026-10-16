@@ -753,6 +753,34 @@ still importing from sonner, which my own rewrite had missed because PowerShell
 treated the `[deckId]` in the path as a **wildcard pattern**. The tooling hid a
 bypass and the guard did not.
 
+### The accessibility fix broke a test that had been correct
+
+The full-suite run failed on `admin.spec.ts` immediately afterwards:
+
+```
+strict mode violation: getByText('Seats must be a whole number between 1 and 10,000.')
+resolved to 2 elements:
+  1) the toast title
+  2) <div class="sr-only" aria-live="assertive" id="liko-assertive-toasts">
+```
+
+The second element is the region added a moment earlier. **Mirroring an error
+into a live region puts the same sentence in the DOM twice, on purpose**, so
+every assertion about a toast that uses a bare `getByText` matches both and
+fails.
+
+The temptation is to call that a flaky test. It is not, and the difference
+matters: the assertion was correct when it was written, the product changed
+underneath it deliberately, and the fix belongs in the assertion. `e2e/helpers/toast.ts`
+now scopes a toast read to the toast region, so the scoping is stated once
+instead of at every call site.
+
+**Adding user-visible text to the DOM breaks every assertion that matches that
+text**, in both directions: an assertion that the message is *present* starts
+matching two elements, and one that it is *absent* stops meaning anything while
+the region is populated. I predicted the second before making the change and the
+first is what actually happened.
+
 ### Two findings that were not findings
 
 Recorded so the next reader does not repeat the search.
