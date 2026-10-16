@@ -394,6 +394,48 @@ This is the most useful section. Each of these passed all eleven gates.
 | A state derived from the wrong thing | staff inferred from `options.length` | Nothing asserts which role sees which empty state |
 | A fixture stricter than the database | `requireStudentFor` refusing the owning teacher | Fixtures usually hide production bugs; this one hid a **working** feature |
 | A comment asserting what the data does not do | the demo seed promised a double slot it did not contain | The conflict banner was unreachable, so nothing ever rendered it |
+| A class deleted before the element existed | `cn('text-h4 text-ink')` losing `text-h4` | Nothing renders a class that was never applied; every title still *looked* like a title |
+
+### The one that was in every card, dialog and sheet
+
+Found while building the timetable, by measuring rather than by looking.
+
+`cn` is `twMerge(clsx(...))`. `tailwind-merge` resolves conflicts by group, and
+out of the box the only things it believes are font sizes are Tailwind's
+`text-xs` through `text-9xl`. This project's eight typography tokens are not
+Tailwind's, so all of them fell into the **colour** group, where two classes
+conflict and the later one wins:
+
+```
+twMerge('text-h4 text-ink')        ->  'text-ink'
+twMerge('text-body text-ink-muted')->  'text-ink-muted'
+```
+
+The size was deleted before the element was created. Nothing in the component
+could have shown it and no screenshot could have named it, because the defect is
+the absence of a class rather than the presence of a wrong one. It also explains
+why some screens looked right: a class written as a plain string
+(`className="text-body text-ink"`) never went through `cn`, and
+`twMerge('text-sm text-ink-muted')` survives because `text-sm` *is* a known size.
+
+Seven call sites, all of them shared primitives: `CardTitle`,
+`CardDescription`, `DialogTitle`, `DialogDescription`, `SheetTitle`,
+`SheetDescription` and `TableCaption`. So **every card title, dialog title, sheet
+title and table caption in the product** had been rendering at the inherited
+16px and regular weight instead of its designed scale. It reads as "a bit plain",
+not as a fault, which is why it survived this long and why a per-page visual pass
+would have kept missing it.
+
+Fixed in `cn` rather than at the seven sites, because the seven are a symptom:
+the next person to put `text-` inside a `cn()` call would have hit it again with
+no reason to suspect `cn`. The fix appends the project's tokens to the shipped
+default group rather than restating it, so `text-[0.9375rem]` keeps working, and
+`src/lib/utils.test.ts` asserts both halves: the pair survives, and real conflicts
+still resolve (`cn('text-h4', 'text-body')` is still `text-body`). A fix that
+merely stopped merging would have passed the first and broken every component
+default in the product.
+
+---
 
 ---
 

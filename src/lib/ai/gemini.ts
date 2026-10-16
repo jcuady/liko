@@ -120,15 +120,6 @@ export interface GenerateOptions {
 /** Rough ceiling on the response, which is what actually decides the cost. */
 const MAX_OUTPUT_TOKENS = 4096;
 
-export interface GenerateOptions {
-  /** What the teacher asked for. */
-  prompt: string;
-  /** Extra instruction that is not the teacher's to edit, such as the shape. */
-  system: string;
-  /** The floor plan the answer has to fit into, described in words. */
-  schemaHint: string;
-}
-
 export interface GenerateResult {
   text: string;
   model: string;

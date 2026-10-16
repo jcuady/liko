@@ -6,7 +6,28 @@ import { data } from '@/lib/api/client';
 import { requirePagePermission, requirePermission } from '@/lib/auth/guards';
 import type { Role } from '@/lib/auth/rbac';
 import type { ScheduleEntryRecord, StudentRecord } from '@/lib/api/types';
-import { detectConflicts, formatMinute, type ScheduleEntry } from '@/lib/schedule/extract';
+import {
+  MAX_TIMETABLE_BYTES,
+  readScheduleRow,
+  readScheduleWeek,
+} from '@/lib/schemas/schedule';
+import {
+  SCHEDULE_INSTRUCTION,
+  ScheduleRefusal,
+  detectConflicts,
+  parseScheduleFromModel,
+  type ScheduleConflict,
+  type ScheduleEntry,
+} from '@/lib/schedule/extract';
+import {
+  AI_PURPOSE_SCHEDULE,
+  AiUnavailable,
+  GEMINI_MODEL,
+  aiConfigured,
+  generate,
+  usageFrom,
+  type UsageSummary,
+} from '@/lib/ai/gemini';
 
 /**
  * Reading and writing one student's week.
@@ -131,40 +152,28 @@ export async function saveScheduleEntry(input: {
    * these checks the demo would accept a week the product would reject, and a
    * grid that renders a zero-length block in one mode and not the other is not
    * something a screenshot would catch.
+   *
+   * The rules live in one schema beside the `replaceSchedule` path, which needs
+   * every one of them and would otherwise have had none: that is the whole of
+   * P2-09.
    */
-  const title = input.title.trim().slice(0, 120);
-  if (title.length === 0) {
-    return { ok: false, message: 'Give the class a name.' };
+  const checked = readScheduleRow(input);
+  if (!checked.ok) {
+    return { ok: false, message: checked.message };
   }
-  if (!Number.isInteger(input.dayOfWeek) || input.dayOfWeek < 1 || input.dayOfWeek > 7) {
-    return { ok: false, message: 'Pick a day of the week.' };
-  }
-  if (
-    !Number.isInteger(input.startMinute) ||
-    !Number.isInteger(input.endMinute) ||
-    input.startMinute < 0 ||
-    input.endMinute > 1439
-  ) {
-    return { ok: false, message: 'Those times are not on a clock.' };
-  }
-  if (input.endMinute <= input.startMinute) {
-    return {
-      ok: false,
-      message: `A class has to end after it starts. ${formatMinute(input.startMinute)} to ${formatMinute(input.endMinute)} does not.`,
-    };
-  }
+  const row = checked.row;
 
   try {
     const store = await data();
     await store.saveScheduleEntry(session.userId, {
       id: input.id,
       studentId: input.studentId,
-      dayOfWeek: input.dayOfWeek,
-      startMinute: input.startMinute,
-      endMinute: input.endMinute,
-      title,
-      teacherName: input.teacherName?.trim().slice(0, 120) || null,
-      room: input.room?.trim().slice(0, 120) || null,
+      dayOfWeek: row.dayOfWeek,
+      startMinute: row.startMinute,
+      endMinute: row.endMinute,
+      title: row.title,
+      teacherName: row.teacherName,
+      room: row.room,
       source: 'manual',
     });
   } catch {
@@ -202,4 +211,218 @@ export async function removeScheduleEntry(input: {
 
   revalidatePath('/schedule');
   return { ok: true };
+}
+
+/*
+ * ---------------------------------------------------------------------------
+ * PHOTOGRAPHING A TIMETABLE.
+ *
+ * Two requests, deliberately, and never one.
+ *
+ * Reading a photograph is a guess and writing a week is a statement. Collapsing
+ * them would replace a student's whole timetable with a model's first attempt at
+ * a blurry photograph, with no moment at which the student is shown what was
+ * read and can drop the rows that are wrong. So `readTimetableAction` returns a
+ * proposal and writes nothing, and `confirmScheduleAction` is a separate request
+ * that the student sends only once they have looked at it.
+ *
+ * The split also means the expensive call cannot be repeated by the confirm step,
+ * and that the confirm step is not holding a photograph in memory across a page
+ * the student is looking at.
+ * ---------------------------------------------------------------------------
+ */
+
+/** What the model is told, beyond the JSON shape in `SCHEDULE_INSTRUCTION`. */
+const TIMETABLE_SYSTEM =
+  'You read a photograph of a school timetable and report the weekly classes it ' +
+  'shows. You copy what is printed rather than correcting it, you never invent a ' +
+  'class that is not visible in the photograph, and you leave out any row you ' +
+  'cannot read rather than guessing at it.';
+
+/** Largest photograph accepted, in bytes of the decoded file. Defined in the
+ * schema module beside the other input bounds, because this file may only export
+ * functions and the page needs to state the same limit on screen. */
+
+export interface ProposedWeek {
+  /** What to show for review. Nothing is written until this is confirmed. */
+  entries: ScheduleEntry[];
+  /** Rows the model could not read, said plainly rather than dropped in silence. */
+  warnings: string[];
+  /** Clashes found in the proposal, reported and never resolved. */
+  conflicts: ScheduleConflict[];
+}
+
+export type ReadResult =
+  | ({ ok: true; message: string } & ProposedWeek & { usage?: UsageSummary })
+  | { ok: false; message: string; usage?: UsageSummary };
+
+export type ConfirmResult =
+  | { ok: true; message: string; saved: number }
+  | { ok: false; message: string };
+
+function withModel(usage: UsageSummary): UsageSummary {
+  return { ...usage, model: GEMINI_MODEL };
+}
+
+/** Whether the deployment can read a photograph at all. */
+export async function timetableAiStatusAction(): Promise<UsageSummary> {
+  const session = await requirePermission('class:read');
+  const store = await data();
+  return withModel(usageFrom(await store.listAiUsage(session.userId), aiConfigured()));
+}
+
+/**
+ * Reads a photograph into a proposed week. Writes nothing.
+ *
+ * The bytes arrive as FormData rather than as a base64 argument because that is
+ * how a file is meant to cross this boundary, and because the size is refused
+ * here, where the file is still small, instead of after a client has encoded a
+ * 200 MB scan into a string.
+ */
+export async function readTimetableAction(form: FormData): Promise<ReadResult> {
+  const session = await requirePermission('class:read');
+  const store = await data();
+
+  const studentId = String(form.get('studentId') ?? '');
+  const file = form.get('photo');
+  if (!(file instanceof File) || file.size === 0) {
+    return { ok: false, message: 'Choose a photograph of your timetable first.' };
+  }
+  if (file.size > MAX_TIMETABLE_BYTES) {
+    return {
+      ok: false,
+      message:
+        'That photograph is too large to read. Take it closer, with just the timetable in it.',
+    };
+  }
+
+  /*
+   * Reach the subject before spending anything.
+   *
+   * `listSchedule` is the access probe rather than a role test, because it is the
+   * one call whose permission answer comes from the same place the write's does:
+   * RLS in production, `requireStudentFor` in fixture mode. A student naming
+   * somebody else's roster row therefore fails here, before a generation is spent
+   * on a week that could never have been saved.
+   */
+  await store.listSchedule(session.userId, studentId);
+
+  if (!aiConfigured()) {
+    return {
+      ok: false,
+      message:
+        'Reading a photograph is not set up on this deployment. Add the classes by hand instead.',
+    };
+  }
+
+  const before = withModel(usageFrom(await store.listAiUsage(session.userId), true));
+  if (before.remaining <= 0) {
+    return {
+      ok: false,
+      message: `You have used all ${before.limit} generations in the last hour. Try again shortly.`,
+      usage: before,
+    };
+  }
+
+  const mimeType = file.type || 'image/jpeg';
+  const base64 = Buffer.from(await file.arrayBuffer()).toString('base64');
+
+  let parsed: ReturnType<typeof parseScheduleFromModel>;
+  let tokens: { promptTokens: number; outputTokens: number };
+
+  try {
+    const raw = await generate({
+      prompt: 'Read the timetable in this photograph into the weekly classes it shows.',
+      system: TIMETABLE_SYSTEM,
+      schemaHint: SCHEDULE_INSTRUCTION,
+      image: { mimeType, base64 },
+    });
+    parsed = parseScheduleFromModel(raw.text);
+    tokens = { promptTokens: raw.promptTokens, outputTokens: raw.outputTokens };
+  } catch (cause) {
+    if (cause instanceof AiUnavailable) {
+      return { ok: false, message: cause.message, usage: before };
+    }
+    // Charged whether or not the answer was usable: the student's own allowance
+    // did the work, and a limit that refunds failures can be spent by causing them.
+    await store.recordAiGeneration(session.userId, {
+      model: GEMINI_MODEL,
+      purpose: AI_PURPOSE_SCHEDULE,
+      promptTokens: 0,
+      outputTokens: 0,
+    });
+    const after = withModel(usageFrom(await store.listAiUsage(session.userId), true));
+    if (cause instanceof ScheduleRefusal) {
+      return { ok: false, message: cause.message, usage: after };
+    }
+    return {
+      ok: false,
+      message:
+        'I could not make a week out of that photograph. Try again with the timetable ' +
+        'filling the frame and the light off to one side.',
+      usage: after,
+    };
+  }
+
+  await store.recordAiGeneration(session.userId, {
+    model: GEMINI_MODEL,
+    purpose: AI_PURPOSE_SCHEDULE,
+    promptTokens: tokens.promptTokens,
+    outputTokens: tokens.outputTokens,
+  });
+  const after = withModel(usageFrom(await store.listAiUsage(session.userId), true));
+
+  const count = parsed.entries.length;
+  return {
+    ok: true,
+    message: `I read ${count} ${count === 1 ? 'class' : 'classes'} from that photograph. Check them before they replace your week.`,
+    entries: parsed.entries,
+    warnings: parsed.warnings,
+    conflicts: detectConflicts(parsed.entries),
+    usage: after,
+  };
+}
+
+/**
+ * Replaces a week with what the student agreed to.
+ *
+ * The whole array is validated before the first row is written, because this is a
+ * wholesale write: one bad row taking the request down halfway would leave a week
+ * that is neither the old one nor the new one, and neither of them is something
+ * anybody asked for. An empty array is refused by the same schema, which is what
+ * stops a refusal from the read step turning into a wiped timetable.
+ */
+export async function confirmScheduleAction(input: {
+  studentId: string;
+  entries: unknown[];
+}): Promise<ConfirmResult> {
+  const session = await requirePermission('class:read');
+
+  const checked = readScheduleWeek(input.entries);
+  if (!checked.ok) {
+    return { ok: false, message: checked.message };
+  }
+
+  try {
+    const store = await data();
+    await store.replaceSchedule(
+      session.userId,
+      input.studentId,
+      checked.rows.map((row) => ({
+        ...row,
+        studentId: input.studentId,
+        source: 'photo' as const,
+      })),
+    );
+  } catch {
+    return { ok: false, message: 'That week could not be saved. Nothing was changed.' };
+  }
+
+  revalidatePath('/schedule');
+  const count = checked.rows.length;
+  return {
+    ok: true,
+    message: `Your week is now ${count} ${count === 1 ? 'class' : 'classes'}.`,
+    saved: count,
+  };
 }

@@ -1,8 +1,14 @@
 import type { Metadata } from 'next';
 
 import { requirePagePermission } from '@/lib/auth/guards';
+import {
+  TIMETABLE_IMAGE_ACCEPT,
+  TIMETABLE_IMAGE_LABEL,
+  TIMETABLE_SIZE_LABEL,
+} from '@/lib/schemas/schedule';
 
 import { loadSchedule } from './actions';
+import { TimetablePhotoImport } from './TimetablePhotoImport';
 import { WeeklyGrid } from './WeeklyGrid';
 
 export const metadata: Metadata = {
@@ -81,6 +87,21 @@ export default async function SchedulePage({
         showPicker={staff}
         role={view.role}
       />
+
+      {/*
+       * Only where there is a week to replace. On the picker there is nothing to
+       * read a photograph into, and offering the control there would be an offer
+       * with no meaning behind it.
+       */}
+      {view.student ? (
+        <TimetablePhotoImport
+          studentId={view.student.id}
+          studentName={view.student.fullName}
+          accept={TIMETABLE_IMAGE_ACCEPT}
+          acceptedLabel={TIMETABLE_IMAGE_LABEL}
+          sizeLabel={TIMETABLE_SIZE_LABEL}
+        />
+      ) : null}
     </div>
   );
 }

@@ -92,6 +92,36 @@ test.describe('a student reads their own week', () => {
     await expect(weekList(page).getByText('Filipino').first()).toBeVisible();
   });
 
+  /*
+   * The photograph control, asserted only as far as it can honestly be asserted
+   * without spending a real generation: that it is offered, that it says a human
+   * checks the result before anything is written, and that it is scoped to the
+   * image types the server accepts.
+   *
+   * What it does with a photograph is covered by `lib/schedule/extract.test.ts` and
+   * `lib/schemas/schedule.test.ts`, which test the parser and the rules that stand
+   * between a model's answer and a written week. Dragging a JPEG through this page
+   * would prove the wiring and cost an API call per run.
+   */
+  test('the timetable can be photographed, and says it is checked first', async ({ page }) => {
+    await page.goto('/schedule');
+
+    await expect(
+      page.getByRole('heading', { name: 'Photograph your timetable' }),
+    ).toBeVisible();
+
+    // The promise of a review step, made before the student commits to anything.
+    await expect(
+      page.getByText('You get to look at what I read before it changes anything.'),
+    ).toBeVisible();
+
+    const picker = page.getByLabel('Timetable photo');
+    await expect(picker).toBeVisible();
+    await expect(picker).toHaveAttribute('accept', 'image/jpeg,image/png,image/webp');
+
+    await expect(page.getByRole('button', { name: 'Read my timetable' })).toBeVisible();
+  });
+
   test('every class on the week renders with its time, teacher and room', async ({ page }) => {
     await page.goto('/schedule');
 
@@ -240,6 +270,11 @@ test.describe('a teacher opens a week by picking a subject', () => {
     await expect(page.getByText('Pick a student to see their week.')).toBeVisible();
     await expect(page.getByRole('combobox', { name: 'Student' })).toBeVisible();
     await expect(weekList(page)).toHaveCount(0);
+    // Nothing to read a photograph into, so the control is not offered at all
+    // rather than offered and then unable to say what it would replace.
+    await expect(
+      page.getByRole('heading', { name: 'Photograph your timetable' }),
+    ).toHaveCount(0);
 
     await chooseOption(page, page.getByRole('combobox', { name: 'Student' }), DEMO_STUDENT_ID);
 
