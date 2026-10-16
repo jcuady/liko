@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 
-import { chooseOption, optionEntries, optionLabels } from './helpers/select';
+import { chooseOption, chosenValue, optionEntries, optionLabels } from './helpers/select';
 
 /**
  * The interactive surface, driven the way a teacher drives it.
@@ -226,16 +226,55 @@ test.describe('gradebook', () => {
     await expect(page.getByText(/weighted grade points on the gwa scale/i)).toBeVisible();
   });
 
+  /*
+   * RESTORES WHAT IT FINDS, AND IT DOES NOT DO SO BY ACCIDENT.
+   *
+   * This used to choose `letter`, apply it, and stop. The class then sat on
+   * `letter` for the life of the fixture store, so on the next run against the
+   * same server the control already opened on `letter`, `chooseOption` clicked
+   * the value that was already selected and Radix fired no change, and the apply
+   * button never enabled. Measured, not guessed: run 1 green in 2.8s, run 2
+   * against the same store red at the `toBeEnabled()` below with the button
+   * stuck `disabled` through 43 retries.
+   *
+   * It read as a race with the custom-scale test below because that is how a
+   * cross-run coupling looks under `fullyParallel`: whichever test happened to
+   * load the gradebook after the mutation saw the dirt. Serialising the file
+   * hid the cause rather than removing it, and made all thirteen tests four
+   * times slower to protect one of them.
+   */
   test('a scale can be made the default for the class', async ({ page }) => {
+    const scale = page.getByLabel('Show as');
     const apply = page.getByRole('button', { name: 'Use for this class' });
-    // Disabled while the selection already matches what the class is using.
+
+    // The view opens on whatever the class is graded on, so applying is a no-op
+    // until the teacher picks something else.
     await expect(apply).toBeDisabled();
 
-    await chooseOption(page, page.getByLabel('Show as'), 'letter');
+    const original = await chosenValue(page, scale);
+    const target = original === 'gwa' ? 'letter' : 'gwa';
+
+    await chooseOption(page, scale, target);
+    await expect(apply).toBeEnabled();
+    await apply.click();
+    await expect(page.getByText('Scale applied to this class.')).toBeVisible();
+
+    /*
+     * The selection is only a view until it is applied. Read it back off a reload
+     * so this asserts the class stored it rather than that a toast appeared.
+     */
+    await page.reload();
+    await expect(page.locator('#workspace-main')).toBeVisible();
+    expect(await chosenValue(page, scale)).toBe(target);
+
+    // And put the class back on the scale the suite found it on.
+    await chooseOption(page, scale, original);
     await expect(apply).toBeEnabled();
     await apply.click();
 
-    await expect(page.getByText('Scale applied to this class.')).toBeVisible();
+    await page.reload();
+    await expect(page.locator('#workspace-main')).toBeVisible();
+    expect(await chosenValue(page, scale)).toBe(original);
   });
 
   test('a custom scale can be authored and then selected', async ({ page }) => {
@@ -361,14 +400,27 @@ test.describe('profile', () => {
     await expect(page.getByLabel('Default scale')).toHaveText('Percentage');
   });
 
+  /*
+   * This one saves for real and restores afterwards.
+   *
+   * It left `Ravensmoor College` on the profile permanently, while the test above
+   * it asserts the institution is `Northfield Science Academy`. Under
+   * `fullyParallel` those two are in the same describe and can land in either
+   * order across workers, so the suite could go red on a green product purely from
+   * which test reached the page second. Same defect as the grading-scale test:
+   * a test that does not put the world back.
+   */
   test('the save button is inert until something changes', async ({ page }) => {
     await signIn(page);
     await page.goto('/settings/profile');
 
+    const institution = page.getByLabel('School or institution');
     const save = page.getByRole('button', { name: 'Save profile' });
+
+    const original = await institution.inputValue();
     await expect(save).toBeDisabled();
 
-    await page.getByLabel('School or institution').fill('Ravensmoor College');
+    await institution.fill('Ravensmoor College');
     await expect(save).toBeEnabled();
 
     await save.click();
@@ -376,7 +428,17 @@ test.describe('profile', () => {
 
     // The value survives a reload, which is the whole point of the form.
     await page.reload();
-    await expect(page.getByLabel('School or institution')).toHaveValue('Ravensmoor College');
+    await expect(institution).toHaveValue('Ravensmoor College');
+
+    // Put it back, and prove the restore landed rather than assuming it did.
+    await expect(page.locator('#workspace-main')).toBeVisible();
+    await institution.fill(original);
+    await expect(save).toBeEnabled();
+    await save.click();
+    await expect(page.getByText('Profile saved.')).toBeVisible();
+
+    await page.reload();
+    await expect(institution).toHaveValue(original);
   });
 
   test('the default scale offers every grading system', async ({ page }) => {

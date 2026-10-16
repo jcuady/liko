@@ -309,9 +309,12 @@ test.describe('a teacher opens a week by picking a subject', () => {
  * and failed in the full suite, which is the same defect as the two slide specs
  * sharing one seeded deck, written by me two hours after fixing that one.
  */
-test.describe.configure({ mode: 'serial' });
-
 test.describe('deadlines and dates', () => {
+  // Inside the describe, deliberately. At file scope this serialised all thirteen
+  // tests in this file, which is four times the protection two of them needed, and
+  // it made the note above untrue.
+  test.describe.configure({ mode: 'serial' });
+
   const SCRATCH_DEADLINE = 'Portfolio due';
 
   /**
