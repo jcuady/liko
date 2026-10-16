@@ -422,3 +422,114 @@ test.describe('a guardian is not told to ask a teacher', () => {
     await expect(page.getByText('Your teacher links you from the class roster')).toHaveCount(0);
   });
 });
+
+/*
+ * ACADEMIC TERMS. A TEACHER SETS ONE UP, A STUDENT CANNOT.
+ *
+ * These share one term record in the server's fixture store, so they are
+ * serialised for the same reason the deadlines above are: several tests creating
+ * and deleting the same row under `fullyParallel` is a race that has nothing to
+ * do with the product.
+ */
+test.describe('academic terms', () => {
+  test.describe.configure({ mode: 'serial' });
+
+  const SCRATCH_TERM = 'Autumn term';
+
+  /**
+   * Take the scratch term away if an earlier run died before its cleanup.
+   *
+   * The store outlives the test that dirtied it, so a term left behind makes
+   * every assertion here read the wrong state.
+   */
+  async function clearScratchTerm(page: Page): Promise<void> {
+    await page
+      .getByRole('button', { name: `Remove ${SCRATCH_TERM}` })
+      .click({ timeout: 2_000 })
+      .catch(() => {});
+  }
+
+  test.beforeEach(async ({ page }) => {
+    await signIn(page, 'maya@liko.test');
+    await page.goto('/schedule');
+    await clearScratchTerm(page);
+  });
+
+  test('a teacher sets up a term and the calendar states it', async ({ page }) => {
+    await page.getByRole('button', { name: /Set up a term|Add another term/ }).click();
+    await expect(page.getByRole('dialog')).toBeVisible();
+
+    await page.getByLabel('Name').fill(SCRATCH_TERM);
+    await page.getByLabel('Starts').fill('2026-08-03');
+    await page.getByLabel('Ends').fill('2026-12-18');
+    await page.getByRole('button', { name: 'Save the term' }).click();
+
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+
+    /*
+     * The dates are read back, not merely written, so a save that stored
+     * nothing and one that stored the wrong range are told apart.
+     *
+     * Asserted as the YEAR rather than as "3 Aug to 18 Dec": `toLocaleDateString`
+     * with no fixed locale renders this as "Aug 3" on en-US and "3 Aug" on
+     * en-GB, so an assertion naming the order fails on half the machines. The
+     * year is the part that must be there, because a term routinely crosses a
+     * calendar year and "Aug 3 to Jan 18" does not say which years.
+     */
+    const termLine = page.locator('p').filter({ hasText: SCRATCH_TERM });
+    await expect(termLine).toContainText('2026');
+    await expect(page.getByRole('button', { name: `Remove ${SCRATCH_TERM}` })).toBeVisible();
+  });
+
+  test('a term that ends before it starts is refused, with a reason', async ({ page }) => {
+    await page.getByRole('button', { name: /Set up a term|Add another term/ }).click();
+    await page.getByLabel('Name').fill('Backwards');
+    await page.getByLabel('Starts').fill('2026-12-18');
+    await page.getByLabel('Ends').fill('2026-08-03');
+    await page.getByRole('button', { name: 'Save the term' }).click();
+
+    // The refusal names the problem. A generic "invalid" here would leave a
+    // teacher guessing which of the two date boxes to change.
+    await expect(page.getByText(/has to end after it starts/)).toBeVisible();
+    await expect(page.getByRole('dialog')).toBeVisible();
+
+    await page.getByRole('button', { name: 'Cancel' }).click();
+    await expect(page.getByText('Backwards')).toHaveCount(0);
+  });
+
+  test('the term can be taken away again', async ({ page }) => {
+    await page.getByRole('button', { name: /Set up a term|Add another term/ }).click();
+    await page.getByLabel('Name').fill(SCRATCH_TERM);
+    await page.getByLabel('Starts').fill('2026-08-03');
+    await page.getByLabel('Ends').fill('2026-12-18');
+    await page.getByRole('button', { name: 'Save the term' }).click();
+    await expect(page.getByText(SCRATCH_TERM)).toBeVisible();
+
+    await page.getByRole('button', { name: `Remove ${SCRATCH_TERM}` }).click();
+    await expect(page.getByText(SCRATCH_TERM)).toHaveCount(0);
+  });
+});
+
+/*
+ * The refusal half of the same feature, in a describe of its own for one
+ * reason: a test that signs in as somebody while already signed in as somebody
+ * else does not test the second role at all. `/login` will not render for an
+ * authenticated session, so the second sign-in hangs on its navigation and the
+ * test fails having proved nothing at all.
+ */
+test.describe('a student reads the term without being able to set it', () => {
+  test.beforeEach(async ({ page }) => {
+    await signIn(page, 'student@liko.test');
+    await page.goto('/schedule');
+  });
+
+  test('is offered no term form and no delete', async ({ page }) => {
+    // Terms are gated on `class:write`, not `class:read`. A term belongs to the
+    // school, and a student holding `class:read` at `own` must not be able to
+    // redefine the school calendar.
+    await expect(
+      page.getByRole('button', { name: /Set up a term|Add another term/ }),
+    ).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /^Remove .+ term$/ })).toHaveCount(0);
+  });
+});

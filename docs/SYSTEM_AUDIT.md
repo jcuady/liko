@@ -687,6 +687,72 @@ assertion would have passed on a table that silently dropped the row instead of
 refusing it, which is the opposite of what has to be true. It now asserts the
 refusal carries no scope annotation.
 
+### The calendar panel asked for a term in words and offered no way to add one
+
+`CalendarExtrasPanel` displayed the current term, and where there wasn't one it
+told a teacher *"No term has been set up yet. Adding one tells everyone which
+stretch of the year this is."* It offered no control to add one. `saveTermAction`
+and `deleteTermAction` were already written and already gated on `class:write`,
+and `termSchema` already refused a backwards range with a sentence naming both
+dates. The form was genuinely the last missing piece.
+
+**Copy that describes an action the surface does not have is a defect**, and it
+is the same shape as the empty-classes page: the panel read as a feature that
+existed while offering nothing to drive.
+
+Built, with four e2e tests: a teacher sets one up and the calendar states it
+back, a backwards range is refused with the reason, the term can be taken away,
+and a student is offered neither the form nor the delete.
+
+### Writing those tests found two more
+
+**THE TERM LINE HAD NO YEAR.** It rendered `Autumn term Mon, Aug 3 to Fri, Dec
+18`. A term is the one thing on that panel that routinely crosses a calendar
+year, so "Aug 3 to Jan 18" is not ambiguous to a machine and is ambiguous to a
+teacher: it does not say whether this is the term that began last August or the
+one beginning next. `readableDate` now takes a `withYear` flag, set for term
+boundaries and deliberately not for deadlines, which are read against today and
+where the year is noise.
+
+**NEITHER DIALOG HAD A CANCEL BUTTON.** The only ways out were saving or
+pressing Escape, which discards whatever was typed with no confirmation.
+`NewDeckButton` and `ScaleEditorDialog` both have one. Added to both, since it is
+the same defect and the same file.
+
+One of my own tests was wrong first: it asserted the literal date range, and it
+failed because `toLocaleDateString` with no fixed locale renders `Aug 3` on
+en-US and `3 Aug` on en-GB. **An assertion that names a locale-formatted order
+fails on half the machines.** The assertion is on the year, which is stable.
+
+### A toast error was announced politely
+
+Sonner 2.0.8 has exactly one `aria-live` in its entire dist bundle. It is
+`polite`, it applies to every toast, and there is no prop to change it and no
+exported subscription hook. So `toast.error` — the one message in the product a
+person needs to be told about — was announced at the same priority as "Profile
+saved", queued behind whatever a screen reader was already reading.
+
+The forty call sites recorded in P2-07 are not where the fix belongs. `toast` is
+now wrapped once in `src/lib/toast`, which escalates `toast.error` and only
+`toast.error`: an interruption per saved keystroke would make the product worse
+to use with a screen reader, not better. Success toasts stay polite on purpose.
+
+Three things are pinned, because each is easy to lose silently:
+
+- The region id is declared in **two** files. If either is renamed, the
+  announcement reverts to polite and **nothing fails**, because a live region
+  nobody writes is quiet rather than broken.
+- The region is `aria-live="assertive"` and deliberately carries **no
+  `role="alert"`**. A permanently present `role="alert"` region matches every
+  `[role="alert"]` query in the suite, and an empty one satisfies a count
+  assertion that was meant to be about a real error.
+- No call site may import `toast` from sonner directly.
+
+That last check earned its keep immediately. It caught `slides/[deckId]/SlideEditor.tsx`
+still importing from sonner, which my own rewrite had missed because PowerShell
+treated the `[deckId]` in the path as a **wildcard pattern**. The tooling hid a
+bypass and the guard did not.
+
 ### Two findings that were not findings
 
 Recorded so the next reader does not repeat the search.
