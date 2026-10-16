@@ -180,6 +180,26 @@ export function isDemoAccount(userId: string): boolean {
 }
 
 /**
+ * True when `userId` is a demo account that runs the school: a teacher or an
+ * administrator.
+ *
+ * WHY THIS IS NOT `isDemoAccount`. The demo set also contains a student and a
+ * parent, and those two are exactly the callers that must not be handed a
+ * teacher's reach. `isDemoAccount` answers "is this one of ours", which is the
+ * right question for deciding whether somebody inherits the demo workspace at
+ * all; it is the wrong question for deciding whether they may read another
+ * child's records, because for those two roles the answer has to be no.
+ *
+ * So anything that mirrors a class-ownership grant asks this instead. Getting it
+ * wrong is not a subtle over-read: it is the whole roster, to a parent.
+ */
+export function isDemoStaff(userId: string): boolean {
+  return DEMO_USERS.some(
+    (demo) => demo.id === userId && (demo.role === 'instructor' || demo.role === 'admin'),
+  );
+}
+
+/**
  * Changes an account's role.
  *
  * Called when an administrator promotes or demotes someone. `getSession()` in

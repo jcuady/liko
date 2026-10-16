@@ -8,6 +8,7 @@ import {
   CircleUser,
   ClipboardList,
   History,
+  CalendarDays,
   Layers,
   LayoutDashboard,
   LayoutGrid,
@@ -58,6 +59,14 @@ export const PRIMARY_NAV: NavItem[] = [
   { href: '/slides', label: 'Slides', icon: Presentation },
   { href: '/grades', label: 'Gradebook', icon: TrendingUp },
   { href: '/assess', label: 'Assess', icon: Layers },
+  /*
+   * `/schedule` sits in the primary list and is the one entry every role sees,
+   * because `class:read` is granted to all four. A student's is the whole of
+   * what they can do here: their own week. A teacher arrives at the same grid
+   * with a student picker, because the question "what does this child have on
+   * Thursday" is the same question with a different subject.
+   */
+  { href: '/schedule', label: 'Schedule', icon: CalendarDays },
 ];
 
 /**

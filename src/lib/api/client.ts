@@ -481,6 +481,23 @@ export interface WorkspaceData {
   deleteDeckAsset(userId: string, assetId: string): Promise<void>;
 
   /*
+   * The caller's own roster row, when the caller is a student.
+   *
+   * WHY IT EXISTS. Without it a student cannot be shown anything of their own:
+   * every read below is keyed on a `studentId`, and a student does not know
+   * theirs. A student's `owner_id` is their teacher's, so filtering by it finds
+   * nothing, which is the same trap that made `listClasses` return an empty array
+   * for a student and land them on a blank page.
+   *
+   * Returns null rather than throwing when the caller is not a student or has
+   * not been linked to a roster yet, because "you are not on a roster yet" is an
+   * empty state the page renders, not an error. It must never return another
+   * student's row: the filter is the account-to-roster link, so a caller can
+   * only ever find themselves.
+   */
+  getMyStudentRecord(userId: string): Promise<StudentRecord | null>;
+
+  /*
    * A student's week, and the dated things on top of it.
    *
    * WHY SCHEDULE READS TAKE A STUDENT RATHER THAN A CLASS. `listClasses` is
@@ -2314,6 +2331,28 @@ const supabaseAdapter: WorkspaceData = {
    * as well would add a second, weaker source of identity sitting next to the
    * one that is enforced, which is the arrangement the teacher reads avoid.
    */
+
+  async getMyStudentRecord(userId) {
+    /*
+     * FILTERED BY THE ACCOUNT LINK, NOT BY `owner_id`.
+     *
+     * `userId` is passed explicitly rather than read from the session cookie,
+     * because a fixture session has no `auth.uid()` and the account-to-roster
+     * link is the same mapping the database makes. `students.account_id` is what
+     * RLS keys the "linked reads own student row" policy on, so this filter and
+     * that policy agree, which is what makes the two adapters return the same
+     * answer for the same person.
+     */
+    const supabase = await requireClient();
+    const { data, error } = await supabase
+      .from('students')
+      .select('*')
+      .eq('account_id', userId)
+      .is('archived_at', null)
+      .maybeSingle();
+    throwIf(error);
+    return data ? mapStudent(data as Row) : null;
+  },
 
   async listSchedule(userId, studentId) {
     void userId;

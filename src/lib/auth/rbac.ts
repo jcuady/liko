@@ -167,6 +167,7 @@ export const ROUTE_PERMISSIONS: { prefix: string; permission: Permission }[] = [
   // plan, billing contact and seat count are different jobs, and a district
   // roll-out will want to hand out one without the other.
   { prefix: '/admin', permission: 'org:manage' },
+  { prefix: '/schedule', permission: 'class:read' },
   { prefix: '/settings', permission: 'class:read' },
 ];
 
@@ -193,6 +194,7 @@ export const PROTECTED_PREFIXES = [
   '/quiz',
   '/history',
   '/settings',
+  '/schedule',
   '/admin',
   /*
    * Redeeming an invitation needs a session and nothing else, which is the same
@@ -258,6 +260,13 @@ const PRIMARY_ROUTES = [
   '/slides',
   '/grades',
   '/assess',
+  /*
+   * `/schedule` is primary rather than secondary because it is the page a
+   * student lands on to answer "what do I have today", which is the reason the
+   * student role exists at all. Gated on `class:read`, which every role holds
+   * at some scope, so `navFor` shows it to all four without a second rule.
+   */
+  '/schedule',
 ];
 
 const SECONDARY_ROUTES = [

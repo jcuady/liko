@@ -64,4 +64,6 @@ export const queryKeys = {
    * the same five built-ins.
    */
   policies: () => ['workspace', 'policies'] as const,
+  /** The weekly timetable. Keyed by student so two open weeks do not collide. */
+  schedule: (studentId?: string) => ['workspace', 'schedule', studentId ?? 'own'] as const,
 } as const;

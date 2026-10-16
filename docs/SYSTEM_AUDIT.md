@@ -390,6 +390,10 @@ This is the most useful section. Each of these passed all eleven gates.
 | A documented file that does not exist | `SlideFrame.tsx`, cited by an audit with a line number | Reading the audit instead of the repo |
 | Unreachable code | 13 calendar seam methods, 0 callers | Lint has no dead-export rule |
 | Currency shadowing | `/pricing` vs landing | No test asserts visible price text |
+| An encoding fault | `Â·` separator in the timetable | `tsc`, `eslint` and 379 unit tests are all blind to bytes |
+| A state derived from the wrong thing | staff inferred from `options.length` | Nothing asserts which role sees which empty state |
+| A fixture stricter than the database | `requireStudentFor` refusing the owning teacher | Fixtures usually hide production bugs; this one hid a **working** feature |
+| A comment asserting what the data does not do | the demo seed promised a double slot it did not contain | The conflict banner was unreachable, so nothing ever rendered it |
 
 ---
 
@@ -422,6 +426,69 @@ Round two:
 - `src/app/(auth)/lib/schemas/auth.test.ts` — rewritten for the new admission rule
 - `/terms`, `/privacy`, `/children-privacy` — state what the code actually does
 
+Round three, building and proving the timetable:
+
+- `src/app/(dashboard)/schedule/` — new; the route, its actions and the weekly grid
+- `src/lib/auth/rbac.ts`, `src/lib/query/keys.ts`, `Navigation.tsx` — the route entry
+- `e2e/schedule.spec.ts` — new; eight tests driving the page as each role
+- `src/lib/api/fixtures.ts` — `requireStudentFor` mirrors both RLS branches; the
+  seeded week carries one genuine overlap
+- `src/lib/auth/store.ts` — `isDemoStaff`, because `isDemoAccount` is also true of
+  the demo student and the demo parent
+- `src/app/(dashboard)/schedule/WeeklyGrid.tsx` — the `Â·` separator, and an empty
+  state that is addressed to the role reading it
+
+---
+
+## Three defects the first timetable test run found
+
+All three were invisible to a green build, and none of them is exotic.
+
+**The separator was not a separator.** `WeeklyGrid.tsx` joined a class's teacher
+and room with `Â·` — the two code points U+00C2 U+00B7, which is a UTF-8 middle dot
+that had been decoded as Latin-1 once and written back out. Every row in the week
+rendered a stray letter before its dot. `tsc`, `eslint` and 379 unit tests are all
+blind to an encoding fault, and no test asserted on the assembled string. The
+regression test now asserts the real separator positively *and* the mojibake
+negatively, because a positive assertion alone does not tell you what changed.
+
+**A role was inferred from a list length.** `page.tsx` decided whether the reader
+was staff by asking whether the student picker had any options. A teacher who owns
+a class with no students on it has none, so they were shown the student empty
+state: *"You are not on a class yet. Your teacher links you from the class
+roster."* A teacher asking their own teacher is nonsense, and the guardian below
+was worse. `staff` now comes from the session role, which is the thing the rest of
+the page already trusts.
+
+**A guardian was told to ask a teacher.** There is no link from a guardian login
+to a child anywhere in the schema: the roster stores a guardian's email and phone
+as plain text and nothing joins those to an account. So a guardian can never
+resolve a week, and the page has to say why in words that fit the reader. It now
+does, and the test asserts the student-facing copy is *absent* — the denial is the
+assertion, because the copy was the defect.
+
+### A fixture stricter than the database, which is the rarer way round
+
+`requireStudentFor` compared the roster row's `ownerId` to the caller, to decide
+whether the caller owned the class. In the fixture workspace that column is the
+synthetic `demo-owner`, which is not any account's id, so the teacher who *does*
+own the class failed the check and every teacher's view of a student's week
+reached the error boundary instead of a grid.
+
+The usual shape of this defect is a fixture more permissive than the database,
+which hides a production bug. This is the inverse: production was correct
+(`rosterOwner` sets `owner_id`, and the policy grants it to `auth.uid()`) and the
+fixture was stricter, which hides a feature that works. I read the truncated
+`saveScheduleEntry` body, concluded the adapter never wrote `owner_id` at all, and
+was about to report a P1 that did not exist. The insert does set it, three lines
+below where the excerpt ended.
+
+The fix mirrors the policy's two branches rather than widening anything, which
+required care: `isDemoAccount` is true of the demo student and the demo parent, so
+using it here would have handed the entire roster to a parent. `isDemoStaff` is
+the same escape `ownedClass` and `ownedDeck` already use, narrowed to teachers and
+administrators.
+
 ---
 
 ## Completion status
@@ -438,13 +505,32 @@ was already correct.
 P2-09 matters most: the calendar inputs are validated by Postgres CHECK
 constraints alone, so fixture mode accepts values production would reject.
 
-The calendar module built in commits `b67d173` and `d245ebc` is **data layer
-only** — 13 seam methods with zero callers and no `/schedule` route. Its tables
-now exist and its policies are enforced, so it is correct, tested and still
-unreachable. That is deliberate staging, not a defect, but it must not be
-described as a finished feature.
+The calendar module built in commits `b67d173` and `d245ebc` started as a **data
+layer with no page**: 13 seam methods with zero callers and no `/schedule`
+route. Its tables now exist and its policies are enforced, and `/schedule` now
+renders a weekly grid with add and remove, reachable from the sidebar for all
+four roles.
+
+One seam method was still missing for that to work. Every schedule read is keyed
+on a `studentId`, and **a student does not know their own**, because their
+`owner_id` is their teacher's. `getMyStudentRecord` resolves it from the
+`students.account_id` link, which is the same mapping the RLS policy uses, so
+the two adapters answer the same question the same way. Without it the grid
+would have been reachable but empty, which is the exact shape of the
+`listClasses` defect in P1-02.
+
+`e2e/schedule.spec.ts` now drives that page as all four roles, and it is the
+first thing here that asserted the timetable was ever *read*: a student resolves
+their own week, a teacher resolves one by picking from their roster, a crafted
+`?student=` id resolves to nobody, a guardian is told the truth about why they
+have no week, and a class can be added and taken back off. Three of the defects
+above were found by that run rather than by reading the code.
+
+Still outstanding on the calendar: photographing a timetable (the parser and the
+image-capable AI call are built and tested, the capture and confirm screens are
+not), terms, custom events, deadlines, teacher-to-student reminders, and the
+notification bell.
 
 **Not 100%.** The objective asks for every page, button and workflow to be
-functional and audited. Two named areas of work remain outstanding: the calendar
-UI on top of the data layer, and a redesign of sign-in and sign-up on the new
-branding.
+functional and audited. The largest remaining pieces are the rest of the
+calendar module and a redesign of sign-in and sign-up on the new branding.

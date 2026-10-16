@@ -1,5 +1,5 @@
 import { assertRealDataMode } from '@/lib/data-mode';
-import { findUserById, isDemoAccount, setAccountRole } from '@/lib/auth/store';
+import { findUserById, isDemoAccount, isDemoStaff, setAccountRole } from '@/lib/auth/store';
 import {
   BUILT_IN_POLICIES,
   validatePolicy,
@@ -360,6 +360,15 @@ const globalScope = globalThis as typeof globalThis & {
  * gap and a double slot, because a grid that has never rendered a collision is
  * a grid whose collision styling has never been seen either.
  *
+ * THE DOUBLE SLOT IS REAL. The comment above claimed one and the times did not
+ * actually overlap, so `detectConflicts` returned nothing and the banner on
+ * `/schedule` was unreachable in the demo, in fixture mode and in the database
+ * alike: a screen with no way to ever be seen. `Clinic` below starts 30 minutes
+ * into `Technology` and runs 30 minutes past it, which is the one genuine
+ * overlap in the week. Every other pair is either back to back or separated by a
+ * real gap, because `detectConflicts` is strict and an abutting changeover is not
+ * a clash.
+ *
  * Times are minutes from midnight, the same unit the database stores, because
  * the fixtures are not allowed to be more forgiving than Postgres about it.
  */
@@ -373,6 +382,9 @@ const demoSchedule: ScheduleEntryRecord[] = [
   entry(3, 8 * 60, 'Science', 'Lopez', 'Lab 2'),
   entry(3, 9 * 60 + 30, 'English', 'Reyes', 'Room 118'),
   entry(3, 13 * 60, 'Technology', 'Cruz', 'Lab 1'),
+  // The genuine double booking. Starts half an hour into Technology and runs half
+  // an hour past its end, so the two overlap rather than merely sit close.
+  entry(3, 13 * 60 + 30, 'Clinic', 'School nurse', null),
   entry(4, 7 * 60 + 30, 'Filipino', 'Dela Cruz', 'Room 201'),
   entry(4, 9 * 60, 'Mathematics', 'Santos', 'Room 204'),
   entry(4, 10 * 60 + 30, 'Physical Education', 'Ramos', 'Gym'),
@@ -494,12 +506,32 @@ function fixtureId(prefix: string, scope: string): string {
  */
 function requireStudentFor(userId: string, studentId: string): StudentRecord {
   const row = store.students.find((candidate) => candidate.id === studentId);
+
+  // RLS branch one, verbatim: the roster row's own account.
   const isThatStudent = row !== undefined && row.accountId === userId && row.archivedAt === null;
-  const isOwningTeacher = row !== undefined && row.ownerId === userId;
-  if (!row || (!isThatStudent && !isOwningTeacher)) {
-    throw new DataError('NOT_FOUND', 'That student is no longer on a roster.');
-  }
-  return row;
+  if (isThatStudent) return row as StudentRecord;
+
+  /*
+   * RLS branch two, verbatim: the staff account that owns the student's class.
+   * On the real project the schedule row carries that owner in `owner_id`,
+   * `rosterOwner` resolves it from the roster, and the policy grants it to
+   * `auth.uid()`.
+   *
+   * `row.ownerId` is the roster row's class owner. In the fixture workspace that
+   * is the synthetic `demo-owner`, which is not any account's id, so comparing it
+   * to `userId` denied the teacher who does own the class and every teacher's
+   * view of a student's week landed on the error boundary instead of on a grid.
+   * `isDemoStaff` is the same escape `ownedClass` and `ownedDeck` already use,
+   * narrowed to teachers and administrators so the demo student and the demo
+   * parent keep only their own reach.
+   */
+  const isOwningTeacher =
+    row !== undefined && !studentForUser(userId) && (isDemoStaff(userId) || row.ownerId === userId);
+  if (isOwningTeacher) return row as StudentRecord;
+
+  // A missing row and a forbidden row are reported identically on purpose: a
+  // caller who probes ids should not be able to tell the two apart.
+  throw new DataError('NOT_FOUND', 'That student is no longer on a roster.');
 }
 
 /** One student's attempts at one assessment, newest first. */
@@ -1806,6 +1838,17 @@ export const fixtures: WorkspaceData = {
    * has no RLS, so it has to answer it, or fixture mode would show a student
    * somebody else's week.
    */
+  async getMyStudentRecord(userId) {
+    guard('getMyStudentRecord');
+    /*
+     * `studentForUser` is the fixture mirror of the `students.account_id` filter
+     * in the Supabase adapter above and of the RLS policy it satisfies. A caller
+     * who is not on a roster gets null, which the page renders as an empty state
+     * rather than as an error.
+     */
+    return studentForUser(userId);
+  },
+
   async listSchedule(userId, studentId) {
     guard('listSchedule');
     requireStudentFor(userId, studentId);
