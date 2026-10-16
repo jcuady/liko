@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 
 import { requirePagePermission } from '@/lib/auth/guards';
+import { can } from '@/lib/auth/rbac';
 import {
   TIMETABLE_IMAGE_ACCEPT,
   TIMETABLE_IMAGE_LABEL,
@@ -8,6 +9,8 @@ import {
 } from '@/lib/schemas/schedule';
 
 import { loadSchedule } from './actions';
+import { CalendarExtrasPanel } from './CalendarExtrasPanel';
+import { loadCalendarExtras } from './events';
 import { TimetablePhotoImport } from './TimetablePhotoImport';
 import { WeeklyGrid } from './WeeklyGrid';
 
@@ -42,11 +45,16 @@ export default async function SchedulePage({
 }: {
   searchParams: Promise<{ student?: string }>;
 }) {
-  await requirePagePermission('class:read');
+  const session = await requirePagePermission('class:read');
   const params = await searchParams;
 
   const view = await loadSchedule(params.student ?? null);
+  const extras = await loadCalendarExtras(view.student?.id ?? null);
   const { staff } = view;
+  // Terms are a school-level fact, so only the roles that may write a class may
+  // write one. Derived here rather than in the panel so the rule stays with the
+  // matrix instead of being re-stated in a component.
+  const canWriteTerms = can(session.role, 'class:write');
 
   return (
     <div className="flex flex-col gap-6">
@@ -102,6 +110,18 @@ export default async function SchedulePage({
           sizeLabel={TIMETABLE_SIZE_LABEL}
         />
       ) : null}
+
+      {/*
+       * Dates beside the week. Rendered for everyone who can open the page, not
+       * only for a student, because a teacher keeping their own deadlines is the
+       * same screen. The student id is null for the caller themselves.
+       */}
+      <CalendarExtrasPanel
+        studentId={view.student?.id ?? null}
+        events={extras.events}
+        terms={extras.terms}
+        canWriteTerms={canWriteTerms}
+      />
     </div>
   );
 }

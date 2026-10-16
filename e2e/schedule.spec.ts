@@ -300,6 +300,89 @@ test.describe('a teacher opens a week by picking a subject', () => {
   });
 });
 
+test.describe('deadlines and dates', () => {
+  const SCRATCH_DEADLINE = 'Portfolio due';
+
+  /**
+   * Remove the scratch deadline if it survived an earlier run.
+   *
+   * The fixture store lives on the dev server's `globalThis` and outlives every
+   * test, so a run that died before its cleanup would leave this deadline on the
+   * calendar and every count below would be wrong for reasons that have nothing to
+   * do with the product. Same reasoning as `clearScratchClass` above.
+   */
+  async function clearScratchDeadline(page: Page): Promise<void> {
+    await page
+      .getByRole('button', { name: `Remove ${SCRATCH_DEADLINE}` })
+      .click({ timeout: 2_000 })
+      .catch(() => {});
+  }
+
+  test.beforeEach(async ({ page }) => {
+    await signIn(page, 'student@liko.test');
+    await page.goto('/schedule');
+    await clearScratchDeadline(page);
+  });
+
+  test('the calendar beside the week says so when it is empty', async ({ page }) => {
+    await expect(page.getByRole('heading', { name: 'Deadlines and dates' })).toBeVisible();
+    await expect(page.getByText('Nothing due in the next few months.')).toBeVisible();
+  });
+
+  test('a deadline a student adds lands on their own calendar', async ({ page }) => {
+    /*
+     * The whole reason this panel exists for the student role. A student holds
+     * `class:read` at scope `own`, and their own roster row is reached through
+     * `students.account_id`, so "their own calendar" is the roster row while
+     * "them" is the account. The guard on the write compares the two, and getting
+     * that comparison wrong refuses every deadline the primary persona of this
+     * page tries to add.
+     */
+    await page.getByRole('button', { name: 'Add a deadline' }).click();
+
+    const dialog = page.getByRole('dialog');
+    await dialog.getByLabel('What is it').fill(SCRATCH_DEADLINE);
+    await dialog.getByLabel('Date').fill('2026-11-14');
+    await dialog.getByRole('button', { name: 'Add it' }).click();
+
+    await expect(dialog).toHaveCount(0);
+    await expect(page.getByText(SCRATCH_DEADLINE)).toBeVisible();
+
+    // Scoped to the row rather than matched exactly. The date and the kind share
+    // one paragraph, so the paragraph's text is "Sat, 14 Nov, 11:59 pm · Deadline"
+    // and an exact match on "Deadline" can never hit it however correct the
+    // component is.
+    const row = page.locator('main ul li').filter({ hasText: SCRATCH_DEADLINE });
+    await expect(row.getByText('Deadline')).toBeVisible();
+  });
+
+  test('a deadline with no name is refused, and nothing is written', async ({ page }) => {
+    await page.getByRole('button', { name: 'Add a deadline' }).click();
+
+    const dialog = page.getByRole('dialog');
+    await dialog.getByLabel('What is it').fill('   ');
+    await dialog.getByLabel('Date').fill('2026-11-14');
+    await dialog.getByRole('button', { name: 'Add it' }).click();
+
+    await expect(dialog.getByText('Give it a title.')).toBeVisible();
+    await expect(page.getByText('Nothing due in the next few months.')).toBeVisible();
+  });
+
+  test('a deadline can be taken off again', async ({ page }) => {
+    await page.getByRole('button', { name: 'Add a deadline' }).click();
+    const dialog = page.getByRole('dialog');
+    await dialog.getByLabel('What is it').fill(SCRATCH_DEADLINE);
+    await dialog.getByLabel('Date').fill('2026-11-14');
+    await dialog.getByRole('button', { name: 'Add it' }).click();
+    await expect(page.getByText(SCRATCH_DEADLINE)).toBeVisible();
+
+    await page.getByRole('button', { name: `Remove ${SCRATCH_DEADLINE}` }).click();
+
+    await expect(page.getByText(SCRATCH_DEADLINE)).toHaveCount(0);
+    await expect(page.getByText('Nothing due in the next few months.')).toBeVisible();
+  });
+});
+
 test.describe('a guardian is not told to ask a teacher', () => {
   test('the empty state is addressed to a parent', async ({ page }) => {
     await signIn(page, 'guardian@liko.test');
