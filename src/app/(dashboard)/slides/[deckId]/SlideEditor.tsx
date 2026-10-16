@@ -329,7 +329,22 @@ export function SlideEditor({
   const router = useRouter();
   const [selectedId, setSelectedId] = React.useState(slides[0]?.id ?? '');
   const [presenting, setPresenting] = React.useState(false);
-  const [presentIndex, setPresentIndex] = React.useState(0);
+  /*
+   * WHICH SLIDE, NOT WHICH POSITION.
+   *
+   * This was an ordinal, computed during render and applied after `await
+   * refresh()` had already replaced the array it was counted against. Presenting
+   * "the slide I am on" is a statement about a slide's identity, and an ordinal
+   * silently stops meaning that the moment the deck is reordered, a slide is
+   * removed, or the save that presenting flushes comes back with a different
+   * order than it left. It then opened on whichever slide happened to land at
+   * that number, which in a test suite sharing one mutable deck is somebody
+   * else's slide.
+   *
+   * Holding the id makes the position derived at render time from the array being
+   * rendered, so there is no window in which the two can disagree.
+   */
+  const [presentId, setPresentId] = React.useState<string | null>(null);
   const [presentNotes, setPresentNotes] = React.useState(false);
 
   const selected = slides.find((slide) => slide.id === selectedId) ?? slides[0] ?? null;
@@ -557,6 +572,16 @@ export function SlideEditor({
   }, [dirty, selected, elements, theme, saveContent]);
 
   const index = slides.findIndex((slide) => slide.id === selectedId);
+  /** Where the presented slide sits in the array actually being rendered. */
+  const presentIndex = Math.max(slides.findIndex((slide) => slide.id === presentId), 0);
+  const step = React.useCallback(
+    (delta: number) => {
+      const next = Math.min(Math.max(presentIndex + delta, 0), slides.length - 1);
+      const target = slides[next];
+      if (target) setPresentId(target.id);
+    },
+    [presentIndex, slides],
+  );
   const busy = remove.isPending || move.isPending || duplicate.isPending;
 
   /** The list the canvas draws: stored elements, or the legacy layout's. */
@@ -668,11 +693,11 @@ export function SlideEditor({
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'ArrowRight' || event.key === 'PageDown' || event.key === ' ') {
         event.preventDefault();
-        setPresentIndex((current) => Math.min(current + 1, slides.length - 1));
+        step(1);
       }
       if (event.key === 'ArrowLeft' || event.key === 'PageUp') {
         event.preventDefault();
-        setPresentIndex((current) => Math.max(current - 1, 0));
+        step(-1);
       }
       if (event.key === 'Escape') setPresenting(false);
       if (event.key.toLowerCase() === 'n') setPresentNotes((current) => !current);
@@ -680,7 +705,7 @@ export function SlideEditor({
 
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [presenting, slides.length]);
+  }, [presenting, step]);
 
   /*
    * WHY PRESENTING FLUSHES FIRST. The canvas and the slides array are two
@@ -704,7 +729,9 @@ export function SlideEditor({
       }
     }
     await refresh();
-    setPresentIndex(Math.max(index, 0));
+    // The id, never the ordinal. `index` was counted against the array as it was
+    // before the flush, and the flush is exactly what can change that array.
+    setPresentId(selected?.id ?? null);
     setPresenting(true);
   };
 
@@ -767,7 +794,7 @@ export function SlideEditor({
           <Button
             variant="secondary"
             disabled={presentIndex === 0}
-            onClick={() => setPresentIndex((current) => Math.max(current - 1, 0))}
+            onClick={() => step(-1)}
           >
             <ArrowLeft size={16} aria-hidden="true" />
             Previous
@@ -775,7 +802,7 @@ export function SlideEditor({
           <Button
             variant="secondary"
             disabled={presentIndex >= slides.length - 1}
-            onClick={() => setPresentIndex((current) => Math.min(current + 1, slides.length - 1))}
+            onClick={() => step(1)}
           >
             Next
             <ArrowRight size={16} aria-hidden="true" />

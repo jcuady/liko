@@ -395,6 +395,7 @@ This is the most useful section. Each of these passed all eleven gates.
 | A fixture stricter than the database | `requireStudentFor` refusing the owning teacher | Fixtures usually hide production bugs; this one hid a **working** feature |
 | A comment asserting what the data does not do | the demo seed promised a double slot it did not contain | The conflict banner was unreachable, so nothing ever rendered it |
 | A class deleted before the element existed | `cn('text-h4 text-ink')` losing `text-h4` | Nothing renders a class that was never applied; every title still *looked* like a title |
+| A value measured before the thing it measured changed | present mode's index counted against the pre-flush array | The two states were correct in isolation and only disagreed under a concurrent write |
 
 ### The one that was in every card, dialog and sheet
 
