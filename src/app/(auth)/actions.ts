@@ -51,19 +51,22 @@ export interface ActionResult {
 const GENERIC_FAILURE = 'That email or password is not right.';
 
 /**
- * The one role this form may create.
+ * The role an account gets when the form did not ask for one.
  *
- * Students and guardians do not self-register. A student or guardian account is
- * issued by the teacher who owns the class, from `/classes`, and joins that
- * teacher's organisation as a member.
+ * `registerSchema` now carries a `role`, so this is a fallback rather than the
+ * enforcement, which is the right way round. The schema is the authorisation: it
+ * admits exactly `instructor` and `student`, and a post naming `admin` or
+ * `guardian` fails validation outright instead of being parsed and ignored.
  *
- * This is named rather than inlined at the call site because it is a policy, not
- * a default. The schema has no `role` field at all, so Zod strips one from a
- * crafted post, and `registerSchema` therefore has no value to tamper with. This
- * constant is what the account actually gets. Changing it is a product
- * decision, not a refactor.
+ * This constant therefore only decides what happens when NO role was posted at
+ * all, which is the pricing-link path an existing teacher takes. They get a
+ * teacher account, which is what they came for.
+ *
+ * `admin` and `guardian` remain unreachable from this endpoint. An administrator
+ * is promoted by an existing administrator, and a guardian account is issued by
+ * the teacher who owns the class, from `/classes`.
  */
-const SELF_REGISTERED_ROLE = 'instructor' as const;
+const DEFAULT_ROLE = 'instructor' as const;
 
 async function guardRateLimit(scope: string, limit = RATE_LIMITS.auth) {
   const requestHeaders = await headers();
@@ -169,10 +172,24 @@ export async function registerAction(
     };
   }
 
+  /*
+   * `role` is read from the form, which is the only line in this file that
+   * decides which account gets made.
+   *
+   * It was missing here at first, and the symptom was the exact one the old
+   * design produced: the schema admitted `student`, the schema's own unit test
+   * passed, and every single registration still created a teacher. The parse
+   * input is assembled field by field, so a field the action forgets is a field
+   * that is always `undefined`, and `undefined` takes the default. The unit test
+   * could not have caught it because it exercises the schema directly rather
+   * than the action that feeds it, and only an end-to-end test that registered
+   * as a student and checked where it landed did.
+   */
   const parsed = registerSchema.safeParse({
     name: formData.get('name'),
     email: formData.get('email'),
     password: formData.get('password'),
+    role: formData.get('role'),
     acceptedTerms: formData.get('acceptedTerms'),
     acceptedPrivacy: formData.get('acceptedPrivacy'),
   });
@@ -192,7 +209,7 @@ export async function registerAction(
       name: parsed.data.name,
       email: parsed.data.email,
       password: parsed.data.password,
-      role: SELF_REGISTERED_ROLE,
+      role: parsed.data.role ?? DEFAULT_ROLE,
       redirectTo: `${siteUrl()}/auth/callback`,
     });
   } catch (error) {

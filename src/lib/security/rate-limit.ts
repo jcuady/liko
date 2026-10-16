@@ -55,6 +55,17 @@ export const RATE_LIMITS = {
   authBurst: { limit: 120, windowMs: 5 * 60 * 1000 },
   passwordReset: { limit: 3, windowMs: 60 * 60 * 1000 },
   ai: { limit: 20, windowMs: 60 * 1000 },
+  /*
+   * Authenticated writes over HTTP.
+   *
+   * Sized for the worst legitimate burst rather than the average one, because
+   * the case this exists to handle is an offline outbox flushing: a teacher
+   * marks a register with no connection, reconnects, and every queued write
+   * lands in the same second. 120 per minute is far above one register tapped
+   * by hand and far above any plausible replay, while still bounding what one
+   * authenticated account can do to the database.
+   */
+  write: { limit: 120, windowMs: 60 * 1000 },
 } satisfies Record<string, RateLimitConfig>;
 
 export interface RateLimitResult {

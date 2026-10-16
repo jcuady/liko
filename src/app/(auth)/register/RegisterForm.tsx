@@ -64,6 +64,57 @@ export function RegisterForm({
       ) : null}
 
       <form action={formAction} className="mt-6 flex flex-col gap-5" noValidate>
+        {/*
+         * WHICH KIND OF ACCOUNT.
+         *
+         * Rendered as a radio group rather than a select, because the two
+         * answers need a sentence of explanation each and a select hides the one
+         * you did not pick. A `fieldset` and `legend` are used so a screen
+         * reader announces the question before the options, which a bare `div`
+         * of buttons would not.
+         *
+         * The values are exactly the two the schema admits. `admin` and
+         * `guardian` are not reachable from here at all: an administrator is
+         * promoted by an existing administrator, and a guardian account is issued
+         * by the teacher who owns the class.
+         */}
+        <fieldset className="flex flex-col gap-2">
+          <legend className="text-label mb-1">This account is for</legend>
+
+          <label className="flex min-h-11 cursor-pointer items-start gap-3 rounded-[12px] border border-border px-4 py-3 transition-colors hover:bg-surface-sunken has-checked:border-accent has-checked:bg-accent-subtle">
+            <input
+              type="radio"
+              name="role"
+              value="instructor"
+              defaultChecked
+              className="mt-0.5 size-4 shrink-0 accent-accent"
+            />
+            <span className="flex flex-col gap-0.5">
+              <span className="text-body font-semibold text-ink">I teach</span>
+              <span className="text-meta text-ink-muted">
+                Create classes, take attendance, set work and see how students are
+                doing.
+              </span>
+            </span>
+          </label>
+
+          <label className="flex min-h-11 cursor-pointer items-start gap-3 rounded-[12px] border border-border px-4 py-3 transition-colors hover:bg-surface-sunken has-checked:border-accent has-checked:bg-accent-subtle">
+            <input
+              type="radio"
+              name="role"
+              value="student"
+              className="mt-0.5 size-4 shrink-0 accent-accent"
+            />
+            <span className="flex flex-col gap-0.5">
+              <span className="text-body font-semibold text-ink">I am a student</span>
+              <span className="text-meta text-ink-muted">
+                See your classes and your week, take your quizzes, and keep track of
+                what is due. Your teacher links you to the class.
+              </span>
+            </span>
+          </label>
+        </fieldset>
+
         <Field
           name="name"
           label="Full name"
@@ -215,8 +266,9 @@ function ConsentGate({ errors }: { errors?: Record<string, string> }) {
       />
 
       <p className="text-meta text-ink-subtle">
-        Accounts here are for teachers. A teacher creates the account for each
-        student and guardian, so a student never signs up directly.
+        A guardian account is created by the teacher who owns the class, from
+        the class roster. If you are under 13, ask a parent or guardian before
+        creating an account.
       </p>
     </fieldset>
   );

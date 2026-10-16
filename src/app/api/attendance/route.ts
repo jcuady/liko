@@ -3,7 +3,7 @@ import { z } from 'zod';
 
 import { requirePermission } from '@/lib/auth/guards';
 import { data } from '@/lib/api/client';
-import { isSameOrigin } from '@/lib/security/rate-limit';
+import { isSameOrigin, consume, RATE_LIMITS } from '@/lib/security/rate-limit';
 
 /**
  * Attendance writes over HTTP.
@@ -82,6 +82,28 @@ export async function POST(request: Request) {
     return NextResponse.json(
       { error: 'Invalid attendance payload', issues: parsed.error.issues },
       { status: 400 },
+    );
+  }
+
+  /*
+   * RATE LIMITED, KEYED ON THE SESSION, AND DELIBERATELY BELOW THE WRITE.
+   *
+   * The original "all 4xx are dropped" rule out here meant that adding a 429
+   * would have deleted queued registers, because a rate-limited write is
+   * refused for now rather than refused outright. `outbox` now keeps 429 and
+   * 503, which is what makes this safe to add.
+   *
+   * The key is `session.userId` and not the client's IP. Behind a school NAT
+   * every teacher on the premises shares one address, so an address limit here
+   * would throttle a whole school because one teacher tapped a large register,
+   * and an address is also trivially rotated. An account is the thing the limit
+   * is actually about.
+   */
+  const limited = consume(`attendance:${session.userId}`, RATE_LIMITS.write);
+  if (!limited.allowed) {
+    return NextResponse.json(
+      { error: 'Too many registers saved at once. They will send again shortly.' },
+      { status: 429, headers: { 'Retry-After': String(limited.retryAfter) } },
     );
   }
 

@@ -27,6 +27,8 @@ by a command that was run, or is marked **NOT VERIFIED** with the reason.
 | `transition: all`, `h-screen`, `localStorage.setItem`, `text-white` | **PASS** | zero hits |
 | Responsive | **PASS** | 5 viewports 375-1920, no overflow |
 | Behaviour (anchors, reduced motion, no-JS) | **PASS** | all checks pass |
+| Student sign-up end to end | **PASS** | registers as a student and lands on `/classes`, not the teacher wizard |
+| Crafted `role: "admin"` | **REFUSED** | schema rejects it; no account created, and the test asserts that rather than a silent fallback |
 
 ---
 
@@ -208,16 +210,111 @@ they are actually on, matching `linked read classes`.
 
 | ID | Finding | Status |
 |---|---|---|
-| P2-01 | `/settings` 404s; three nav items point at it. Not in `PROTECTED_PREFIXES` | OPEN |
-| P2-02 | `proxy.ts` hardcodes `/overview`, which is not in `PROTECTED_PREFIXES`, so student/guardian get one auth redirect then a `/forbidden` bounce | OPEN |
+| P2-01 | `/settings` 404s: no `page.tsx`, so typing `/settings` errored while the three sub-pages worked | **FIXED** — index page redirects to `/settings/profile`, gated on `class:read` |
+| P2-02 | A signed-in student or guardian hitting an auth page was redirected to hardcoded `/overview`, which they lack `analytics:read` for, then rewritten to `/forbidden` | **FIXED** — `proxy.ts` now uses `landingPathFor(session.role)` |
 | P2-03 | `setIdFormatAction` has no try/catch and silently no-ops on a foreign or malformed id | OPEN |
-| P2-04 | `/api/attendance` has no rate limit, the only mutating route without one | OPEN |
-| P2-05 | `saveProfile` gated on `class:read`, which students and guardians hold | OPEN |
-| P2-06 | `fixtures.listStudents` / `listGrades` / `listAssessments` discard `userId` | OPEN |
+| P2-04 | `/api/attendance` had no rate limit | **FIXED** — see below |
+| P2-05 | `saveProfile` gated on `class:read` | **NOT A DEFECT** — see corrections |
+| P2-06 | `fixtures.listStudents` / `listGrades` / `listAssessments` discarded `userId` | **FIXED** — `ownedClass()` |
 | P2-07 | Toast errors use `aria-live="polite"`, never `role="alert"` (40+ sites) | OPEN |
-| P2-08 | `ClassRosterDrawer`, `DeckCard`, `Attendance` fire destructive actions with no confirmation | OPEN |
+| P2-08 | Destructive actions firing on a single click | **FIXED** — archive class; two other claims were wrong, see corrections |
 | P2-09 | No Zod schema for the new calendar inputs; Postgres CHECKs are the only validator, so fixtures accept what production rejects | OPEN |
 | P2-10 | `(sheet)` print CSS is imported but never injected | OPEN |
+
+### P2-06, the same shape as P1-07
+
+Three fixture reads took a `userId` and then ignored it, filtering on `classId`
+alone. The Supabase adapter filters on `owner_id` as well, so a caller holding
+another teacher's class id read that class's roster, gradebook and assessments in
+fixture mode while the same call in production returned nothing.
+
+Nothing in the app could reach it, because class ids arrive from `listClasses`,
+which is owner scoped. That is still worth closing: "no caller can reach it
+today" is a statement about callers, not about the method, and the defect class
+that hid the empty-classes bug was a fixture disagreeing with production in the
+permissive direction. `ownedClass()` now reports a class the caller does not own
+as one that does not exist, matching `ownedDeck` and the RLS read.
+
+### P2-08, and two of its three claims were wrong
+
+The audit named `ClassRosterDrawer`, `DeckCard` and `Attendance`. The first does
+not exist under that name, and there is no deck-delete action in the codebase at
+all. What it did find, one file over, was real and worse than reported:
+
+`archiveClass` fired on a single unconfirmed click, while `archiveStudent` in the
+same file had a full confirmation dialog. The less dangerous action was the
+guarded one. Archiving a class takes every student on it out of the register, the
+gradebook and the history in one click, with no undo offered, and the button sat
+beside two other buttons in a wrapped row. It now has a dialog that names the
+class, because "Archive class" is ambiguous when two class cards are open.
+
+### P2-04 was hiding a data-loss bug
+
+Adding a rate limit to `/api/attendance` could not be done on its own. The
+outbox classifies responses to decide whether a queued write is worth retrying,
+and it read:
+
+```ts
+// A 4xx will never succeed on replay. A 5xx might, so only 4xx is dropped.
+const droppable = response.status >= 400 && response.status < 500;
+```
+
+429 is a 4xx. So a rate-limited attendance write would have been **deleted from
+the queue** — and the teacher who had tapped a register offline would be told it
+had saved. Rate limiting the endpoint alone would have introduced the data loss
+it was meant to prevent.
+
+The rule was about the status class when it needed to be about the status
+*meaning*. A refusal of the request itself (400, 401, 404) is permanent. A
+refusal to serve it right now (429, 503) is not, and "come back later" is
+precisely what an offline outbox replaying a burst after reconnect is. 429 and
+503 are now kept and retried.
+
+This was latent before the rate limit: no route returned 429 at the time, so
+nothing exercised it. The two endpoints that did rate limit were
+`/api/push/subscribe` (which uses `consume`) and the AI server action. An
+earlier coverage scan I ran searched for `rateLimit(` and wrongly reported that
+no route was limited; the helper is named `consume`, and `/api/push/subscribe`
+had been limited all along.
+
+The attendance limit is keyed on `session.userId`, not the client IP. Behind a
+school NAT every teacher shares one address, so an address limit would throttle
+a whole school because one teacher tapped a large register, and an address is
+also trivially rotated.
+
+`/api/auth/sign-out` and `/api/cron/at-risk` are deliberately unlimited: the
+first is idempotent and cheap, the second is authenticated by `CRON_SECRET` and
+invoked by Vercel's scheduler.
+
+---
+
+## Corrections to this audit
+
+Three findings were reported that did not survive checking the code. They are
+recorded because an audit that only lists what it found is less useful than one
+that shows what it got wrong.
+
+- **P2-05, `saveProfile` on `class:read` — not a defect.** The gate is correct.
+  The action writes `fullName`, `schoolName`, `subjects`, `defaultGradeLevel` and
+  `gradingPolicyId`, all of them self-service fields, through
+  `updateProfile(session.userId, …)`. It never writes `role` or `org_id`, and
+  `db:settle` already proves a signed-in student cannot re-point their own
+  record. `class:read` is the "has a workspace" permission all four roles hold,
+  and a student editing their own name is exactly the intended behaviour.
+- **P2-02's claim that `/overview` is unprotected — wrong.** It is in
+  `PROTECTED_PREFIXES`. The finding was half right: the bounce was real and is
+  fixed, but the cause is the hardcoded redirect target, not a missing entry.
+- **P3, present mode rendering "white on white, zero contrast" — wrong.** An
+  audit cited `SlideFrame.tsx:80-86` and a `data-frame="dark"` attribute. No
+  `SlideFrame.tsx` exists and no `data-frame=` attribute is set anywhere in the
+  repo. Checked against `globals.css`, dark mode gives `--ink: oklch(0.96)` as
+  the background and `--surface: oklch(0.21)` as the text, so the contrast is
+  high and the only real defect is a `border-white/10` literal that is nearly
+  invisible against a light chrome.
+
+The lesson is the same one that produced P1-01: a finding that names a file and
+a line number is not thereby checked, and a verifier that reads a codebase by
+recollection will cite things that are not there.
 
 ---
 
@@ -232,6 +329,50 @@ they are actually on, matching `linked read classes`.
   literal is a real, minor defect.
 - 88 deferred-`use client` components.
 - `Progress` (`src/components/ui/progress.tsx`) has zero importers.
+
+---
+
+## Findings made while fixing
+
+Two defects appeared during round two that belong here rather than in a commit
+message, because both are the same shape as something already on this list.
+
+### A green schema test hid a role that never arrived
+
+Student self-signup was added with `registerSchema` gaining
+`role: z.enum(['instructor', 'student']).default('instructor')`, and
+`registerAction` passing `parsed.data.role`. Both were correct and the unit tests
+passed.
+
+`registerAction` assembles its parse input **field by field**:
+
+```ts
+const parsed = registerSchema.safeParse({
+  name: formData.get('name'),
+  email: formData.get('email'),
+  password: formData.get('password'),
+  role: formData.get('role'),   // <-- this line was missing
+  ...
+});
+```
+
+Without that line `role` is always `undefined`, `undefined` takes the default,
+and every registration created a teacher. The schema admitted `student`, the
+schema's own test proved it admitted `student`, and no student could ever be
+created.
+
+Nothing could have caught it at the unit level: the test exercised the schema
+directly, and the schema was not where the bug was. It took an end-to-end test
+that registered as a student and asserted where it landed. This is the fourth
+entry in the "what the gates could not see" table, and the second where a value
+was computed correctly and then never read.
+
+### Rate limiting a route exposed a data-loss bug behind it
+
+Adding a limit to `/api/attendance` would have deleted queued registers, because
+the outbox treated every 4xx as a permanent refusal and 429 is a 4xx. The fix
+belongs to the outbox, not the route: 429 and 503 now say "come back later" and
+are retried. See the P2-04 section.
 
 ---
 
@@ -254,6 +395,8 @@ This is the most useful section. Each of these passed all eleven gates.
 
 ## What this audit changed
 
+Round one (`999bc3c`, `5d3f1f7`):
+
 - `scripts/check-remote-db.mjs` — expected tables derived from the migration
 - `src/lib/api/client.ts` — `listClasses` no longer filters on `owner_id`
 - `src/lib/api/fixtures.ts` — student-scoped `listClasses`; ownership check on
@@ -264,21 +407,44 @@ This is the most useful section. Each of these passed all eleven gates.
 - `src/app/(dashboard)/history/actions.ts` — requires `history:write`
 - `src/app/(dashboard)/welcome/actions.ts` — `createFirstClass` requires `class:write`
 - `src/app/pricing/components/PricingTiers.tsx` — shared peso formatter
-- `src/lib/auth/rbac.test.ts` — 4 regression tests asserting the **denials**
+
+Round two:
+
+- `src/proxy.ts` — `landingPathFor(session.role)` instead of hardcoded `/overview`
+- `src/app/(dashboard)/settings/page.tsx` — new; `/settings` no longer 404s
+- `src/app/api/attendance/route.ts` — rate limit keyed on the session
+- `src/lib/security/rate-limit.ts` — `write` preset
+- `src/lib/outbox/index.ts` — 429 and 503 are transient, not permanent refusals
+- `src/lib/api/fixtures.ts` — `ownedClass()` on the three reads that ignored it
+- `src/app/(dashboard)/classes/ClassesManager.tsx` — archive class is confirmed
+- `src/lib/schemas/auth.ts` — `role` enum of `instructor` and `student`
+- `src/app/(auth)/actions.ts`, `register/RegisterForm.tsx` — role passed through
+- `src/app/(auth)/lib/schemas/auth.test.ts` — rewritten for the new admission rule
+- `/terms`, `/privacy`, `/children-privacy` — state what the code actually does
 
 ---
 
 ## Completion status
 
-**All seven P1 findings are closed.** No known P0. Build, typecheck, lint, 373
-unit tests, 197 e2e, the SQL gate, the redaction gate, the primitives gate, the
-remote-database check and the RLS settling test all pass against the live
-project.
+**All seven P1 findings are closed.** No known P0. Build, typecheck, lint, unit,
+e2e, the SQL gate, the redaction gate, the primitives gate, the remote-database
+check and the RLS settling test all pass against the live project.
 
-Ten P2 findings remain open and are listed above; none blocks release.
+Round two closed five more: P2-01, P2-02, P2-04, P2-06 and P2-08. One more was
+disproven rather than fixed (P2-05), because the gate it recommended tightening
+was already correct.
+
+**Remaining open:** P2-03, P2-07, P2-09 and P2-10. None blocks release.
+P2-09 matters most: the calendar inputs are validated by Postgres CHECK
+constraints alone, so fixture mode accepts values production would reject.
 
 The calendar module built in commits `b67d173` and `d245ebc` is **data layer
 only** — 13 seam methods with zero callers and no `/schedule` route. Its tables
 now exist and its policies are enforced, so it is correct, tested and still
 unreachable. That is deliberate staging, not a defect, but it must not be
 described as a finished feature.
+
+**Not 100%.** The objective asks for every page, button and workflow to be
+functional and audited. Two named areas of work remain outstanding: the calendar
+UI on top of the data layer, and a redesign of sign-in and sign-up on the new
+branding.

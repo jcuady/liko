@@ -59,11 +59,11 @@ export default function TermsPage() {
           body: (
             <>
               <p>
-                <strong>Accounts are for teachers and the staff who administer
-                them.</strong> Students and guardians do not create their own
-                LIKO accounts. The teacher who owns a class creates the account
-                for each student or guardian from the class roster, and the
-                account belongs to that teacher&apos;s school.
+                <strong>Accounts are for teachers, students and the staff
+                who administer them.</strong> A student may create their own
+                account from the registration form. A guardian account is
+                created by the teacher who owns a class from the class roster,
+                and that account belongs to the teacher&apos;s school.
               </p>
               <p>
                 This is deliberate. A student account is tied to a class, a

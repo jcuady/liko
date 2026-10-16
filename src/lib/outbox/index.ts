@@ -121,8 +121,28 @@ async function attempt(record: OutboxEntry): Promise<Response | null> {
       return response;
     }
 
-    // A 4xx will never succeed on replay. A 5xx might, so only 4xx is dropped.
-    const droppable = response.status >= 400 && response.status < 500;
+    /*
+     * WHICH FAILURES ARE PERMANENT, AND WHY 429 IS NOT ONE OF THEM.
+     *
+     * A 4xx means the server refused the request on its merits, so replaying it
+     * refuses it again and the queue would retry a dead row forever. That is
+     * true of a 400, a 401 and a 404, and false of exactly two statuses.
+     *
+     * 429 says the caller is going too fast, and 503 says the server cannot
+     * serve it right now. Both are "come back later", not "never", and this
+     * queue is exactly the case they exist for: a teacher takes a register
+     * offline, the tablet reconnects in a lift full of people, and every queued
+     * write arrives at once. Treating that burst of perfectly valid writes as a
+     * permanent refusal deleted them, and the teacher was told their register
+     * had saved.
+     *
+     * So the rule is about the MEANING of the status, not its class: a refusal
+     * of the request itself is dropped, a refusal to serve it right now is kept.
+     */
+    const rateLimitedOrUnavailable = response.status === 429 || response.status === 503;
+    const droppable =
+      response.status >= 400 && response.status < 500 && !rateLimitedOrUnavailable;
+
     if (droppable) {
       await remove(record.id);
       notify();

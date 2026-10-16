@@ -68,15 +68,41 @@ describe('registerSchema', () => {
     }
   });
 
-  it('cannot be satisfied by a student or guardian role', () => {
-    // The schema has no role field at all. Self-registration is for teachers,
-    // and a student account is created by the teacher who owns the class.
-    expect('role' in registerSchema.shape).toBe(false);
-    const withRole = registerSchema.safeParse({ ...valid, role: 'student' });
-    expect(withRole.success).toBe(true);
-    // The role is dropped rather than honoured, which is the point.
-    expect(withRole.success && 'role' in (withRole.data as object)).toBe(false);
-  });
+  /*
+ * WHICH ROLES A PUBLIC FORM MAY ASK FOR.
+ *
+ * This used to assert that no role could be satisfied at all, because the schema
+ * had no `role` field and Zod stripped one. Students can now create their own
+ * accounts, so the property under test changed shape but did not weaken.
+ *
+ * The security property was never "the role is dropped", which was a silent
+ * outcome. It was "a post cannot make itself an administrator or a guardian",
+ * and it is now enforced by an admission list that REJECTS those values outright
+ * rather than parsing them and throwing the field away. The difference matters:
+ * a rejected role means no account is created, and the caller is told, whereas a
+ * stripped role means the account is created anyway and the caller believes the
+ * post was honoured.
+ */
+it('admits a student who is creating their own account', () => {
+  const asStudent = registerSchema.safeParse({ ...valid, role: 'student' });
+  expect(asStudent.success).toBe(true);
+  expect(asStudent.success && asStudent.data.role).toBe('student');
+});
+
+it('still refuses a post that asks to be an administrator or a guardian', () => {
+  // These must fail the parse, not be stripped. A stripped role would still
+  // create an account, which is not the same as refusing the request.
+  for (const role of ['admin', 'guardian', 'Admin', 'ADMIN', 'owner', '', 1, null]) {
+    expect(registerSchema.safeParse({ ...valid, role }).success).toBe(false);
+  }
+});
+
+it('defaults to a teacher account when no role was posted at all', () => {
+  // The pricing-link path an existing teacher takes. It must not break.
+  const omitted = registerSchema.safeParse({ ...valid });
+  expect(omitted.success).toBe(true);
+  expect(omitted.success && omitted.data.role).toBe('instructor');
+});
 
   it('enforces the password rules the UI checklist shows', () => {
     const base = { name: 'Maya Okonkwo', email: 'maya@school.edu' };

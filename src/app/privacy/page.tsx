@@ -97,10 +97,12 @@ export default function PrivacyPage() {
           body: (
             <>
               <p>
-                Students and guardians do not create their own LIKO accounts. A
-                teacher creates the account from the class roster and sets its
-                role, so an account always belongs to a class, a teacher and a
-                school.
+                A student may create their own LIKO account from the
+                registration form, and a student account belongs to the school
+                whose teacher links them to a class. A guardian does not
+                self-register: a teacher creates a guardian account from the
+                class roster and sets its role, so an account always belongs to
+                a class, a teacher and a school.
               </p>
               <p>
                 A student account can see only its own record. A guardian account
@@ -306,10 +308,17 @@ export default function PrivacyPage() {
                 a school&apos;s instruction.
               </p>
               <p>
-                <strong>COPPA.</strong> We do not collect personal information
-                directly from a child under 13. A school provides it, and the
-                school is the party responsible for its collection notice and its
-                consent or authorisation where one is needed.
+                <strong>COPPA.</strong> Students may create their own
+                accounts, and LIKO does not apply an age gate, so a child under
+                13 can reach the registration path and provide personal
+                information to us directly rather than through a school. Where
+                a school deploys LIKO for its students, the school is the party
+                responsible for its collection notice and for any consent or
+                authorisation its own policy requires, and a child under 13
+                should have a parent or guardian&apos;s agreement before they
+                register. See the children&apos;s privacy notice for the full
+                position, and note that it is a plain-language explanation
+                rather than a compliance statement.
               </p>
               <p>
                 <strong>FERPA.</strong> LIKO is built to hold education records,

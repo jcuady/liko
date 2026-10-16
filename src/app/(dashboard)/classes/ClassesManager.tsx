@@ -31,6 +31,7 @@ import {
 } from '@/components/ui/table';
 import {
   Dialog,
+  DialogClose,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -210,15 +211,48 @@ function RosterPanel({ classRecord }: { classRecord: ClassSummary }) {
         <div className="flex shrink-0 flex-wrap gap-2">
           <NewStudentDialog classId={classRecord.id} />
           <ImportRosterDialog classId={classRecord.id} />
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => archiveClassMutation.mutate(classRecord.id)}
-            disabled={archiveClassMutation.isPending}
-          >
-            <Archive size={15} aria-hidden="true" />
-            Archive class
-          </Button>
+          {/*
+            CONFIRMED, BECAUSE ARCHIVING A CLASS IS NOT ARCHIVING A BUTTON.
+            This fired on a single click, while the archive-student action
+            directly below had a full confirmation dialog. So the less dangerous
+            action was the guarded one, which is the wrong way round: archiving a
+            class takes every student on it out of the register, the gradebook and
+            the history in one click, with no undo offered and no chance to see
+            which class was selected first.
+
+            The dialog names the class, because "Archive class" alone beside a
+            class named in the card heading is ambiguous when two cards are open.
+          */}
+          <Dialog>
+            <DialogTrigger asChild>
+              <Button variant="ghost" size="sm" disabled={archiveClassMutation.isPending}>
+                <Archive size={15} aria-hidden="true" />
+                Archive class
+              </Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Archive {classRecord.name}?</DialogTitle>
+                <DialogDescription>
+                  Everyone on this roster disappears from the register, the
+                  gradebook and the history. Existing marks are kept but stop
+                  appearing. This cannot be undone from here.
+                </DialogDescription>
+              </DialogHeader>
+              <DialogFooter>
+                <DialogClose asChild>
+                  <Button variant="ghost">Keep it</Button>
+                </DialogClose>
+                <Button
+                  variant="danger"
+                  onClick={() => archiveClassMutation.mutate(classRecord.id)}
+                  disabled={archiveClassMutation.isPending}
+                >
+                  {archiveClassMutation.isPending ? 'Archiving' : 'Archive class'}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
         </div>
       </CardHeader>
 

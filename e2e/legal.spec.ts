@@ -96,38 +96,62 @@ test.describe('consent gate on signup', () => {
   });
 });
 
-test.describe('no student self sign-up', () => {
-  test('the registration form offers no role choice at all', async ({ page }) => {
+/*
+ * WHO MAY CREATE THEIR OWN ACCOUNT.
+ *
+ * This block used to assert the opposite policy: no role control on the form at
+ * all, and the terms saying students do not create their own accounts. Both were
+ * true and both are now false by operator decision, so the assertions were
+ * replaced rather than deleted.
+ *
+ * What is worth keeping is the SHAPE of the property, not its value. The old
+ * tests proved "a crafted post cannot become a student, because the form posts
+ * no role". The new ones prove the stronger and more specific thing: the form
+ * admits a student on purpose, and a crafted post still cannot become an
+ * administrator or a guardian. That second half is the security property, and it
+ * is now enforced by an admission list that rejects the value outright rather
+ * than parsing it and dropping the field.
+ */
+test.describe('student self sign-up', () => {
+  test('the registration form offers exactly two roles, and no more', async ({ page }) => {
     await page.goto('/register');
 
-    // Not "the student option is hidden". There is no role control on the form,
-    // so there is nothing for a crafted request to change either.
-    await expect(page.getByRole('radio')).toHaveCount(0);
-    await expect(page.getByRole('combobox')).toHaveCount(0);
-    await expect(page.getByLabel(/role/i)).toHaveCount(0);
+    await expect(page.getByRole('radio')).toHaveCount(2);
+    await expect(page.getByRole('radio', { name: /I teach/i })).toBeVisible();
+    await expect(page.getByRole('radio', { name: /I am a student/i })).toBeVisible();
+
+    // The question is announced before the options, which a bare row of buttons
+    // would not do for a screen reader.
+    await expect(page.getByRole('group', { name: /this account is for/i })).toBeVisible();
+
+    // The roles that must never be reachable from a public form.
+    await expect(page.getByRole('radio', { name: /admin/i })).toHaveCount(0);
+    await expect(page.getByRole('radio', { name: /guardian|parent/i })).toHaveCount(0);
     await expect(page.locator('select')).toHaveCount(0);
   });
 
-  test('the form says who signs up', async ({ page }) => {
-    await page.goto('/register');
-    await expect(page.getByText('Accounts here are for teachers')).toBeVisible();
-  });
-
-  test('the terms say students are created by their teacher', async ({ page }) => {
-    await page.goto('/terms');
-    await expect(
-      page.getByText('Students and guardians do not create their own LIKO accounts.'),
-    ).toBeVisible();
-  });
-
-  test('a crafted role cannot be honoured, because the form posts none', async ({
+  test('a student choosing their own role is routed to their classes, not the wizard', async ({
     page,
   }) => {
+    await page.goto('/register');
+    await page.getByRole('radio', { name: /I am a student/i }).check();
+    await fillRegistration(page, uniqueEmail());
+    await page.getByLabel(/I agree to the Terms of Use/).check();
+    await page.getByLabel(/I have read the Privacy Notice/).check();
+
+    await page.getByRole('button', { name: /Create workspace/i }).click();
+
+    // `landingPathFor` sends a student to /classes and a teacher to /welcome, so
+    // the URL is the proof the role actually reached the account.
+    await expect(page).toHaveURL(/\/classes/);
+  });
+
+  test('a crafted role cannot promote an account to administrator', async ({ page }) => {
     /*
-     * The schema has no `role` field at all, so Zod strips one from a crafted
-     * post and `registerAction` passes a fixed `instructor`. Driving the real
-     * form is the honest way to assert that: adding a hidden field is what an
-     * attacker would do, and the account it produces must still be a teacher's.
+     * The schema admits `instructor` and `student` and nothing else, so a post
+     * naming `admin` fails validation and no account is created at all. The
+     * teacher radio is left checked, so what is refused is the crafted field
+     * rather than the whole form being broken for everyone else.
      */
     await page.goto('/register');
     await fillRegistration(page, uniqueEmail());
@@ -138,15 +162,41 @@ test.describe('no student self sign-up', () => {
       const input = document.createElement('input');
       input.type = 'hidden';
       input.name = 'role';
-      input.value = 'student';
+      input.value = 'admin';
       document.querySelector('form')?.append(input);
     });
 
     await page.getByRole('button', { name: /Create workspace/i }).click();
 
-    // A teacher account, so the wizard is what opens. A student account would
-    // have been routed to /classes instead.
-    await expect(page).toHaveURL(/\/welcome/);
+    // A refused registration says so and stays on the form. It must not quietly
+    // create a teacher account either, which is what a silent fallback would do.
+    await expect(page).toHaveURL(/\/register/);
+    await expect(page.getByRole('alert')).toBeVisible();
+  });
+
+  test('the terms describe what the form actually offers', async ({ page }) => {
+    await page.goto('/terms');
+    await expect(page.getByText('A student may create their own')).toBeVisible();
+    // The guardian claim is still true, and it is the one worth asserting: a
+    // guardian account is still issued by a teacher, never self-created.
+    await expect(
+      page.getByText(/A guardian account is\s+created by the teacher who owns a class/),
+    ).toBeVisible();
+  });
+
+  test('the privacy notice does not claim an age gate the product does not have', async ({
+    page,
+  }) => {
+    await page.goto('/privacy');
+    /*
+     * This assertion is deliberately negative. The old notice said "We do not
+     * collect personal information directly from a child under 13", which was
+     * true when the form had no role control and false the moment it did. A test
+     * that only greps for the new wording would still pass if the old claim were
+     * left above it, because `getByText` finds a page that contains both.
+     */
+    await expect(page.getByText(/We do not collect personal information directly/)).toHaveCount(0);
+    await expect(page.getByText(/LIKO does not apply an age gate/)).toBeVisible();
   });
 });
 

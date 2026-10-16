@@ -296,21 +296,24 @@ export default function ChildrenPrivacyPage() {
               <p>
                 How that bears on a school deployment depends on the deployment,
                 which is why the school makes the call rather than us. The
-                position LIKO is built for is this: children under 13 do not
-                create their own LIKO accounts and cannot reach the public
-                registration path. A child&apos;s record is created by a teacher,
-                from a class roster, under a school&apos;s own policy. The school
-                collects the information and is the party responsible for its
-                collection notice and for consent or authorisation where one is
-                required.
+                position LIKO is built for is this: a student may create their
+                own account from the public registration path, and LIKO applies
+                no age gate, so a child under 13 can reach that path and give us
+                personal information directly rather than through a school. A
+                child&apos;s record is otherwise created or linked by a teacher,
+                from a class roster, under a school&apos;s own policy. Where a
+                school deploys LIKO the school collects the information and is
+                the party responsible for its collection notice and for consent
+                or authorisation where one is required.
               </p>
               <p>
                 We hold such data only on a school&apos;s instruction, we do not
-                use it for advertising or profiling, and we do not offer a child
-                a way to give us information directly. Whether those facts
-                satisfy COPPA in a particular school&apos;s particular deployment
-                is a question for that school, with its own counsel, and we do
-                not answer it on their behalf.
+                use it for advertising or profiling, and we do not sell it. A
+                child under 13 should have a parent or guardian&apos;s agreement
+                before registering. Whether these facts satisfy COPPA in a
+                particular school&apos;s particular deployment is a question for
+                that school, with its own counsel, and we do not answer it on
+                their behalf.
               </p>
 
               <h3>FERPA, the US rule for education records</h3>

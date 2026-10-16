@@ -49,6 +49,34 @@ export const loginSchema = z.object({
  */
 const consent = (message: string) => z.literal('on', { error: message });
 
+/**
+ * WHICH ROLES A PUBLIC FORM MAY ASK FOR, AND WHY THE ENUM IS THE ENFORCEMENT.
+ *
+ * This schema used to have no `role` field at all. That was a deliberate and
+ * rather elegant design: Zod strips unknown keys, so a crafted post carrying
+ * `role: "admin"` parsed successfully and the role was discarded, and
+ * `registerAction` then passed a hardcoded `instructor`. Omitting the field was
+ * the authorisation.
+ *
+ * Students can now create their own accounts, by operator decision. That means
+ * the omission has to be replaced by an admission rather than merely removed,
+ * and the admission has to be the whole security property, because
+ * `registerAction` is a public endpoint anyone can post to.
+ *
+ * So this is an enum of exactly two values. `admin` and `guardian` are NOT
+ * omitted from the type, they are not in the list, which means a post carrying
+ * either one fails `.safeParse()` and no account is created at all. That is the
+ * difference that matters: the old schema would have accepted the post and
+ * ignored the field, so a future edit that read `parsed.data.role` would have
+ * found `undefined` in the legitimate case and `undefined` in the attack case
+ * alike, and the two were indistinguishable downstream. Now the attack is a 400.
+ *
+ * `.default('instructor')` covers a form that never rendered the choice, and
+ * covers the one path that must never break: an existing teacher following a
+ * pricing link, whose post carries no role at all.
+ */
+const selfRegisterableRole = z.enum(['instructor', 'student']);
+
 export const registerSchema = z.object({
   name: z
     .string()
@@ -57,23 +85,10 @@ export const registerSchema = z.object({
     .max(80, 'That name is too long.'),
   email,
   password,
+  role: selfRegisterableRole.default('instructor'),
   acceptedTerms: consent('Accept the terms to create an account.'),
   acceptedPrivacy: consent('Accept the privacy notice to create an account.'),
 });
-
-/**
- * WHY THERE IS NO `role` FIELD HERE.
- *
- * Students and guardians do not self-register. A student or guardian account is
- * created by the teacher who owns the class, through `/classes`, and lands in
- * that teacher's organisation as a member.
- *
- * Omitting the field is the enforcement, not an oversight: Zod strips unknown
- * keys, so a crafted post carrying `role: "student"` is parsed successfully and
- * the role is *discarded*. `registerAction` then passes the fixed value
- * `instructor`. A schema that merely validated the role would need a check that
- * admits two values, and that check would be the thing to get wrong.
- */
 
 export const forgotPasswordSchema = z.object({ email });
 

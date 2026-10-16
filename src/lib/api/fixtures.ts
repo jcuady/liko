@@ -711,8 +711,9 @@ export const fixtures: WorkspaceData = {
     return store.classes.filter((row) => row.ownerId === userId);
   },
 
-  async listStudents(_userId, classId) {
+  async listStudents(userId, classId) {
     guard('listStudents');
+    ownedClass(store, userId, classId);
     return store.students.filter((student) => student.classId === classId);
   },
 
@@ -738,13 +739,15 @@ export const fixtures: WorkspaceData = {
    * why the fixture quietly disagreed with production instead of the other way
    * round.
    */
-  async listAssessments(_userId, classId) {
+  async listAssessments(userId, classId) {
     guard('listAssessments');
+    ownedClass(store, userId, classId);
     return store.assessments.filter((row) => row.classId === classId);
   },
 
-  async listGrades(_userId, classId) {
+  async listGrades(userId, classId) {
     guard('listGrades');
+    ownedClass(store, userId, classId);
     const assessmentIds = new Set(
       store.assessments.filter((row) => row.classId === classId).map((row) => row.id),
     );
@@ -1998,6 +2001,34 @@ function resequenceSlides(store: FixtureStore, userId: string, deckId: string): 
   deckSlides(store, userId, deckId).forEach((slide, index) => {
     slide.position = index;
   });
+}
+
+/**
+ * The class, but only if this account owns it.
+ *
+ * WHY THREE READS NEED THIS. `listStudents`, `listGrades` and `listAssessments`
+ * all took a `userId` and then ignored it, filtering on `classId` alone. The
+ * Supabase adapter filters on `owner_id` as well, so the fixtures were strictly
+ * more permissive: a caller who guessed or was handed somebody else's class id
+ * read that class's roster, gradebook and assessments, in fixture mode, while
+ * the same call in production returns nothing.
+ *
+ * Nothing in the app exploited it, because class ids arrive from `listClasses`,
+ * which IS owner scoped. That is exactly why it was worth closing anyway: the
+ * class of defect that hid the empty-classes bug was a fixture disagreeing with
+ * production in the permissive direction, and "no caller can reach it" is a
+ * statement about today's callers rather than about the method.
+ *
+ * A class that is not this account's is reported as one that does not exist, so
+ * a crafted id cannot confirm that somebody else's class is real. That matches
+ * `ownedDeck` beside this and the RLS read on the real project.
+ */
+function ownedClass(store: FixtureStore, userId: string, classId: string): ClassRecord {
+  const record = store.classes.find((row) => row.id === classId);
+  if (!record || (!isDemoAccount(userId) && record.ownerId !== userId)) {
+    throw new DataError('NOT_FOUND', 'That class does not exist.');
+  }
+  return record;
 }
 
 function ownedDeck(store: FixtureStore, userId: string, deckId: string): DeckRecord {

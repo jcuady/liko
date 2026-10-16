@@ -8,6 +8,7 @@ import {
   AUTH_PATHS,
   can,
   isProtectedPath,
+  landingPathFor,
   permissionForPath,
 } from '@/lib/auth/rbac';
 import { isSameOrigin } from '@/lib/security/rate-limit';
@@ -56,8 +57,16 @@ export async function proxy(request: NextRequest) {
   }
 
   // Signed in and heading for a login page: send them to their workspace.
+  //
+  // `landingPathFor(session.role)`, NOT a hardcoded `/overview`. A student and a
+  // guardian do not hold `analytics:read`, so `/overview` resolved to
+  // `permissionForPath` a permission they lack and was rewritten to
+  // `/forbidden` on the very next check below. Signing in as a student and being
+  // told "you cannot view this page" is not a refusal of anything they asked
+  // for; it is the one page the app sent them to. Two of the four roles had a
+  // successful sign-in land on an error page.
   if (session && isAuthPage) {
-    const target = new URL('/overview', request.url);
+    const target = new URL(landingPathFor(session.role), request.url);
     headers.set('x-user-id', session.userId);
     headers.set('x-user-role', session.role);
     return NextResponse.redirect(target, { headers });
