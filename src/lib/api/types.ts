@@ -1,6 +1,10 @@
 import { z } from 'zod';
 
 import type { GradeBand, PolicyKind } from '@/lib/grading/policy';
+// The vocabulary of a schedule row comes from the scheduler itself rather than
+// being restated here, so the two cannot drift apart and leave a row the
+// scheduler cannot produce.
+import type { CardStatus } from '@/lib/srs/scheduler';
 
 /**
  * Domain contracts.
@@ -1105,4 +1109,83 @@ export interface ProfileInput {
   subjects: string[];
   defaultGradeLevel: ClassLevel | null;
   gradingPolicyId: string | null;
+}
+/*
+ * Flashcards.
+ *
+ * THREE TYPES FOR THREE TABLES, AND THE THIRD IS NOT A COLUMN ON THE CARD.
+ * `progress` is keyed by card AND student. A deck shared to a class has one
+ * card in it and a different schedule for every student in that class, so the
+ * schedule cannot live on the card without the first student to review it
+ * resetting it for everyone else.
+ */
+
+export interface FlashcardDeckRecord {
+  id: string;
+  ownerId: string;
+  /** Null for a private deck. Set only together with `sharedAt`. */
+  classId: string | null;
+  title: string;
+  subject: string;
+  description: string;
+  sharedAt: string | null;
+  archivedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface FlashcardRecord {
+  id: string;
+  deckId: string;
+  ownerId: string;
+  front: string;
+  back: string;
+  /** Optional. A nudge, not a spoiler. */
+  hint: string;
+  tags: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * One student's schedule for one card.
+ *
+ * Mirrors the scheduler's own vocabulary so a row and a computed schedule are
+ * the same shape. The conversion lives in `src/lib/srs/scheduler.ts` and is the
+ * only place the two are allowed to meet.
+ */
+export interface FlashcardProgressRecord {
+  cardId: string;
+  studentId: string;
+  status: CardStatus;
+  easeFactor: number;
+  intervalDays: number;
+  stepIndex: number;
+  repetitions: number;
+  lapses: number;
+  dueAt: string;
+  lastReviewedAt: string | null;
+  updatedAt: string;
+}
+
+export interface FlashcardDeckInput {
+  title: string;
+  subject: string;
+  description: string;
+  /** Set to share the deck into a class. Only a class the writer owns. */
+  classId: string | null;
+}
+
+export interface FlashcardInput {
+  front: string;
+  back: string;
+  hint: string;
+  tags: string[];
+}
+
+/** A card and the caller's schedule for it, which is what a review session needs. */
+export interface StudyCard {
+  card: FlashcardRecord;
+  /** Null until the card has been reviewed once, when the scheduler seeds it. */
+  progress: FlashcardProgressRecord | null;
 }

@@ -21,6 +21,8 @@ import {
   demoOrg,
   demoMemberships,
   demoDecks,
+  demoFlashcardDecks,
+  demoFlashcards,
   demoSlides,
   demoQuestions,
   secondClassStudents,
@@ -40,6 +42,9 @@ import type {
   BehaviourLogRecord,
   ClassRecord,
   DeckRecord,
+  FlashcardDeckRecord,
+  FlashcardProgressRecord,
+  FlashcardRecord,
   GradeRecord,
   GradingPolicyRecord,
   HeatCell,
@@ -129,6 +134,11 @@ interface FixtureStore {
   invites: InviteRecord[];
   decks: DeckRecord[];
   slides: SlideRecord[];
+  /** Flashcard study material. Seeded so the demo student has something due. */
+  flashDecks: FlashcardDeckRecord[];
+  flashcards: FlashcardRecord[];
+  /** Keyed `${cardId}:${studentId}`, mirroring the table's composite key. */
+  flashProgress: Map<string, FlashcardProgressRecord>;
   /** Files brought into a deck. Seeded so the editor and the suite have something to render. */
   assets: DeckAssetRecord[];
   schedule: ScheduleEntryRecord[];
@@ -223,6 +233,19 @@ function createStore(): FixtureStore {
     memberships: demoMemberships.map((member) => ({ ...member })),
     invites: [],
     decks: demoDecks.map((deck) => ({ ...deck })),
+    /*
+     * Flashcards. Seeded against the demo student so the review session has
+     * something to show on a fresh boot.
+     *
+     * Progress starts EMPTY on purpose. The scheduler owns when a card is due;
+     * seeding a schedule here would be a stored value that only stays right
+     * until the first review, which is the exact class of value this codebase
+     * refuses to keep. A card with no row is `new`, and `new` is a real state
+     * the scheduler can produce.
+     */
+    flashDecks: demoFlashcardDecks.map((deck) => ({ ...deck })),
+    flashcards: demoFlashcards.map((card) => ({ ...card, tags: [...card.tags] })),
+    flashProgress: new Map(),
     /*
      * The seeded slides predate elements, so they carry none. They are
      * normalised on the way in rather than trusted, which is the same seam the
@@ -477,6 +500,35 @@ function studentForUser(userId: string): StudentRecord | null {
   return (
     store.students.find((row) => row.accountId === userId && row.archivedAt === null) ?? null
   );
+}
+
+/**
+ * The composite key of a schedule row.
+ *
+ * The same shape as the table's primary key, so a lookup here and a lookup
+ * there cannot drift. Written out rather than nested because `${a}:${b}` is
+ * the one place the two are allowed to agree by convention.
+ */
+function progressKey(cardId: string, studentId: string): string {
+  return `${cardId}:${studentId}`;
+}
+
+/**
+ * A deck the caller may read: their own, or one shared into their class.
+ *
+ * WHY NOT THE OWNERSHIP FILTER. `ownedDeck` answers "may I change this". A
+ * review session only reads, and a student who cannot open the deck their
+ * teacher shared has no product at all. Keeping the two apart is what stops the
+ * read check from being written as the write check and the other way round.
+ */
+function readableDeck(store: FixtureStore, userId: string, deckId: string): FlashcardDeckRecord {
+  const deck = store.flashDecks.find((row) => row.id === deckId);
+  const student = studentForUser(userId);
+  const permitted =
+    deck !== undefined &&
+    (deck.ownerId === userId || (student !== null && deck.classId === student.classId));
+  if (!permitted) throw new DataError('NOT_FOUND', 'That deck does not exist.');
+  return deck;
 }
 
 /**
@@ -1646,6 +1698,168 @@ export const fixtures: WorkspaceData = {
     const deck = ownedDeck(store, userId, deckId);
     // Soft delete, like everything else that has history behind it.
     deck.archivedAt = new Date().toISOString();
+  },
+
+  /*
+   * Flashcards.
+   *
+   * Fixture mode has no RLS, so every access question the database answers in a
+   * policy is answered here instead. That is the whole reason these methods
+   * exist rather than a shared helper over the store: a demo that quietly
+   * handed one student another's deck would be the fixture lying about the
+   * boundary the real adapter enforces.
+   */
+  async listFlashcardDecks(userId) {
+    guard('listFlashcardDecks');
+    const student = studentForUser(userId);
+
+    return store.flashDecks
+      .filter((deck) => deck.archivedAt === null)
+      .filter((deck) => deck.ownerId === userId || (student && deck.classId === student.classId))
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+      .map((deck) => ({ ...deck }));
+  },
+
+  async createFlashcardDeck(userId, input) {
+    guard('createFlashcardDeck');
+    // The database refuses to share into a class the writer does not own. The
+    // check is repeated here so fixture mode refuses it the same way rather
+    // than granting a student a publish button the real adapter would deny.
+    if (input.classId && !store.classes.some((cls) => cls.id === input.classId && cls.ownerId === userId)) {
+      throw new DataError('FORBIDDEN', 'You can only share a deck into a class you own.');
+    }
+
+    const now = new Date().toISOString();
+    const deck: FlashcardDeckRecord = {
+      id: fixtureId('deck_fc', userId),
+      ownerId: userId,
+      classId: input.classId,
+      title: input.title,
+      subject: input.subject,
+      description: input.description,
+      sharedAt: input.classId ? now : null,
+      archivedAt: null,
+      createdAt: now,
+      updatedAt: now,
+    };
+    store.flashDecks = [...store.flashDecks, deck];
+    return { ...deck };
+  },
+
+  async updateFlashcardDeck(userId, deckId, input) {
+    guard('updateFlashcardDeck');
+    const deck = store.flashDecks.find((row) => row.id === deckId && row.ownerId === userId);
+    if (!deck) throw new DataError('NOT_FOUND', 'That deck does not exist.');
+    if (input.classId && !store.classes.some((cls) => cls.id === input.classId && cls.ownerId === userId)) {
+      throw new DataError('FORBIDDEN', 'You can only share a deck into a class you own.');
+    }
+
+    const now = new Date().toISOString();
+    deck.title = input.title;
+    deck.subject = input.subject;
+    deck.description = input.description;
+    deck.classId = input.classId;
+    deck.sharedAt = input.classId ? now : null;
+    deck.updatedAt = now;
+    return { ...deck };
+  },
+
+  async archiveFlashcardDeck(userId, deckId) {
+    guard('archiveFlashcardDeck');
+    const deck = store.flashDecks.find((row) => row.id === deckId && row.ownerId === userId);
+    if (!deck) throw new DataError('NOT_FOUND', 'That deck does not exist.');
+    deck.archivedAt = new Date().toISOString();
+  },
+
+  async listFlashcards(userId, deckId) {
+    guard('listFlashcards');
+    readableDeck(store, userId, deckId);
+    return store.flashcards.filter((card) => card.deckId === deckId).map((card) => ({ ...card, tags: [...card.tags] }));
+  },
+
+  async createFlashcard(userId, deckId, input) {
+    guard('createFlashcard');
+    // Only the deck's author writes to it. A student may study a shared deck and
+    // may not add a card to it, which is the same split the RLS policy makes.
+    const deck = store.flashDecks.find((row) => row.id === deckId && row.ownerId === userId);
+    if (!deck) throw new DataError('FORBIDDEN', 'You cannot add cards to this deck.');
+
+    const now = new Date().toISOString();
+    const card: FlashcardRecord = {
+      id: fixtureId('card_fc', userId),
+      deckId,
+      ownerId: userId,
+      front: input.front,
+      back: input.back,
+      hint: input.hint,
+      tags: [...input.tags],
+      createdAt: now,
+      updatedAt: now,
+    };
+    store.flashcards = [...store.flashcards, card];
+    return { ...card, tags: [...card.tags] };
+  },
+
+  async updateFlashcard(userId, cardId, input) {
+    guard('updateFlashcard');
+    const card = store.flashcards.find((row) => row.id === cardId);
+    const deck = card ? store.flashDecks.find((row) => row.id === card.deckId) : undefined;
+    if (!card || !deck || deck.ownerId !== userId) {
+      throw new DataError('FORBIDDEN', 'You cannot edit this card.');
+    }
+    card.front = input.front;
+    card.back = input.back;
+    card.hint = input.hint;
+    card.tags = [...input.tags];
+    card.updatedAt = new Date().toISOString();
+    return { ...card, tags: [...card.tags] };
+  },
+
+  async deleteFlashcard(userId, cardId) {
+    guard('deleteFlashcard');
+    const card = store.flashcards.find((row) => row.id === cardId);
+    const deck = card ? store.flashDecks.find((row) => row.id === card.deckId) : undefined;
+    if (!card || !deck || deck.ownerId !== userId) {
+      throw new DataError('FORBIDDEN', 'You cannot delete this card.');
+    }
+    store.flashcards = store.flashcards.filter((row) => row.id !== cardId);
+
+    // Progress cascades with the card in the database. Reproduced here so the
+    // two adapters do not disagree about what deleting a card destroys.
+    const student = studentForUser(userId);
+    if (student) store.flashProgress.delete(progressKey(cardId, student.id));
+  },
+
+  async listFlashcardProgress(userId, deckId) {
+    guard('listFlashcardProgress');
+    const student = studentForUser(userId);
+    // No roster row means no schedule, which is what a teacher opening this
+    // gets. Returning an empty list lets the page say so rather than fail.
+    if (!student) return [];
+    readableDeck(store, userId, deckId);
+
+    const cardIds = new Set(
+      store.flashcards.filter((card) => card.deckId === deckId).map((card) => card.id),
+    );
+    return [...store.flashProgress.values()]
+      .filter((row) => row.studentId === student.id && cardIds.has(row.cardId))
+      .map((row) => ({ ...row }));
+  },
+
+  async saveFlashcardProgress(userId, progress) {
+    guard('saveFlashcardProgress');
+    const student = studentForUser(userId);
+    if (!student) throw new DataError('FORBIDDEN', 'Only a student has a review schedule.');
+
+    // The roster row comes from the session, exactly as it does in the Supabase
+    // adapter, and the id in `progress` is ignored. Validating the caller's
+    // claim instead would make the two adapters disagree about who owns a
+    // schedule, which is the one difference the fixture exists to prevent.
+    store.flashProgress.set(progressKey(progress.cardId, student.id), {
+      ...progress,
+      studentId: student.id,
+      updatedAt: new Date().toISOString(),
+    });
   },
 
   async listSlides(userId, deckId) {

@@ -55,7 +55,7 @@ Students cannot self-register. That was already structurally true; it is now exp
 - `web-push` for notifications, VAPID
 
 ### Database
-- Supabase Postgres, 21 tables, one migration: `supabase/migrations/20260101000000_initial_schema.sql`
+- Supabase Postgres, 28 tables defined in the migration, one migration: `supabase/migrations/20260101000000_initial_schema.sql`
 - Private storage bucket `deck-assets` for the files a teacher brings into a deck, with three `storage.objects` policies scoped by `(storage.foldername(name))[1] = auth.uid()` and **no delete policy**: a file is removed through the application, which checks ownership first, rather than by anyone who can name the object
 - `organizations` + `memberships` carry tenancy. There is no `owner` role; the four roles are `instructor`, `admin`, `student`, `guardian`, and `org:manage` means "can administer the organisation"
 
@@ -273,14 +273,14 @@ All run on 2026-10-09 against this working tree, after the quiz maker and the sh
 |---|---|---|
 | Typecheck | `pnpm typecheck` | **0 errors** |
 | Lint | `pnpm lint` | **0 errors, 0 warnings** |
-| Unit | `pnpm vitest run` | **334 passed, 1 skipped** in 25 files |
-| Migration | `pnpm check:sql` | **192 statements parse; 126 cross-references resolve; RLS on 21/21 tables; 21/21 policies re-runnable** |
+| Unit | `pnpm vitest run` | **469 passed, 2 skipped** in 33 files |
+| Migration | `pnpm check:sql` | **254 statements parse; 170 cross-references resolve; RLS on 28/28 tables; 32/32 policies re-runnable** |
 | Production build | `pnpm build` | **exit 0, no warnings.** The one standing warning was `unpdf` reaching for `import.meta`, which webpack cannot analyse. It is silenced by exact module path in `next.config.ts` rather than tolerated, because a warning that fires on every build is one the team learns to skip. The e2e upload suite is what keeps that honest: it parses a real PDF through the built server |
 | End to end | `pnpm e2e` | **189 passed** across 15 specs. Run twice, because the fault described below was intermittent and one green run would not have meant much |
 | Live provider | `pnpm probe:ai` | **2 passed**: the real model returns a deck, and the answer is replayed through the real validator. Run on demand, never in the suite |
 | Static layout | `pnpm check:responsive` | **PASS at 375, 768, 1024, 1440 and 1920px**, no horizontal overflow |
 | Static behaviour | `pnpm check:behaviour` | **all passed**: anchors clear the nav, reduced motion, no-JS fallback |
-| Live schema | `pnpm db:apply` then `pnpm db:check` | **21 tables, RLS on 21, 29 policies; all security-relevant columns present** |
+| Live schema | `pnpm db:apply` then `pnpm db:check` | **NOT RE-RUN since the flashcards tables were added.** The migration file now defines 28 tables and 32 policies; the live database still holds the last applied revision. `db:check` and `db:settle` have not been run against it, so nothing here claims those three tables exist in Supabase |
 | Live RLS behaviour | `pnpm db:settle` | **6 passed, 0 failed**: self-promotion refused, cross-tenant read refused, server-owned link cannot be moved |
 | Live application | `pnpm verify:app` | **54 passed, 0 failed**: every workspace route renders with real seeded data, refusals hold, an attendance write is read back out of Postgres and replays without duplicating, a write into another teacher's class is refused, the at-risk sweep authenticates and stays idempotent, the push route refuses six SSRF payloads and enforces per-teacher ownership, an outbound dispatch reaches the push service and prunes a dead endpoint, and registration is reported as blocked by the email quota |
 | Storage and AI write paths | `pnpm probe:files` | **all confirmed**: the bucket is private with no delete policy, and the usage row is written through the service client, read back, and removed |
@@ -318,7 +318,7 @@ result against the file's own contents:
 - every relation named by a policy, grant, index or trigger resolves to a table
   or function this migration creates. A `create policy ... on public.studentz`
   parses perfectly and fails at deploy; this catches it.
-- row level security is enabled on all 21 tables. The audit that found the two
+- row level security is enabled on all 28 tables. The audit that found the two
   cross-tenant bugs found a third table in the same family of mistake.
 - every policy is dropped before it is created, so a second run works. That is
   the run somebody performs while recovering.
@@ -412,7 +412,7 @@ Also closed: blind SSRF through the push endpoint, a rate-limit kill switch one 
 Three of the five blockers listed here were resolved on 2026-10-09 and are kept here only so the record shows what they were.
 
 1. **RESOLVED: `git push`.** The remote is `https://github.com/jcuady/liko.git` and every commit is pushed. The earlier `Repository not found` was a credential problem, not a wrong remote name.
-2. **RESOLVED: the database was empty.** `pnpm db:apply` applied the migration, which now holds 21 tables with row level security on all 21 and 29 policies.
+2. **RESOLVED: the database was empty.** `pnpm db:apply` applied the migration. The file now defines 28 tables with row level security on all 28 and 32 policies; the live database still holds the revision applied before the flashcards tables were added.
 3. **RESOLVED: `SUPABASE_SERVICE_ROLE_KEY`.** `scripts/seed.mjs` has run; five demo accounts hold a school, three classes, 24 students, assessments, marks, attendance and history.
 4. **RESOLVED: deployment.** `https://liko-jcuadys-projects.vercel.app` serves this project.
 5. **OPEN: iOS push delivery unverifiable** without a Home Screen-installed PWA.

@@ -16,8 +16,13 @@ import {
 /**
  * Permissions an administrator does not hold, with the reason beside each one so
  * the list cannot grow by accident.
+ *
+ * Both exceptions are capabilities that write *on behalf of a child*. A quiz
+ * writes a mark into a gradebook; a review writes a schedule row belonging to a
+ * student. Neither is an edit of staff's own work, so neither is an
+ * administrator's to perform.
  */
-const ADMIN_EXCEPTIONS: Permission[] = ['quiz:take'];
+const ADMIN_EXCEPTIONS: Permission[] = ['quiz:take', 'flashcard:review'];
 
 describe('role matrix', () => {
   it('covers every role and permission without gaps', () => {
@@ -69,13 +74,51 @@ describe('role matrix', () => {
     expect(scopeFor('student', 'quiz:take')).toBe('own');
   });
 
-  it('never lets a student or guardian write anything', () => {
+  it('never lets a student or guardian write anything they do not own', () => {
+    /*
+     * This was a blanket rule: no `:write` permission for either role. It was
+     * true while every writable record belonged to a teacher, and it is now
+     * narrowed rather than deleted, because the property worth protecting is not
+     * "students never write" but "students never write somebody else's record".
+     *
+     * A blanket version cannot express a student's own study deck, and the
+     * tempting fix — exempting the new permission from the loop — would have
+     * left the original rule silently unenforced for it too.
+     */
     const writes = PERMISSIONS.filter((p) => p.endsWith(':write'));
+    for (const permission of writes) {
+      // A guardian holds no write at all. Everything a guardian reaches belongs
+      // to a child, so there is no "own" for them to write within.
+      expect(can('guardian', permission), `guardian ${permission}`).toBe(false);
+
+      const scope = scopeFor('student', permission);
+      if (scope === 'no') continue;
+      // `own` only. `yes` would reach any record in the school; `linked`
+      // would reach a child's.
+      expect(scope, `student ${permission}`).toBe('own');
+    }
+  });
+
+  it('lets a student write their own flashcards and nothing else', () => {
+    expect(scopeFor('student', 'flashcard:write')).toBe('own');
+    expect(can('guardian', 'flashcard:write')).toBe(false);
+  });
+
+  it('never gives a student or guardian an unscoped grant', () => {
     for (const role of ['student', 'guardian'] as const) {
-      for (const permission of writes) {
-        expect(can(role, permission)).toBe(false);
+      for (const permission of PERMISSIONS) {
+        expect(isUnscoped(role, permission), `${role} ${permission}`).toBe(false);
       }
     }
+  });
+
+  it('keeps review a student capability', () => {
+    // Review writes a schedule row belonging to a student, and only a student
+    // owns a roster row. Staff author a deck; they do not sit one.
+    expect(can('student', 'flashcard:review')).toBe(true);
+    expect(can('guardian', 'flashcard:review')).toBe(false);
+    expect(can('instructor', 'flashcard:review')).toBe(false);
+    expect(can('admin', 'flashcard:review')).toBe(false);
   });
 
   it('scopes student and guardian reads to ownership', () => {

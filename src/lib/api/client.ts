@@ -29,6 +29,11 @@ import type {
   ClassRecord,
   DeckInput,
   DeckRecord,
+  FlashcardDeckInput,
+  FlashcardDeckRecord,
+  FlashcardInput,
+  FlashcardProgressRecord,
+  FlashcardRecord,
   GradeRecord,
   GradeSource,
   GradingPolicyInput,
@@ -389,6 +394,40 @@ export interface WorkspaceData {
   createDeck(userId: string, input: DeckInput): Promise<DeckRecord>;
   updateDeck(userId: string, deckId: string, input: DeckInput): Promise<DeckRecord>;
   archiveDeck(userId: string, deckId: string): Promise<void>;
+
+  /*
+   * Flashcards.
+   *
+   * `listFlashcardDecks` is the only read that widens: it returns decks the
+   * caller wrote *and* decks shared into their class. Everything under a deck
+   * is then reached by deck id, so a student is never handed a class's cards by
+   * listing them.
+   */
+  listFlashcardDecks(userId: string): Promise<FlashcardDeckRecord[]>;
+  createFlashcardDeck(userId: string, input: FlashcardDeckInput): Promise<FlashcardDeckRecord>;
+  updateFlashcardDeck(
+    userId: string,
+    deckId: string,
+    input: FlashcardDeckInput,
+  ): Promise<FlashcardDeckRecord>;
+  archiveFlashcardDeck(userId: string, deckId: string): Promise<void>;
+
+  listFlashcards(userId: string, deckId: string): Promise<FlashcardRecord[]>;
+  createFlashcard(userId: string, deckId: string, input: FlashcardInput): Promise<FlashcardRecord>;
+  updateFlashcard(userId: string, cardId: string, input: FlashcardInput): Promise<FlashcardRecord>;
+  deleteFlashcard(userId: string, cardId: string): Promise<void>;
+
+  /**
+   * The caller's schedules for one deck, one row per card they have opened.
+   *
+   * Returned separately from the cards because a card the student has never
+   * seen has no row: the caller seeds it with the scheduler rather than
+   * inventing a default here.
+   */
+  listFlashcardProgress(userId: string, deckId: string): Promise<FlashcardProgressRecord[]>;
+
+  /** Upserts on (cardId, studentId). Progress is per student, never per card. */
+  saveFlashcardProgress(userId: string, progress: FlashcardProgressRecord): Promise<void>;
 
   /** Slides of one deck, always in presentation order. */
   listSlides(userId: string, deckId: string): Promise<SlideRecord[]>;
@@ -1962,6 +2001,183 @@ const supabaseAdapter: WorkspaceData = {
     throwIf(error);
   },
 
+  /*
+   * Flashcards.
+   *
+   * The `.eq('owner_id', userId)` that every other table carries is
+   * deliberately absent from the deck read. RLS already admits the decks
+   * shared into the caller's class, and repeating the ownership filter here
+   * would silently drop exactly the half of the product this route exists for.
+   * The write paths below keep it, because sharing is not a write anyone may
+   * perform.
+   */
+  async listFlashcardDecks(_userId) {
+    const supabase = await requireClient();
+    const { data, error } = await supabase
+      .from('flashcard_decks')
+      .select('*')
+      .is('archived_at', null)
+      .order('updated_at', { ascending: false });
+    throwIf(error);
+    return (data ?? []).map((row) => mapFlashcardDeck(row as Row));
+  },
+
+  async createFlashcardDeck(userId, input) {
+    const supabase = await requireClient();
+    const { data, error } = await supabase
+      .from('flashcard_decks')
+      .insert({
+        owner_id: userId,
+        title: input.title,
+        subject: input.subject,
+        description: input.description,
+        class_id: input.classId,
+        // Written together rather than derived later: the deck is shared from
+        // the moment it names a class, and a deck with a class but no share
+        // date is the one state the constraint forbids.
+        shared_at: input.classId ? new Date().toISOString() : null,
+      })
+      .select('*')
+      .single();
+    throwIf(error);
+    return mapFlashcardDeck(data as Row);
+  },
+
+  async updateFlashcardDeck(userId, deckId, input) {
+    const supabase = await requireClient();
+    const { data, error } = await supabase
+      .from('flashcard_decks')
+      .update({
+        title: input.title,
+        subject: input.subject,
+        description: input.description,
+        class_id: input.classId,
+        shared_at: input.classId ? new Date().toISOString() : null,
+      })
+      .eq('id', deckId)
+      .eq('owner_id', userId)
+      .select('*')
+      .single();
+    throwIf(error);
+    return mapFlashcardDeck(data as Row);
+  },
+
+  async archiveFlashcardDeck(userId, deckId) {
+    const supabase = await requireClient();
+    const { error } = await supabase
+      .from('flashcard_decks')
+      .update({ archived_at: new Date().toISOString() })
+      .eq('id', deckId)
+      .eq('owner_id', userId);
+    throwIf(error);
+  },
+
+  async listFlashcards(userId, deckId) {
+    const supabase = await requireClient();
+    const { data, error } = await supabase
+      .from('flashcards')
+      .select('*')
+      .eq('deck_id', deckId)
+      .order('created_at', { ascending: true });
+    throwIf(error);
+    return (data ?? []).map((row) => mapFlashcard(row as Row));
+  },
+
+  async createFlashcard(userId, deckId, input) {
+    const supabase = await requireClient();
+    const { data, error } = await supabase
+      .from('flashcards')
+      .insert({
+        deck_id: deckId,
+        owner_id: userId,
+        front: input.front,
+        back: input.back,
+        hint: input.hint,
+        tags: input.tags,
+      })
+      .select('*')
+      .single();
+    throwIf(error);
+    return mapFlashcard(data as Row);
+  },
+
+  async updateFlashcard(userId, cardId, input) {
+    const supabase = await requireClient();
+    const { data, error } = await supabase
+      .from('flashcards')
+      .update({ front: input.front, back: input.back, hint: input.hint, tags: input.tags })
+      .eq('id', cardId)
+      .select('*')
+      .single();
+    throwIf(error);
+    return mapFlashcard(data as Row);
+  },
+
+  async deleteFlashcard(userId, cardId) {
+    const supabase = await requireClient();
+    // Progress rows cascade from the card, so this is the whole delete.
+    const { error } = await supabase.from('flashcards').delete().eq('id', cardId);
+    throwIf(error);
+  },
+
+  async listFlashcardProgress(userId, deckId) {
+    const supabase = await requireClient();
+    const studentId = await currentStudentId(supabase);
+    if (!studentId) return [];
+
+    const { data, error } = await supabase
+      .from('flashcard_progress')
+      .select('*')
+      .eq('student_id', studentId);
+    throwIf(error);
+
+    const rows = data ?? [];
+    if (rows.length === 0) return [];
+
+    // Narrowed to this deck through the cards table rather than by joining
+    // across an embedded PostgREST resource: the caller asked about one deck
+    // and should not pay to fetch the schedules of every other deck they hold.
+    const { data: cards, error: cardError } = await supabase
+      .from('flashcards')
+      .select('id')
+      .eq('deck_id', deckId);
+    throwIf(cardError);
+
+    const inDeck = new Set((cards ?? []).map((c) => str((c as Row).id)));
+    return rows
+      .filter((row) => inDeck.has(str((row as Row).card_id)))
+      .map((row) => mapProgress(row as Row));
+  },
+
+  async saveFlashcardProgress(userId, progress) {
+    const supabase = await requireClient();
+    /*
+     * The student is resolved here and the value in `progress` is discarded.
+     *
+     * A progress row is a student's own study record, and the caller is not
+     * trusted to say which student that is: passing `student_id` through would
+     * let anyone who can reach this method write a schedule onto somebody
+     * else's row. The row the RLS policy admits is the only one that may be
+     * written, so the id comes from the session and never from the request.
+     */
+    const studentId = await currentStudentId(supabase);
+    if (!studentId) throw new Error('Only a student has a review schedule.');
+
+    const { error } = await supabase.from('flashcard_progress').upsert({
+      card_id: progress.cardId,
+      student_id: studentId,
+      status: progress.status,
+      ease_factor: progress.easeFactor,
+      interval_days: progress.intervalDays,
+      step_index: progress.stepIndex,
+      repetitions: progress.repetitions,
+      lapses: progress.lapses,
+      due_at: progress.dueAt,
+      last_reviewed_at: progress.lastReviewedAt,
+    });
+    throwIf(error);
+  },
+
   async listSlides(userId, deckId) {
     const supabase = await requireClient();
     const { data, error } = await supabase
@@ -2656,6 +2872,79 @@ function mapDeck(row: Row): DeckRecord {
     createdAt: iso(row.created_at),
     updatedAt: iso(row.updated_at),
   };
+}
+
+function mapFlashcardDeck(row: Row): FlashcardDeckRecord {
+  return {
+    id: str(row.id),
+    ownerId: str(row.owner_id),
+    classId: (row.class_id as string | null) ?? null,
+    title: str(row.title),
+    subject: str(row.subject),
+    description: str(row.description),
+    sharedAt: (row.shared_at as string | null) ?? null,
+    archivedAt: (row.archived_at as string | null) ?? null,
+    createdAt: iso(row.created_at),
+    updatedAt: iso(row.updated_at),
+  };
+}
+
+function mapFlashcard(row: Row): FlashcardRecord {
+  return {
+    id: str(row.id),
+    deckId: str(row.deck_id),
+    ownerId: str(row.owner_id),
+    front: str(row.front),
+    back: str(row.back),
+    hint: str(row.hint),
+    tags: strArray(row.tags),
+    createdAt: iso(row.created_at),
+    updatedAt: iso(row.updated_at),
+  };
+}
+
+/**
+ * `ease_factor` comes back from PostgREST as a string, because `numeric` has no
+ * JSON representation and supabase-js hands it over verbatim. Read through
+ * `num`, which is also what keeps a row written by the fixture adapter, where
+ * it is a real number, identical to one read from Postgres.
+ */
+function mapProgress(row: Row): FlashcardProgressRecord {
+  return {
+    cardId: str(row.card_id),
+    studentId: str(row.student_id),
+    status: str(row.status, 'new') as FlashcardProgressRecord['status'],
+    easeFactor: num(row.ease_factor, 2.5),
+    intervalDays: num(row.interval_days, 0),
+    stepIndex: num(row.step_index, 0),
+    repetitions: num(row.repetitions, 0),
+    lapses: num(row.lapses, 0),
+    dueAt: iso(row.due_at),
+    lastReviewedAt: (row.last_reviewed_at as string | null) ?? null,
+    updatedAt: iso(row.updated_at),
+  };
+}
+
+/**
+ * The roster row belonging to the signed-in account.
+ *
+ * Progress is keyed on the student rather than the login, because one account
+ * is linked to exactly one roster row and every other student-scoped table
+ * works that way. Returns null rather than throwing for an account with no
+ * roster row: a teacher holding no schedule is an ordinary state, and the only
+ * thing the caller can do with it is show no review session.
+ */
+async function currentStudentId(
+  supabase: Awaited<ReturnType<typeof requireClient>>,
+): Promise<string | null> {
+  const { data, error } = await supabase
+    .from('students')
+    .select('id')
+    .eq('account_id', (await supabase.auth.getUser()).data.user?.id ?? '')
+    .is('archived_at', null)
+    .maybeSingle();
+  if (error) throw error;
+  return data ? str((data as Row).id) : null;
 }
 
 function mapSlide(row: Row): SlideRecord {

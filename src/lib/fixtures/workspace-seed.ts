@@ -4,6 +4,8 @@ import type {
   AttendanceStatus,
   BehaviourLogRecord,
   DeckRecord,
+  FlashcardDeckRecord,
+  FlashcardRecord,
   GradeRecord,
   GradingPolicyRecord,
   HistoryRecord,
@@ -35,6 +37,11 @@ import type {
 const OWNER = 'demo-owner';
 const CLASS_ID = 'cls_demo_01';
 const SECOND_CLASS_ID = 'cls_demo_02';
+/*
+ * The one roster row with a login attached. Mirrors `DEMO_STUDENT_ACCOUNT` in
+ * the fixture adapter, which owns the same link from the other side.
+ */
+const DEMO_STUDENT_ACCOUNT = 'usr_demo_noor';
 
 /**
  * The second class's roster. Kept separate from the marketing roster above so
@@ -881,3 +888,86 @@ export const demoAttendance = (): Map<string, Record<string, AttendanceStatus>> 
 
   return map;
 };
+/*
+ * Flashcards.
+ *
+ * TWO DECKS ON PURPOSE, because they are the two permissions this feature has.
+ * The first is a teacher's deck shared into the demo class: the student can
+ * study it and cannot edit it. The second belongs to the demo student outright:
+ * the student can study it, edit it and add to it, and it is in nobody's class.
+ * A demo carrying only the first would leave the half of the product where a
+ * student creates their own material untested by anything a person can see.
+ */
+export const demoFlashcardDecks: FlashcardDeckRecord[] = [
+  {
+    id: 'deck_fc_chem_terms',
+    ownerId: OWNER,
+    classId: CLASS_ID,
+    title: 'Chemistry: key terms',
+    subject: 'Chemistry',
+    description: 'The twelve terms the course opens with, and the ones most often confused.',
+    sharedAt: '2026-01-08T09:00:00.000Z',
+    archivedAt: null,
+    createdAt: '2026-01-07T09:00:00.000Z',
+    updatedAt: '2026-01-08T09:00:00.000Z',
+  },
+  {
+    id: 'deck_fc_own_revision',
+    ownerId: DEMO_STUDENT_ACCOUNT,
+    classId: null,
+    title: 'My revision list',
+    subject: '',
+    description: 'Cards I keep for the bits I keep missing.',
+    sharedAt: null,
+    archivedAt: null,
+    createdAt: '2026-01-09T09:00:00.000Z',
+    updatedAt: '2026-01-09T09:00:00.000Z',
+  },
+];
+
+export const demoFlashcards: FlashcardRecord[] = [
+  {
+    id: 'card_fc_01',
+    deckId: 'deck_fc_chem_terms',
+    ownerId: OWNER,
+    front: 'What is a catalyst?',
+    back: 'A substance that changes the rate of a reaction without being consumed by it.',
+    hint: 'Think about what happens to it at the end.',
+    tags: ['reactions', 'definitions'],
+    createdAt: '2026-01-07T09:00:00.000Z',
+    updatedAt: '2026-01-07T09:00:00.000Z',
+  },
+  {
+    id: 'card_fc_02',
+    deckId: 'deck_fc_chem_terms',
+    ownerId: OWNER,
+    front: 'What does activation energy measure?',
+    back: 'The minimum energy colliding particles need to react.',
+    hint: 'It is an energy, not a rate.',
+    tags: ['reactions', 'energy'],
+    createdAt: '2026-01-07T09:00:00.000Z',
+    updatedAt: '2026-01-07T09:00:00.000Z',
+  },
+  {
+    id: 'card_fc_03',
+    deckId: 'deck_fc_chem_terms',
+    ownerId: OWNER,
+    front: 'Exothermic or endothermic: which releases heat?',
+    back: 'Exothermic. It gives energy to the surroundings, so the surroundings warm.',
+    hint: 'Exo means out.',
+    tags: ['reactions', 'energy'],
+    createdAt: '2026-01-07T09:00:00.000Z',
+    updatedAt: '2026-01-07T09:00:00.000Z',
+  },
+  {
+    id: 'card_fc_04',
+    deckId: 'deck_fc_own_revision',
+    ownerId: DEMO_STUDENT_ACCOUNT,
+    front: 'Why do I keep reversing these two?',
+    back: 'Exothermic is energy OUT of the system. Endothermic is energy IN. Write the arrow out loud.',
+    hint: 'One word each.',
+    tags: ['mine'],
+    createdAt: '2026-01-09T09:00:00.000Z',
+    updatedAt: '2026-01-09T09:00:00.000Z',
+  },
+];

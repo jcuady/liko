@@ -2005,3 +2005,246 @@ create policy "events visible to owner and student"
         and s.archived_at is null
     )
   );
+
+-- ---------------------------------------------------------------------------
+-- flashcards: decks, cards, and per-student scheduling
+--
+-- THREE TABLES, NOT TWO, AND THE THIRD IS THE WHOLE DESIGN.
+--
+-- WHY PROGRESS IS NOT A COLUMN ON `flashcards`. A deck can be shared to a
+-- class, and a card in a shared deck has a different schedule for every student
+-- in it: one may be reviewing it daily and another have not seen it. Storing
+-- `due_at` on the card would give the class one shared schedule, so the first
+-- student to review a card would silently reset it for everyone else and every
+-- review session would collide with every other. The schedule therefore lives
+-- in `flashcard_progress`, keyed by the pair, and the card stays content.
+--
+-- It also means a student's study record is a row that belongs to that student
+-- alone. A teacher shared the deck; the teacher does not own what the student
+-- did with it.
+-- ---------------------------------------------------------------------------
+create table if not exists public.flashcard_decks (
+  id          uuid primary key default gen_random_uuid(),
+  owner_id    uuid not null references auth.users (id) on delete cascade,
+  -- Null for a private deck. Set only together with `shared_at`.
+  class_id    uuid references public.classes (id) on delete cascade,
+  title       text not null check (char_length(btrim(title)) between 1 and 160),
+  subject     text not null default '',
+  description text not null default '',
+  shared_at   timestamptz,
+  archived_at timestamptz,
+  created_at  timestamptz not null default now(),
+  updated_at  timestamptz not null default now(),
+  -- A deck cannot claim to be shared without saying where. The inverse is not
+  -- forbidden: a teacher can point a deck at a class before pushing it, which
+  -- is how the editor saves a draft and publishes in a second step.
+  constraint flashcard_decks_shared_names_a_class
+    check (shared_at is null or class_id is not null)
+);
+
+create index if not exists flashcard_decks_owner_idx
+  on public.flashcard_decks (owner_id)
+  where archived_at is null;
+
+-- The student-facing query is "every deck shared into my class, that is not
+-- archived". Partial, because a deck is archived for good and an unshared one
+-- is invisible to the half of the app that reads this index.
+create index if not exists flashcard_decks_class_shared_idx
+  on public.flashcard_decks (class_id, shared_at desc)
+  where class_id is not null
+    and archived_at is null;
+
+drop trigger if exists flashcard_decks_set_updated_at on public.flashcard_decks;
+create trigger flashcard_decks_set_updated_at
+  before update on public.flashcard_decks
+  for each row execute function public.set_updated_at();
+
+create table if not exists public.flashcards (
+  id         uuid primary key default gen_random_uuid(),
+  deck_id    uuid not null references public.flashcard_decks (id) on delete cascade,
+  owner_id   uuid not null references auth.users (id) on delete cascade,
+  front      text not null check (char_length(btrim(front)) between 1 and 2000),
+  back       text not null check (char_length(btrim(back)) between 1 and 4000),
+  -- A nudge, not a spoiler. Optional because a card with no hint is normal.
+  hint       text not null default '',
+  tags       text[] not null default '{}',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  -- Postgres will not infer a one-dimensional array, so a column declared
+  -- `text[]` still accepts a scalar. Anything filtering on `tags` would then
+  -- have to cope with two shapes.
+  constraint flashcards_tags_are_one_dimensional
+    check (array_ndims(tags) is null or array_ndims(tags) = 1)
+);
+
+-- Postgres does not index foreign keys. Without this, deleting a deck scans
+-- every card to cascade the delete.
+create index if not exists flashcards_deck_idx on public.flashcards (deck_id);
+
+drop trigger if exists flashcards_set_updated_at on public.flashcards;
+create trigger flashcards_set_updated_at
+  before update on public.flashcards
+  for each row execute function public.set_updated_at();
+
+create table if not exists public.flashcard_progress (
+  card_id          uuid not null references public.flashcards (id) on delete cascade,
+  -- The roster row, not the login. One account can be linked to exactly one
+  -- roster row, and every other student-scoped table keys on it the same way.
+  student_id       uuid not null references public.students (id) on delete cascade,
+  status           text not null default 'new'
+                   check (status in ('new', 'learning', 'review', 'relearning')),
+  -- SM-2's published floor and ceiling. Below 1.3 a card stops recovering and
+  -- above 3 it stops being forgotten; both bounds are the algorithm's, not ours.
+  ease_factor      numeric(4,2) not null default 2.50
+                   check (ease_factor between 1.30 and 3.00),
+  interval_days    integer not null default 0
+                   check (interval_days between 0 and 365),
+  step_index       integer not null default 0 check (step_index >= 0),
+  repetitions      integer not null default 0 check (repetitions >= 0),
+  lapses           integer not null default 0 check (lapses >= 0),
+  due_at           timestamptz not null default now(),
+  last_reviewed_at timestamptz,
+  created_at       timestamptz not null default now(),
+  updated_at       timestamptz not null default now(),
+  -- The composite key is the access path. "What is due for this student in
+  -- this deck, soonest first" is the query every review session opens with,
+  -- and this key answers it directly.
+  primary key (card_id, student_id),
+  -- A graduated card has an interval. A `review` row at zero days is a state
+  -- the scheduler cannot produce and the UI cannot label: it would render two
+  -- different answers with one identical hint, which is the exact bug the
+  -- interval formatter had.
+  constraint flashcard_progress_review_has_interval
+    check (status <> 'review' or interval_days >= 1)
+);
+
+-- The hot query. Partial to the rows that are actually scheduled: a card nobody
+-- has opened has no progress row at all, so `status <> 'new'` covers the rest
+-- of the table and keeps the index to what review sessions read.
+create index if not exists flashcard_progress_due_idx
+  on public.flashcard_progress (student_id, due_at)
+  where status <> 'new';
+
+drop trigger if exists flashcard_progress_set_updated_at on public.flashcard_progress;
+create trigger flashcard_progress_set_updated_at
+  before update on public.flashcard_progress
+  for each row execute function public.set_updated_at();
+
+alter table public.flashcard_decks   enable row level security;
+alter table public.flashcards        enable row level security;
+alter table public.flashcard_progress enable row level security;
+
+-- WHY THESE THREE ARE NOT IN THE "own rows" LOOP ABOVE. That loop keys on
+-- `owner_id = auth.uid()`. Two of these cannot use it: `flashcards` is readable
+-- through its deck rather than its author, and `flashcard_progress` has no
+-- `owner_id` at all because the owner is a student reached through
+-- `students.account_id`. Each policy is written out instead of bent to fit.
+
+-- Decks: full control for the author, read for the students of the class it was
+-- shared into. The write policy is also where sharing is gated, and it does so
+-- by ownership rather than by role: a deck may only be pointed at a class the
+-- writer owns. A student owns no class, so a student cannot share anything, and
+-- the rule needs no read of `profiles.role` to say so.
+drop policy if exists "decks readable by author or class" on public.flashcard_decks;
+create policy "decks readable by author or class"
+  on public.flashcard_decks
+  for select to authenticated
+  using (
+    owner_id = (select auth.uid())
+    or exists (
+      select 1
+      from public.students s
+      where s.account_id = (select auth.uid())
+        and s.archived_at is null
+        and s.class_id = flashcard_decks.class_id
+    )
+  );
+
+drop policy if exists "decks writable by author" on public.flashcard_decks;
+create policy "decks writable by author"
+  on public.flashcard_decks
+  for all to authenticated
+  using (owner_id = (select auth.uid()))
+  with check (
+    owner_id = (select auth.uid())
+    and (
+      class_id is null
+      or exists (
+        select 1
+        from public.classes c
+        where c.id = flashcard_decks.class_id
+          and c.owner_id = (select auth.uid())
+      )
+    )
+  );
+
+-- Cards follow their deck. There is no second rule for "can read this card":
+-- if the deck is readable the cards in it are, and if it is not, one join
+-- answers it for every card at once. The subquery reads `flashcard_decks`
+-- under the caller's own privileges, which the policy above has already
+-- decided, so there is no privilege to escalate here.
+drop policy if exists "cards readable with their deck" on public.flashcards;
+create policy "cards readable with their deck"
+  on public.flashcards
+  for select to authenticated
+  using (
+    exists (
+      select 1
+      from public.flashcard_decks d
+      where d.id = flashcards.deck_id
+    )
+  );
+
+drop policy if exists "cards writable by deck author" on public.flashcards;
+create policy "cards writable by deck author"
+  on public.flashcards
+  for all to authenticated
+  using (
+    exists (
+      select 1
+      from public.flashcard_decks d
+      where d.id = flashcards.deck_id
+        and d.owner_id = (select auth.uid())
+    )
+  )
+  with check (
+    exists (
+      select 1
+      from public.flashcard_decks d
+      where d.id = flashcards.deck_id
+        and d.owner_id = (select auth.uid())
+    )
+  );
+
+-- Progress belongs to the student and to nobody else.
+--
+-- The subquery reads `students`, which the student may read for their own row,
+-- so this needs no SECURITY DEFINER helper: unlike the quiz_attempts policies,
+-- nothing here reaches through a table the caller cannot see.
+--
+-- DELIBERATELY ABSENT: a teacher's view of how a class is doing. That is real
+-- student-behaviour data and this product makes privacy commitments it cannot
+-- yet keep, so the capability is not built. Revisit only alongside a consent
+-- story, not because the query is difficult.
+drop policy if exists "progress readable and writable by its student" on public.flashcard_progress;
+create policy "progress readable and writable by its student"
+  on public.flashcard_progress
+  for all to authenticated
+  using (
+    exists (
+      select 1
+      from public.students s
+      where s.id = flashcard_progress.student_id
+        and s.account_id = (select auth.uid())
+        and s.archived_at is null
+    )
+  )
+  with check (
+    exists (
+      select 1
+      from public.students s
+      where s.id = flashcard_progress.student_id
+        and s.account_id = (select auth.uid())
+        and s.archived_at is null
+    )
+  );

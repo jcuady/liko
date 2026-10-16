@@ -32,6 +32,25 @@ export const PERMISSIONS = [
   'history:read',
   'history:write',
   'quiz:take',
+  /*
+   * Flashcards are authored and studied by different roles, so reading,
+   * writing and reviewing are three grants rather than one.
+   *
+   * The split exists because the three actions have genuinely different
+   * consequences. Authoring a deck is a teacher's ordinary work. Reading one is
+   * a student's ordinary work. Reviewing is neither: it writes a schedule row,
+   * and that row belongs to a student, so the capability belongs to students.
+   *
+   * `flashcard:review` is `no` for an instructor for the same reason
+   * `quiz:take` is, and for a second reason on top. A review writes
+   * `flashcard_progress`, whose policy admits only the student the row is about,
+   * and a teacher owns no roster row. Granting the permission would open a
+   * screen whose every save is refused, which reads as a broken product rather
+   * than as a boundary.
+   */
+  'flashcard:read',
+  'flashcard:write',
+  'flashcard:review',
   'analytics:read',
   'user:manage',
   'org:manage',
@@ -56,6 +75,9 @@ const MATRIX: Record<Role, Record<Permission, Scope>> = {
     'grade:read': 'yes',
     'grade:write': 'yes',
     'quiz:take': 'no',
+    'flashcard:read': 'yes',
+    'flashcard:write': 'yes',
+    'flashcard:review': 'no',
     'analytics:read': 'yes',
     'history:read': 'yes',
     'history:write': 'yes',
@@ -71,6 +93,9 @@ const MATRIX: Record<Role, Record<Permission, Scope>> = {
     'grade:read': 'yes',
     'grade:write': 'yes',
     'quiz:take': 'no',
+    'flashcard:read': 'yes',
+    'flashcard:write': 'yes',
+    'flashcard:review': 'no',
     'analytics:read': 'yes',
     'history:read': 'yes',
     'history:write': 'yes',
@@ -86,6 +111,9 @@ const MATRIX: Record<Role, Record<Permission, Scope>> = {
     'grade:read': 'own',
     'grade:write': 'no',
     'quiz:take': 'own',
+    'flashcard:read': 'own',
+    'flashcard:write': 'own',
+    'flashcard:review': 'own',
     'analytics:read': 'no',
     'history:read': 'own',
     'history:write': 'no',
@@ -101,6 +129,9 @@ const MATRIX: Record<Role, Record<Permission, Scope>> = {
     'grade:read': 'linked',
     'grade:write': 'no',
     'quiz:take': 'no',
+    'flashcard:read': 'linked',
+    'flashcard:write': 'no',
+    'flashcard:review': 'no',
     'analytics:read': 'no',
     'history:read': 'linked',
     'history:write': 'no',
@@ -153,6 +184,9 @@ export const ROUTE_PERMISSIONS: { prefix: string; permission: Permission }[] = [
   // and giving them a way to sit one would put a second, unmarked copy of the
   // answers in a screen a marker can see.
   { prefix: '/quiz', permission: 'quiz:take' },
+  // Flashcards carry their own grant rather than borrowing `quiz:take`, so a
+  // change to who may sit a quiz can never quietly change who may study.
+  { prefix: '/flashcards', permission: 'flashcard:read' },
   { prefix: '/plan', permission: 'plan:write' },
   // Slides sit beside the planner because they are the same job: preparing
   // something to teach with. Same gate, so the two never disagree about who
@@ -192,6 +226,7 @@ export const PROTECTED_PREFIXES = [
   '/assess',
   '/grades',
   '/quiz',
+  '/flashcards',
   '/history',
   '/settings',
   '/schedule',
@@ -271,6 +306,11 @@ const PRIMARY_ROUTES = [
 
 const SECONDARY_ROUTES = [
   '/quiz',
+  // Beside the quiz because it is the same job: something a student opens to
+  // revise. Every role holds `flashcard:read` at some scope, so `navFor` shows
+  // it to all four without a second rule, and the permission decides what
+  // happens behind it.
+  '/flashcards',
   '/history',
   '/settings/notifications',
   '/settings/profile',

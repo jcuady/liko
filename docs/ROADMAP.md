@@ -43,7 +43,7 @@
 
 **Quality**
 
-- 214 unit tests across 16 files, 156 Playwright tests across 12 specs,
+- 469 unit tests across 33 files, 156 Playwright tests across 12 specs,
   production build verified
 - Four live-database gates: `db:apply`, `db:check`, `db:settle` and
   `verify:app`. They need credentials, so they are run by hand rather than in CI
@@ -73,6 +73,28 @@ Postgres rather than an empty state.
 
 Each module appears in the landing page hero and bento, because those render the
 shipping components rather than pictures of them.
+
+## Delivered: flashcards and spaced repetition
+
+7. **Flashcards.** A deck of question and answer cards, with a review session
+   that schedules each card by how well it was recalled. SM-2 as published,
+   with learning steps added so a card being learned comes back in minutes
+   rather than the next day.
+
+   The design decision that shapes it: **a card has no schedule.** The schedule
+   belongs to the pair of a card and a student, so a deck a teacher shares into
+   a class carries one card and thirty different schedules. Storing `due_at` on
+   the card would have had the first student to review it reset it for
+   everyone.
+
+   Students own decks and may add to their own. A teacher may share a deck into
+   a class they own, which the database enforces by ownership rather than by
+   role: nobody without a class can share anything. Reviewing is a student's
+   capability alone, because a review writes a row that belongs to a student.
+
+   The scheduler runs on the server. A client that posted its own next
+   `due_at` could hide a card for a year and nothing would notice, so the
+   browser sends the answer and the server computes the interval.
 
 ## Also delivered
 
