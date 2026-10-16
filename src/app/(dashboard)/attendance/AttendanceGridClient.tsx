@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
-import { toast } from 'sonner';
+import { toast } from '@/lib/toast';
 
 import { AttendanceGrid, AttendanceLegend } from '@/components/product/AttendanceGrid';
 import { Button } from '@/components/ui/button';

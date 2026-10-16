@@ -212,14 +212,14 @@ they are actually on, matching `linked read classes`.
 |---|---|---|
 | P2-01 | `/settings` 404s: no `page.tsx`, so typing `/settings` errored while the three sub-pages worked | **FIXED** — index page redirects to `/settings/profile`, gated on `class:read` |
 | P2-02 | A signed-in student or guardian hitting an auth page was redirected to hardcoded `/overview`, which they lack `analytics:read` for, then rewritten to `/forbidden` | **FIXED** — `proxy.ts` now uses `landingPathFor(session.role)` |
-| P2-03 | `setIdFormatAction` has no try/catch and silently no-ops on a foreign or malformed id | OPEN |
+| P2-03 | `setIdFormatAction` has no try/catch and silently no-ops on a foreign or malformed id | **FIXED** — both store writes now answer a refusal with a sentence, matching the three sibling writes in the same file |
 | P2-04 | `/api/attendance` had no rate limit | **FIXED** — see below |
 | P2-05 | `saveProfile` gated on `class:read` | **NOT A DEFECT** — see corrections |
 | P2-06 | `fixtures.listStudents` / `listGrades` / `listAssessments` discarded `userId` | **FIXED** — `ownedClass()` |
 | P2-07 | Toast errors use `aria-live="polite"`, never `role="alert"` (40+ sites) | OPEN |
 | P2-08 | Destructive actions firing on a single click | **FIXED** — archive class; two other claims were wrong, see corrections |
 | P2-09 | No Zod schema for the new calendar inputs; Postgres CHECKs are the only validator, so fixtures accept what production rejects | OPEN |
-| P2-10 | `(sheet)` print CSS is imported but never injected | OPEN |
+| P2-10 | `(sheet)` print CSS is imported but never injected | **NOT A DEFECT** — re-checked 2026-10-17. There is no CSS import in the `(sheet)` group at all, and the print rules are injected inline by `<style>` in `sheet/page.tsx`. The only imported stylesheets, `globals.css` and `landing.css`, are both wired |
 
 ### P2-06, the same shape as P1-07
 

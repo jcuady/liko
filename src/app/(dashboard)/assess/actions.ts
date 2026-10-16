@@ -56,7 +56,15 @@ export async function setIdFormatAction(input: {
       return { ok: false, message: 'Set both the number of groups and the bubbles per group.' };
     }
     const store = await data();
-    await store.setAssessmentIdFormat(session.userId, assessmentId, null);
+    try {
+      await store.setAssessmentIdFormat(session.userId, assessmentId, null);
+    } catch {
+      // The three sibling writes in this file already answer a refused write
+      // with a sentence rather than an exception. This one did not, so an
+      // assessment that had been archived underneath the page threw to the error
+      // boundary instead of telling the person what happened.
+      return { ok: false, message: 'That code block could not be removed. Try again.' };
+    }
     revalidatePath('/assess');
     revalidatePath(`/assess/sheet?assessment=${assessmentId}`);
     return { ok: true, message: 'Code block removed from this sheet.' };
@@ -84,11 +92,15 @@ export async function setIdFormatAction(input: {
   }
 
   const store = await data();
-  await store.setAssessmentIdFormat(session.userId, assessmentId, {
-    groups,
-    perGroup: codes,
-    capacity: groups * codes,
-  });
+  try {
+    await store.setAssessmentIdFormat(session.userId, assessmentId, {
+      groups,
+      perGroup: codes,
+      capacity: groups * codes,
+    });
+  } catch {
+    return { ok: false, message: 'That code block could not be saved. Try again.' };
+  }
   revalidatePath('/assess');
   revalidatePath(`/assess/sheet?assessment=${assessmentId}`);
   return { ok: true, message: 'Code block saved. Print the sheet again to use it.' };
