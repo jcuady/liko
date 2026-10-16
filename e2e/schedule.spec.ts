@@ -300,6 +300,17 @@ test.describe('a teacher opens a week by picking a subject', () => {
   });
 });
 
+/*
+ * SERIAL, AND BECAUSE THESE FOUR TESTS SHARE ONE DEADLINE.
+ *
+ * Playwright runs `fullyParallel`, so without this they execute in parallel
+ * workers against the same fixture store, and every one of them creates and then
+ * deletes the same "Portfolio due" deadline. They passed 13 of 13 in isolation
+ * and failed in the full suite, which is the same defect as the two slide specs
+ * sharing one seeded deck, written by me two hours after fixing that one.
+ */
+test.describe.configure({ mode: 'serial' });
+
 test.describe('deadlines and dates', () => {
   const SCRATCH_DEADLINE = 'Portfolio due';
 
