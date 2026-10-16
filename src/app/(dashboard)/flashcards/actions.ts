@@ -20,6 +20,7 @@ import { revalidatePath } from 'next/cache';
 
 import { data } from '@/lib/api/client';
 import { requirePermission } from '@/lib/auth/guards';
+import { can } from '@/lib/auth/rbac';
 import type {
   FlashcardDeckRecord,
   FlashcardProgressRecord,
@@ -69,16 +70,53 @@ function now(): Date {
 /**
  * Classes the caller may publish a deck into.
  *
- * Only ever the caller's own classes, and only for roles that can hold one. The
- * picker is built from this list rather than from every class in the school,
+ * The picker is built from this list rather than from every class in the school,
  * so the share option is not offered for a class the server would refuse.
+ *
+ * OWNERSHIP IS NOT RE-FILTERED HERE, and that used to be the whole defect.
+ *
+ * `listClasses` already answers "the classes this caller may act on": the
+ * Supabase adapter is bounded by RLS, and the fixture answers the same question
+ * for its own store. This action then filtered the result a second time on
+ * `ownerId === session.userId`, which re-implemented a rule the seam had already
+ * applied rather than sharing it.
+ *
+ * In the database that was harmless, because a teacher's classes really are
+ * owned by their own id. In fixture mode it emptied the list: the seeded demo
+ * classes are owned by a synthetic owner rather than by the demo teacher, so
+ * every filter came back empty, `classes` was empty, and the component that
+ * draws the picker renders nothing when the list is empty. The result was that
+ * in fixture mode, in the demo, and in this suite a teacher could not share a
+ * deck at all, and the whole sharing path was unreachable and therefore
+ * untested. The production answer was right and the local one was wrong, which
+ * is the same shape as the fixture that was too permissive elsewhere: both
+ * directions lie.
+ *
+ * The archived filter is kept, because whether a class is retired is a fact
+ * about the class rather than a statement of who may act on it, and the seam
+ * has no reason to make that call for a picker.
  */
 export async function loadShareableClasses(): Promise<{ id: string; name: string }[]> {
   const session = await requirePermission('flashcard:write');
+
+  /*
+   * SHARING NEEDS A CLASS, AND ONLY STAFF HAVE ONE.
+   *
+   * `flashcard:write` is held by a student at `own` scope, so requiring it is
+   * not enough on its own: a student owns no class, so every class in their
+   * `listClasses` answer is one they are enrolled in rather than one they own.
+   * Offering those in a share picker builds a control whose every save is
+   * refused, which reads as a broken product rather than as a boundary.
+   *
+   * `class:write` is the permission that actually means "may own a class", so
+   * the gate is that, rather than a role name.
+   */
+  if (!can(session.role, 'class:write')) return [];
+
   const store = await data();
   const classes = await store.listClasses(session.userId);
   return classes
-    .filter((row) => row.ownerId === session.userId && row.archivedAt === null)
+    .filter((row) => row.archivedAt === null)
     .map((row) => ({ id: row.id, name: row.name }));
 }
 

@@ -127,9 +127,9 @@ export function ReviewSession({
     <section aria-label="Review session" className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
         <p className="text-meta text-ink-muted">
-          {queue.length} left Â· {done} reviewed
+          {queue.length} left · {done} reviewed
         </p>
-        <p className="text-meta text-ink-subtle">Space to reveal Â· 1 to 4 to answer</p>
+        <p className="text-meta text-ink-subtle">Space to reveal · 1 to 4 to answer</p>
       </div>
 
       {/* tabIndex -1 so the advance focus lands here rather than on the first

@@ -1,5 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 
+import { PERMISSIONS, scopeFor } from '@/lib/auth/rbac';
+
 import { chooseOption } from './helpers/select';
 
 /**
@@ -185,11 +187,51 @@ test.describe('the access model', () => {
     await expect(rowFor('Administrator').getByText('Manage the organisation')).toBeVisible();
     await expect(rowFor('Student').getByText('View grades')).toBeVisible();
 
-    // Four scoped grants in this row: classes, grades, history and sitting a
-    // quiz are all own-records-only for a student. The count is the stronger
-    // assertion because these grants belong to no other role in this row.
-    await expect(rowFor('Student').getByText('Own records only')).toHaveCount(4);
-    await expect(rowFor('Parent or guardian').getByText('Linked records only')).toHaveCount(3);
+    // The scoped grants in these two rows are COUNTED FROM THE MATRIX, not
+    // written down here.
+    //
+    // They used to be literals: four "own" grants for a student and three
+    // "linked" for a parent. Adding flashcards broke both, in a test that had
+    // nothing to do with flashcards, because a permission was added to
+    // `rbac.ts` and a number somewhere else was not. The count is the strong
+    // assertion here, so it is kept, but it is now derived from the same source
+    // the page renders from, which is exactly what this test claims to prove.
+    const ownFor = (role: 'student' | 'guardian') =>
+      PERMISSIONS.filter((permission) => scopeFor(role, permission) === 'own').length;
+    const linkedFor = (role: 'student' | 'guardian') =>
+      PERMISSIONS.filter((permission) => scopeFor(role, permission) === 'linked').length;
+
+    await expect(rowFor('Student').getByText('Own records only')).toHaveCount(ownFor('student'));
+    await expect(rowFor('Parent or guardian').getByText('Linked records only')).toHaveCount(
+      linkedFor('guardian'),
+    );
+
+    // Derived counts cannot say WHICH grants they are, so the three flashcards
+    // grants are named outright, and named as the ROW renders them.
+    //
+    // Every permission is listed for every role; a refusal is shown with no
+    // scope beside it, which is the whole point of the table. So "a parent may
+    // not author a deck" is asserted as the absence of a scope annotation on
+    // that row, NOT as the absence of the label. Asserting the label is absent
+    // would have passed on a table that quietly dropped the row instead of
+    // refusing it, which is the opposite of what has to be true.
+    const itemIn = (role: string, label: string) =>
+      rowFor(role).getByRole('listitem').filter({ hasText: label });
+
+    for (const label of ['View flashcards', 'Create and share decks', 'Review a deck']) {
+      await expect(rowFor('Student').getByText(label)).toBeVisible();
+      await expect(itemIn('Student', label)).toContainText('Own records only');
+    }
+
+    // The parent grant is read only: the deck can be seen, and authoring and
+    // reviewing are refused outright rather than narrowed.
+    await expect(itemIn('Parent or guardian', 'View flashcards')).toContainText(
+      'Linked records only',
+    );
+    await expect(itemIn('Parent or guardian', 'Create and share decks')).not.toContainText(
+      'records only',
+    );
+    await expect(itemIn('Parent or guardian', 'Review a deck')).not.toContainText('records only');
 
     // A refusal is shown as well as a grant, with no scope beside it. That
     // difference is the useful part: a teacher is refused outright, not given

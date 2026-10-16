@@ -1722,10 +1722,26 @@ export const fixtures: WorkspaceData = {
 
   async createFlashcardDeck(userId, input) {
     guard('createFlashcardDeck');
-    // The database refuses to share into a class the writer does not own. The
-    // check is repeated here so fixture mode refuses it the same way rather
-    // than granting a student a publish button the real adapter would deny.
-    if (input.classId && !store.classes.some((cls) => cls.id === input.classId && cls.ownerId === userId)) {
+    /*
+     * The database refuses to share into a class the writer does not own. The
+     * check is repeated here so fixture mode refuses it the same way rather
+     * than granting a student a publish button the real adapter would deny.
+     *
+     * `isDemoStaff` is the escape `ownedClass` and `ownedDeck` already use, and
+     * it is deliberately the narrower helper rather than `isDemoAccount`. The
+     * seeded demo store is owned by a synthetic owner, so a raw
+     * `ownerId === userId` comparison refuses every demo teacher every time and
+     * sharing becomes unreachable in fixture mode, in the demo, and in this
+     * suite. Widening it to `isDemoAccount` would over-correct: the demo set
+     * includes a student and a guardian, and a student owns no class, so that
+     * would hand them a publish into a class the database would refuse. Staff
+     * is exactly the set that owns a class.
+     */
+    if (
+      input.classId &&
+      !isDemoStaff(userId) &&
+      !store.classes.some((cls) => cls.id === input.classId && cls.ownerId === userId)
+    ) {
       throw new DataError('FORBIDDEN', 'You can only share a deck into a class you own.');
     }
 
