@@ -21,7 +21,7 @@ by a command that was run, or is marked **NOT VERIFIED** with the reason.
 | Unit tests | **PASS** | 373 passed, 2 skipped, 28 files |
 | e2e | **PASS** | 197 passed |
 | SQL parse + cross-refs | **PASS** | 228 statements, 25 tables, RLS on all 25, 27 policies re-runnable |
-| **Migration applied to production** | **FAIL** | 4 of 25 tables absent — see P1-01 |
+| **Migration applied to production** | **PASS** | 25 of 25 tables present, measured before and after |
 | Dead handlers / `href="#"` / TODO / `console.*` | **PASS** | ripgrep, no matches |
 | Raw hex outside exemptions | **PASS** | 7 hits, all legitimately exempt |
 | `transition: all`, `h-screen`, `localStorage.setItem`, `text-white` | **PASS** | zero hits |
@@ -38,9 +38,9 @@ by a command that was run, or is marked **NOT VERIFIED** with the reason.
 
 ## P1 — fix before release
 
-### P1-01 The migration is not applied to the live database
+### P1-01 The migration was not applied to the live database
 
-**Severity:** P1 · **Status:** OPEN, gate now detects it
+**Severity:** P1 · **Status:** FIXED (applied 2026-10-16, operator-approved)
 
 The four tables added for the calendar module
 (`weekly_schedule_entries`, `notifications`, `academic_terms`,
@@ -68,15 +68,46 @@ application's API layer queries.
 runs in Supabase mode. The existing 19 tables were applied on 2026-10-09; these
 four were added after and never were.
 
-**Fixed in this audit:** `db:check` now derives its expected table list from
+**Fixed in this audit, in two parts.**
+
+**Part 1, the blind spot.** `db:check` now derives its expected table list from
 `supabase/migrations/*.sql` rather than from a literal, and exits 1 when the
 migration is not applied. Adding a table to the schema now automatically makes
-the live database a thing the gate asks about.
+the live database a thing the gate asks about. The gate went from
+`11 pass, 0 fail` to `10 pass, 1 fail` on the same codebase, which is the proof
+the fix works: it now reports the truth instead of the old truth.
 
-**Remaining:** applying the migration. It is idempotent by design
-(`create table if not exists`, `drop policy if exists`, `drop constraint if
-exists`), but re-running it recreates **all** policies across all 25 tables, so
-it is a production write and needs an explicit decision.
+**Part 2, the application.** Applied on operator approval, inside a single
+transaction with a rollback on any failure. Measured before and after:
+
+```
+BEFORE: 21 tables, 29 policies
+  target tables absent before: weekly_schedule_entries, notifications,
+                               academic_terms, calendar_events
+  applying migration in one transaction...
+  committed.
+AFTER:  25 tables, 35 policies
+  tables added: academic_terms, calendar_events, notifications,
+                weekly_schedule_entries
+  target tables still absent: none
+  RESULT: OK, every target table now exists.
+```
+
+29 to 35 policies is the six new ones, and no existing policy count moved, so
+the re-applied policies are the same set rather than a wider one.
+
+Verified independently afterwards:
+
+- `pnpm db:check` → `all 25 tables and their security-relevant columns exist`,
+  exit 0
+- `pnpm db:settle` → `6 passed, 0 failed`, covering self-promotion to admin,
+  cross-tenant class reads, and the server-owned student link
+
+A migration that reports "applied" without saying what it changed is the same
+class of trust problem as a gate that cannot see its own change, so the apply
+script printed the table and policy counts either side and refused to claim
+success unless the table count actually moved. It has been deleted; applying is
+now `pnpm db:check` reporting what is missing.
 
 ### P1-02 Students and guardians land on an empty classes page
 
@@ -239,9 +270,15 @@ This is the most useful section. Each of these passed all eleven gates.
 
 ## Completion status
 
-Not 100%. Release is blocked on one decision: applying the migration (P1-01).
+**All seven P1 findings are closed.** No known P0. Build, typecheck, lint, 373
+unit tests, 197 e2e, the SQL gate, the redaction gate, the primitives gate, the
+remote-database check and the RLS settling test all pass against the live
+project.
+
+Ten P2 findings remain open and are listed above; none blocks release.
 
 The calendar module built in commits `b67d173` and `d245ebc` is **data layer
-only** — 13 seam methods with zero callers and no `/schedule` route. It is
-correct, tested and unreachable. That is deliberate staging, not a defect, but
-it must not be described as a finished feature.
+only** — 13 seam methods with zero callers and no `/schedule` route. Its tables
+now exist and its policies are enforced, so it is correct, tested and still
+unreachable. That is deliberate staging, not a defect, but it must not be
+described as a finished feature.
