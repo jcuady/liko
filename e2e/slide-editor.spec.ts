@@ -28,17 +28,23 @@ async function signIn(page: Page) {
 }
 
 /**
- * Opens the first deck.
+ * Opens the seeded deck.
  *
- * Matched on the HREF SHAPE, never on position. `getByRole('link').first()`
- * walks the page and takes the sidebar's first link, which navigates away from
- * /slides and made every test in this file time out in beforeEach with a failure
- * that said nothing about the editor.
+ * Matched by NAME, never by position. `a[href^="/slides/"]` first() takes whichever
+ * deck sorts to the top, and the list is ordered by `updatedAt` descending, so any
+ * deck another spec creates jumps straight to the front. `slides.spec.ts` creates a
+ * throwaway deck and then archives it by deleting its only slide, and with four
+ * workers running that archive can land between this helper reading the list and
+ * following the href. The editor then opened a deck that had just been archived
+ * and the page answered 404, which reads as a broken editor and says nothing about
+ * the editor.
+ *
+ * The seeded deck is named, is never archived by any spec, and is the one the
+ * assertions below are written against.
  */
 async function openFirstDeck(page: Page) {
   await page.goto('/slides');
-  const deckLink = page.locator('a[href^="/slides/"]').first();
-  await deckLink.click();
+  await page.getByRole('link', { name: 'Reaction rates' }).click();
   await page.waitForURL(/\/slides\/[^/]+$/);
 }
 
