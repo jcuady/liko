@@ -23,6 +23,17 @@
  *      between verifying the adapter and verifying that the server is on.
  *   3. It is refused for an account that is not entitled.
  *
+ * THE SERVER IS NOT STARTED BY THIS SCRIPT, and running it without one used to
+ * report nine failures that all named the product. The comment above said "a real
+ * server started with LIKO_DATA_MODE=supabase" in a way that read like this file
+ * starts it. It does not, and `page.goto` answers `ERR_CONNECTION_REFUSED` for
+ * every account, which is indistinguishable from a broken app if the reader does
+ * not already know. Start one first, or set `LIKO_VERIFY_BASE_URL`:
+ *
+ *   pnpm build
+ *   $env:LIKO_DATA_MODE='supabase'; node --env-file=.env.local next start -p 3321
+ *   pnpm verify:app
+ *
  * It also performs a real write, through the real UI, and reads the result back
  * with the service key. Reads can all pass while writes are broken, and a write
  * that returns success without changing anything is exactly the failure a
@@ -69,6 +80,10 @@ const ACCOUNTS = [
       ['/settings/profile', { input: 'Full name', value: 'Maya Okonkwo' }],
       ['/settings/appearance', null],
       ['/settings/notifications', null],
+      // The two newest routes, and the two that had never been run against
+      // Postgres at all. `/schedule` needs a student before it will draw a week,
+      // so the teacher half is covered through `?student=` below instead.
+      ['/flashcards', 'Chemistry'],
     ],
     forbidden: ['/admin'],
   },
@@ -99,7 +114,17 @@ const ACCOUNTS = [
   {
     email: 'student@liko.test',
     label: 'student',
-    routes: [['/overview', null]],
+    /*
+     * `/schedule` is the only route in this list that checks a read the fixtures
+     * could not: the week grid, the account-linked roster row, and now the
+     * notification bell that a teacher's save writes into. Asserting a seeded
+     * class title here is what proves the RLS on `schedule_entries` and
+     * `students` actually admits a student, rather than merely returning 200.
+     */
+    routes: [
+      ['/overview', null],
+      ['/schedule', 'Chemistry'],
+    ],
     forbidden: ['/admin', '/grades/export'],
   },
   {
@@ -129,6 +154,47 @@ function check(name, ok, detail) {
     console.log(`  FAIL  ${name}`);
     if (detail !== undefined) console.log(`        ${String(detail).slice(0, 300)}`);
   }
+}
+
+/**
+ * Waits for the page to stop streaming before anything is read off it.
+ *
+ * Next.js streams the App Router shell, so at `domcontentloaded` the document
+ * briefly holds TWO `<main>` elements: the bare shell the browser received first,
+ * whose content has not arrived, and the real tree still inside a hidden
+ * container. `locator('main')` then resolves to two nodes and every read of it
+ * throws a strict-mode violation.
+ *
+ * THAT MATTERS BECAUSE BOTH READS BELOW USED `.catch(() => '')`. An empty string
+ * is a perfectly good page body as far as the next line is concerned, so the
+ * check did not report "I could not read the page", it reported the confident
+ * and completely wrong "HTTP 200 but the seeded data is not on the page, so this
+ * is an empty state rather than real data", and pointed the investigation at the
+ * Supabase adapter. The adapter was fine.
+ *
+ * A tool failure must never be reported as a product failure, because the cause
+ * names the wrong file and that is the expensive kind of wrong.
+ */
+async function settle(page) {
+  await page.waitForLoadState('networkidle');
+  await page.locator('main').first().waitFor({ state: 'visible' });
+}
+
+/**
+ * The page's own text, read once and read loudly.
+ *
+ * No `.catch`. If this cannot read the page it throws, with the real reason,
+ * rather than handing a caller an empty string that reads like a verdict.
+ */
+async function pageText(page) {
+  const mains = page.locator('main');
+  const count = await mains.count();
+  if (count !== 1) {
+    throw new Error(
+      `expected exactly one <main> to read, found ${count}. The page has not finished streaming.`,
+    );
+  }
+  return mains.innerText();
 }
 
 /** Reads through the service key, which is the only way to see past RLS. */
@@ -202,6 +268,7 @@ async function verifyRoutes(account) {
 
     for (const [route, expect] of account.routes) {
       const response = await page.goto(`${BASE}${route}`, { waitUntil: 'domcontentloaded' });
+      await settle(page);
       const landed = new URL(page.url()).pathname;
 
       if (landed.startsWith('/login')) {
@@ -223,7 +290,7 @@ async function verifyRoutes(account) {
        * empty field and fails for a full one, which is worse than not asserting.
        */
       if (ok && typeof expect === 'string') {
-        const body = await page.locator('main').innerText().catch(() => '');
+        const body = await pageText(page);
         if (!body.includes(expect)) {
           ok = false;
           detail = `HTTP 200 but "${expect}" is not on the page, so this is an empty state rather than real data`;
@@ -277,8 +344,9 @@ async function verifyRoutes(account) {
         );
       } else {
         await page.goto(`${BASE}${route}`, { waitUntil: 'domcontentloaded' });
+        await settle(page);
         const landed = new URL(page.url()).pathname;
-        const body = await page.locator('main').innerText().catch(() => '');
+        const body = await pageText(page);
         const saysNo =
           /do not have access|not allowed|no access|forbidden/i.test(body) ||
           /forbidden/i.test(landed);

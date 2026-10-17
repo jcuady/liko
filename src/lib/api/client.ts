@@ -2758,7 +2758,22 @@ const supabaseAdapter: WorkspaceData = {
     // A null studentId is the caller's own events, which is where a personal
     // deadline lives. Naming a roster row is how a teacher writes one for a
     // student and how that student then sees it.
-    query = query.is('student_id', studentId);
+    //
+    // AND THE TWO CASES ARE DIFFERENT POSTGREST OPERATORS.
+    //
+    // `.is(column, value)` sends `column=is.value`, and PostgREST's `is` takes
+    // only `null`, `not_null`, `true`, `false` or `unknown`. Sending it a uuid
+    // does not compare, it rejects: PGRST100, "failed to parse filter
+    // (is.<uuid>)". This used to be one line, `.is('student_id', studentId)`,
+    // which is correct for a teacher, whose studentId is null, and fatal for a
+    // student, whose is not. `/schedule` was therefore dead for every student
+    // in the real deployment and green in every test, because every browser test
+    // drives the fixtures and fixtures never build a filter at all.
+    //
+    // `.eq` is the equality operator. The two are not interchangeable in either
+    // direction, and `src/lib/api/postgrest-filter.test.ts` now fails if a
+    // variable is ever handed to `.is` again.
+    query = studentId === null ? query.is('student_id', null) : query.eq('student_id', studentId);
     const { data, error } = await query;
     throwIf(error);
     return (data as Row[]).map(mapCalendarEvent);
