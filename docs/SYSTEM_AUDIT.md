@@ -788,18 +788,35 @@ first is what actually happened.
 
 ### Two findings that were not findings
 
-Recorded so the next reader does not repeat the search.
+Recorded so the next reader does not repeat the search. One of the two has since
+been overturned, and its correction matters more than either.
 
-**Three identical interval hints on a new card is not a defect.** Hard, Good
-and Easy all advance one rung on a first sighting, and `scheduler.test.ts`
-asserts it deliberately. It looks like a violation of `formatInterval`'s own
-promise that two buttons never share a label, but that promise governs
-graduated cards, not the ladder.
+**CORRECTION, AND IT IS AGAINST ME. The first of these was wrong.**
+
+> ~~Three identical interval hints on a new card is not a defect.~~
+
+I wrote that from two sources: a code comment asserting the four answers behaved
+differently, and a passing test that pinned the behaviour. Both were true and
+neither proved anything about what a person sees. Observed in a browser on a
+fresh card, the buttons read **Again 1m, Hard 10m, Good 10m, Easy 10m**: three
+buttons carrying the same number, and a student choosing between them is
+choosing at random. A test that pins current behaviour proves the behaviour is
+current. It does not prove it is right.
+
+**The general rule this exposes is the one worth carrying out of this section: a
+comment asserting an invariant is a claim to check, not a thing to believe.** I
+had already written that sentence into round four, about a different comment,
+about a dead ternary. It applies to the comment I then relied on myself.
+
+A first sighting now spreads four answers across four intervals: `again` returns
+to one minute, `hard` moves one rung up the ladder and stays learning, `good`
+graduates at a day, `easy` at three days. Reading the source would not have found
+this. Watching the buttons did.
 
 **`flashcard_decks` read policy not excluding an archived deck is not a
 defect.** `listFlashcardDecks` filters `.is('archived_at', null)`, so no surface
 reads one. Worth hardening in RLS as defence in depth, not a bug a person can
-hit.
+hit. Still open.
 
 One real comment defect was in the same module: `scheduler.ts:131` claimed
 `hard` graduated "a day early" against a `good` that graduated later, and both
