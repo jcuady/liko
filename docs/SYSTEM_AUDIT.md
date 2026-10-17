@@ -26,6 +26,7 @@ look green.
 | e2e | **PASS** | 20 specs, exit 0 in 265.5s. The `flashcards.spec.ts:169` failure recorded below is resolved. | round eight |
 | **Full gate** | **10 pass, 1 blocked, 0 fail, 0 error** | `pnpm gates` at `058002b`. The single non-pass is `probe:ai`, blocked on the provider. A blocked gate is not a pass. | round eight |
 | **Live app against Postgres** | **PASS** | `verify:app`, 56 passed, 0 failed. All five accounts, every entitled route, refusals, a real attendance write, cron, push, and no page errors. The one check that is not the fixtures. | round eight |
+| **Deployed to production** | **PASS** | `a101b53` live at 14:35→18:33. `/classes` re-read on production and the false count is gone; `/forbidden` with no session lands on `/login`. | round eight |
 | SQL parse + cross-refs | **PASS, not re-measured this round** | 228 statements, 25 tables, RLS on all 25, 27 policies re-runnable | earlier round |
 | **Migration applied to production** | **PASS** | 25 of 25 tables present, measured before and after | earlier round |
 | Dead handlers / `href="#"` / TODO / `console.*` | **PASS, not re-measured this round** | ripgrep, no matches | earlier round |
@@ -1579,6 +1580,49 @@ when the real rows were read. `/flashcards` is asserted on `Unit 1: Atomic
 Structure`, which is what the seed writes and not the class title the fixture
 workspace uses for the same subject. Both previously asserted the fixture's
 answer and would have failed against a correctly working page.
+
+### Deployed, and read back off the live site
+
+The deployment that served production had been built at **14:35**, before three
+code commits. That is only a git-graph claim until someone reads the page, so it
+was checked in a browser against the live site first, signed in as the demo
+administrator:
+
+```
+Your classes  3 classes, 8 students in total.
+Chemistry, Period 2  CHEM-2  K to 12 · 0 students · 5 lessons a week
+Physical Science ... PHYS-1  University · 0 students · 5 lessons a week
+No students on this roster yet.
+```
+
+A header counting eight students, two of three class cards counting zero, and a
+roster panel declaring the register empty, all for the same school. The
+adminsister "0 students" finding from round seven was not a latent edge case; it
+was what the deployment was telling a user.
+
+`a101b53` was then deployed and read back off the live site:
+
+```
+Your classes  3 classes. 8 students across the 1 roster you can see.
+Chemistry, Period 2  CHEM-2  K to 12 · Roster not visible to you · 5 lessons a week
+Physical Science ... PHYS-1  University · Roster not visible to you · 5 lessons a week
+Science, Period 4  SCI-4  K to 12 · 8 students · 5 lessons a week
+This roster belongs to another teacher, so you cannot see the names on it.
+
+/forbidden with no session  ->  /login
+```
+
+The page no longer asserts a count it was not permitted to read, and the refusal
+screen is behind the session gate.
+
+**It was deployed from a separate worktree at `a101b53`, not from the working
+tree.** The tree carried thirteen uncommitted files belonging to another process,
+and `vercel deploy` uploads the directory it is run in, so deploying from where
+the work sat would have shipped all of it unrecorded. A detached worktree gave a
+source tree containing exactly one commit and nothing else, and the working tree
+was never stashed or touched. That is the general form: **when something
+uncommitted must not ship, do not deploy from the working tree — deploy from a
+checkout of the commit.**
 
 ### Two findings this round did not close
 
