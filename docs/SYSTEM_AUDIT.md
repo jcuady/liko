@@ -22,8 +22,9 @@ look green.
 | Build | **PASS** | `pnpm build`, exit 0 | round eight |
 | Typecheck | **PASS** | `pnpm typecheck`, exit 0 | round eight |
 | Lint | **PASS** | `pnpm lint`, exit 0 | round eight |
-| Unit tests | **PASS** | **520 passed, 2 skipped, 39 files** | round eight |
-| e2e | **FAIL, last full run** | Recorded at `edb4e4f` as 10 of 11 gates green with e2e red at `flashcards.spec.ts:169`. **Not re-run since** the concurrent scheduler and auth work landed, so the count below is the last observed one and not a current measurement. See round eight. | `edb4e4f` |
+| Unit tests | **PASS** | **522 passed, 2 skipped, 39 files** | round eight |
+| e2e | **PASS** | 20 specs, exit 0 in 265.5s. The `flashcards.spec.ts:169` failure recorded below is resolved. | round eight |
+| **Full gate** | **10 pass, 1 blocked, 0 fail, 0 error** | `pnpm gates` at `058002b`. The single non-pass is `probe:ai`, blocked on the provider. A blocked gate is not a pass. | round eight |
 | SQL parse + cross-refs | **PASS, not re-measured this round** | 228 statements, 25 tables, RLS on all 25, 27 policies re-runnable | earlier round |
 | **Migration applied to production** | **PASS** | 25 of 25 tables present, measured before and after | earlier round |
 | Dead handlers / `href="#"` / TODO / `console.*` | **PASS, not re-measured this round** | ripgrep, no matches | earlier round |
@@ -34,11 +35,13 @@ look green.
 | Student sign-up end to end | **BLOCKED externally** | Supabase answers `429 over_email_send_rate_limit`. Registration cannot be exercised until a custom SMTP provider is configured. This is a dashboard setting, not an application defect. | round five |
 | Crafted `role: "admin"` | **REFUSED** | schema rejects it; no account created, and the test asserts that rather than a silent fallback | earlier round |
 
-**The e2e row is the one to read.** Everything else in this table was green
-before this round and is green now. The single failure is an assertion the
-concurrent scheduler rewrite made stale, and it is recorded as a failure rather
-than described around, because a gate that is red and a gate that is green look
-identical in a summary unless one of them is written down honestly.
+**`probe:ai` is the only row that is not green**, and it is not the
+application's to fix: the provider answers `HTTP 503 This model is currently
+experiencing high demand`, which is being listed and unable to answer — two
+different things. It is recorded as **BLOCKED** rather than PASS because a gate
+that could not run has proved nothing. Everything else in this table was measured
+on this round, and the rows above it that were not re-measured say so rather than
+inheriting the word.
 
 ---
 
@@ -1439,7 +1442,7 @@ That third case is the one worth keeping: it is what stops a future fix from
 quietly merging "no session" back into "not a student" and reintroducing the
 silent no-op.
 
-### The rewrite that did land, and the one assertion still holding it
+### The rewrite landed, and the gate is green because of one line
 
 The interval question from round four came back and was settled by observation
 rather than by re-reading a comment. Running the real scheduler against a new
@@ -1454,18 +1457,42 @@ Four distinct labels, where the old ladder produced `10m` under three of them. T
 unit tests were rewritten to match, including one that had pinned the wrong
 specification and was replaced with an ordering assertion.
 
-One e2e assertion still reads the old world:
+One e2e assertion still read the old world:
 
 ```
 e2e/flashcards.spec.ts:169    await expect(good).toContainText('10m');
 ```
 
-It has to change to `'1d'`, and it has to land **in the same commit** as the
-scheduler: changed alone it turns `HEAD` red in the opposite direction, because
-`HEAD` still holds the old scheduler. The hint cannot drift from what the
-scheduler writes — `previewIntervals` is `formatInterval(review(...))`, so it
-*is* the scheduler — which is what makes that assertion a real witness rather
-than a string that happened to be pinned.
+changed to `'1d'`. It has to land **in the same commit** as the scheduler:
+changed alone it turns `HEAD` red in the opposite direction, because `HEAD`
+still holds the old scheduler. The hint cannot drift from what the scheduler
+writes — `previewIntervals` is `formatInterval(review(...))`, so it *is* the
+scheduler — which is what made that assertion a real witness rather than a
+string that happened to be pinned.
+
+The e2e gate now passes in 265.5s across 20 specs, and the full gate reads
+**10 pass, 1 blocked, 0 fail, 0 error**.
+
+### The refusal screen was outside the proxy
+
+Cross-checking every `(dashboard)` page against `PROTECTED_PREFIXES` found one
+that was not listed: **`/forbidden`**. It is reached by a rewrite from the proxy
+itself, so it reads like a route the proxy already had an opinion about. It was
+not, and an anonymous request for it fell through the `!needsSession` branch and
+was served.
+
+It is caught today by the dashboard layout's own `requireSession()`, so this was
+not an anonymous hole. It is a page relying on a second gate that has nothing to
+do with the proxy, and that protection is positional: it holds because the file
+sits in this directory, so nothing would announce its absence if the file moved.
+
+**Every existing assertion in `rbac.test.ts` named four paths by hand**, so all
+of them stayed green while the twenty-first route sat outside the list. The fix
+is the same shape as the rest of this audit: the list is now read from disk by
+walking the `(dashboard)` group, with a companion assertion that the walk found
+more than ten routes and specifically found `/classes`, because a directory walk
+that matches nothing would make the real assertion vacuously true — the one way
+this gate could report a clean bill of health for a renamed group.
 
 ### Three failures that were the instruments, not the application
 
@@ -1510,18 +1537,23 @@ is actually reading.
 - Round seven's first three open findings are closed above, and the admin privacy
   question is recorded as still open rather than quietly answered.
 - Two production seed gaps closed: the timetable and the flashcard decks.
+- `/forbidden` is inside `PROTECTED_PREFIXES`, and the route list is now derived
+  from the `(dashboard)` directory rather than restated by hand, so the
+  twenty-second page cannot be forgotten the way the twenty-first was.
+- The e2e gate is green again, at 20 specs.
 
-### Three findings this round did not close
+### Two findings this round did not close
 
-**The scheduler rewrite and one e2e assertion are still coupled and unshipped.**
-This is the only thing standing between the tree and a green gate.
-
-**A live browser verification has not been obtained.** Every Playwright run in
-this project drives the fixtures, and the two attempts to run the real
-application this round were both invalidated by build thrash rather than by the
-application. The evidence above is direct Postgres reads instead, which answers
-the question that was asked but is not a substitute for driving the rendered
-pages.
+**A live browser verification of the real application has not been obtained.**
+Every Playwright run in this project drives the fixtures, and the two attempts to
+run the built application this round were both invalidated by build thrash rather
+than by the application. The evidence above is direct Postgres reads instead,
+which answers the question that was asked but is not a substitute for driving
+the rendered pages. The gate is green, and the gate drives fixtures, so those two
+sentences are not in conflict — they are about different databases.
 
 **The administrator privacy question is still a question.** The page is honest
 about it now; whether the policy should change is not decided here.
+
+**`probe:ai` is blocked.** The provider is at capacity. Nothing in the tree
+causes it and nothing in the tree can clear it.

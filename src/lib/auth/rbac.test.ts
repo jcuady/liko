@@ -1,3 +1,5 @@
+import { existsSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -175,6 +177,57 @@ describe('route mapping', () => {
     for (const path of AUTH_PATHS) {
       expect(isProtectedPath(path)).toBe(false);
     }
+  });
+});
+
+/**
+ * Completeness, which the assertions above cannot express.
+ *
+ * Every one of them names a path by hand, so all twenty-one of them stay green
+ * when a twenty-second route is added and nobody remembers the list. That is how
+ * `/forbidden` ended up outside `PROTECTED_PREFIXES` while living inside the
+ * `(dashboard)` group like the other twenty.
+ *
+ * It is currently caught by the dashboard layout's own `requireSession()`, so it
+ * is not an anonymous hole today. It is a page that relies on a second gate
+ * having nothing to do with the proxy, which is exactly the kind of dependency
+ * that disappears the moment somebody moves the file.
+ *
+ * The list is read from disk rather than restated here on purpose. A test that
+ * repeats the list can only prove the list agrees with itself.
+ */
+describe('the workspace group and the proxy agree about what needs a session', () => {
+  const dashboardRoot = join(process.cwd(), 'src', 'app', '(dashboard)');
+
+  function pageRoutes(dir: string, prefix = ''): string[] {
+    const routes: string[] = [];
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const path = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        routes.push(...pageRoutes(path, `${prefix}/${entry.name}`));
+      } else if (entry.name === 'page.tsx') {
+        routes.push(prefix || '/');
+      }
+    }
+    return routes;
+  }
+
+  const routes = existsSync(dashboardRoot) ? pageRoutes(dashboardRoot).sort() : [];
+
+  it('finds the workspace pages, so an empty walk cannot read as a pass', () => {
+    // A directory walk that matches nothing would make the assertion below
+    // vacuously true, which is the one way this gate could report a clean bill
+    // of health for a renamed group.
+    expect(routes.length).toBeGreaterThan(10);
+    expect(routes).toContain('/classes');
+  });
+
+  it('puts every workspace page behind the proxy', () => {
+    const unprotected = routes.filter((route) => !isProtectedPath(route));
+    expect(
+      unprotected,
+      `these pages live in (dashboard) but are not in PROTECTED_PREFIXES: ${unprotected.join(', ')}`,
+    ).toEqual([]);
   });
 });
 

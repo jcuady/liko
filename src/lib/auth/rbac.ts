@@ -247,6 +247,26 @@ export const PROTECTED_PREFIXES = [
    * invitation straight past the screen that says so.
    */
   '/join',
+  /*
+   * The refusal screen is the one workspace page that was missing here.
+   *
+   * It lives in the `(dashboard)` group like every other page above, and it was
+   * reached by a rewrite from the proxy itself, so it reads as a route the proxy
+   * already had an opinion about. It was not listed, so an anonymous request for
+   * it fell through `!needsSession` and was served, and the only thing that
+   * stopped it was the dashboard layout's own `requireSession()`.
+   *
+   * That is two gates doing one job, which works until somebody moves the file
+   * out of the group. The layout protects the page by where it sits rather than
+   * by what it is, so nothing would notice the protection leaving with it.
+   *
+   * No permission entry, deliberately: a refusal is what somebody sees when a
+   * permission check has already failed, so gating the refusal screen on a
+   * permission would send the user round in a loop. A session is the whole
+   * requirement. Adding a rewrite target here cannot loop either, because the
+   * rewrite is served without re-entering the proxy.
+   */
+  '/forbidden',
 ];
 
 export function isProtectedPath(pathname: string): boolean {
