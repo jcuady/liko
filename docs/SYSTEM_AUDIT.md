@@ -1175,3 +1175,139 @@ would both be useless and start to leak which addresses exist.
 | Three browser tests | `e2e/auth.spec.ts` |
 
 Auth: **11 of 11**. Responsive, auth pages included: green at 375 and 393.
+
+---
+
+## Round seven: the page that was dead in production
+
+### `.is()` is not `=`
+
+`calendar_events` was read with `.is('student_id', studentId)`.
+
+PostgREST's `is` operator is not equality. It takes only `null`, `not_null`,
+`true`, `false` or `unknown`, and it renders as `column=is.<value>`. For a
+teacher `studentId` is `null`, so the query reads `student_id=is.null` and is
+correct. For a student it is a uuid, so the query reads `student_id=is.<uuid>`
+and PostgREST answers **PGRST100, "failed to parse filter (is.<uuid>)"**.
+
+So `/schedule` threw on the server for every student, hit its error boundary,
+and surfaced as minified React error #441. In development it was worse in the
+opposite direction: a Suspense fallback that never resolved, with no error at
+all on the page.
+
+```
+⨯ Error [DataError]: Something went wrong. Try again.
+    at Object.listCalendarEvents (src/lib/api/client.ts:2763:5)
+    at async loadCalendarExtras (src/app/(dashboard)/schedule/events.ts:41:27)
+    at async SchedulePage (src/app/(dashboard)/schedule/page.tsx:52:18)
+  [cause] { code: 'PGRST100',
+    message: '"failed to parse filter (is.312d15c9-b3e8-41d6-90df-018b7a0f1466)"' }
+```
+
+Fixed to branch on `null` and use the operator that matches the value.
+
+### Two hundred and thirty-one green tests said nothing about it
+
+Every browser test in this repository drives `fixtures`. A fixture never builds
+a PostgREST filter, so the entire Supabase adapter is invisible to the e2e
+suite: a typo in a filter, an operator that does not mean what it looks like, a
+column that does not exist. The script that does test it, `verify-app-live.mjs`,
+documents this in its own header and had **never been run against a live
+server**, because the server it needs has to be started by hand and the header
+implied the script started it.
+
+`pnpm e2e` at 231 passing is therefore not evidence about production. It is
+evidence about the fixtures. That distinction is the finding, and it is why the
+route was added to the verifier rather than merely patched.
+
+### The verifier was wrong four ways before it was right
+
+It found the bug. It also produced three false failures and would have reported
+one if run blind, which is the more interesting part.
+
+**It raced the stream.** Both reads ran at `domcontentloaded`, while Next.js is
+still streaming. At that instant the document holds **two** `<main>` elements:
+the bare shell the browser received first, whose content has not arrived, and
+the real tree still inside a hidden container. `locator('main')` resolves to two
+nodes and throws.
+
+**It swallowed the reason and named the wrong file.** Both reads used
+`.catch(() => '')`. A strict-mode violation became an empty string, and an empty
+string is a perfectly good page body to the line above, so the check did not say
+"I could not read this page". It said:
+
+> HTTP 200 but "Ana Ferreira" is not on the page, so this is an empty state
+> rather than real data
+
+which is confident, specific, and completely wrong, and which points the next
+investigation at the Supabase adapter. **A tool failure must never be reported
+as a product failure, because the cause names the wrong file and that is the
+expensive kind of wrong.** `pageText()` now throws with the real reason, and
+there is no `.catch` anywhere on a read that produces a verdict.
+
+**It never covered the newest routes.** `/schedule` and `/flashcards` were not
+in the list at all.
+
+**Its own comment lied.** "a real server started with `LIKO_DATA_MODE=supabase`"
+read like the script starts one. It does not, and without one every account gets
+`ERR_CONNECTION_REFUSED`, which is indistinguishable from a broken application
+to anyone who does not already know.
+
+### The guard, and what it cost to write
+
+`src/lib/api/postgrest-filter.test.ts` scans the adapter and fails if a variable
+is ever handed to `.is`.
+
+The first version used two regexes to strip comments and reported a defect in
+**my own comment**, because the fix for this bug explains the bug by naming the
+line it removed. That is the general trap: **a comment explaining an absence
+necessarily names the thing absent**, so any negative source assertion has to
+strip comments before it looks, or it will spend its life finding the very
+things it was written to explain away.
+
+The stripper is now a small state machine with its own three tests, including
+the one input that could make the guard lie: an unterminated block comment,
+which correctly swallows everything after it and cannot happen in a file that
+typechecks. The guard also asserts that **both legal shapes still exist**, so
+"simplifying" `.eq` to `.is` everywhere cannot make it go quiet, which is how a
+guard becomes worse than no guard.
+
+Swept for the class across the whole repository. This was the only `.is` given a
+value PostgREST will not accept; `.is('org_id', 'not.is.null')` in the auth store
+is a deliberate PostgREST idiom and is correct.
+
+### Confirmed on production, not only locally
+
+`https://liko-jcuadys-projects.vercel.app/schedule` as `student@liko.test`: no
+error boundary, no page errors, heading "Schedule".
+
+### Three findings this round did not close
+
+Recorded here because they are real, measured, and still open.
+
+**`schedule_entries` is empty in the live database.** The seed writes 3 classes,
+24 students, 6 assessments and 25 grades, and writes no timetable at all, so
+the deployment's flagship page renders "No classes yet" while the fixtures show a
+fifteen-lesson week. The same is true of `flashcard_decks` and `flashcards`:
+`/flashcards` is a correct empty state in production and has never once been
+verified against a real row.
+
+**An administrator sees "0 students" for a class of eight.** `classes` carries
+`admin reads classes`, so an admin lists every class in the organisation.
+`students` has only `"own rows"` and `"linked reads own student row"`, neither of
+which admits an administrator, so every roster read returns nothing. The page
+prints the number it was given, so a real teacher's class is labelled "0
+students". The class list and the roster disagree about what "may see this class"
+means, and the page believes the roster.
+
+Whether an administrator should see children's records at all is a privacy
+decision with two legitimate answers, and it is not one to be taken by default in
+either direction. What is not a decision is that **the page must never assert a
+count it was not permitted to read.** "No students" and "not allowed to read the
+students" are different facts and only one of them is true here.
+
+**The fixture hides it, in the direction that hides.** `listClasses` and
+`ownedClass` both exempt every demo account, so the fixture shows an admin eight
+students and production shows none. This is the fourth time this project has
+found that shape, and the comment on `listClasses` already describes it in full
+for the earlier occurrence.
