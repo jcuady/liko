@@ -25,6 +25,7 @@ look green.
 | Unit tests | **PASS** | **522 passed, 2 skipped, 39 files** | round eight |
 | e2e | **PASS** | 20 specs, exit 0 in 265.5s. The `flashcards.spec.ts:169` failure recorded below is resolved. | round eight |
 | **Full gate** | **10 pass, 1 blocked, 0 fail, 0 error** | `pnpm gates` at `058002b`. The single non-pass is `probe:ai`, blocked on the provider. A blocked gate is not a pass. | round eight |
+| **Live app against Postgres** | **PASS** | `verify:app`, 56 passed, 0 failed. All five accounts, every entitled route, refusals, a real attendance write, cron, push, and no page errors. The one check that is not the fixtures. | round eight |
 | SQL parse + cross-refs | **PASS, not re-measured this round** | 228 statements, 25 tables, RLS on all 25, 27 policies re-runnable | earlier round |
 | **Migration applied to production** | **PASS** | 25 of 25 tables present, measured before and after | earlier round |
 | Dead handlers / `href="#"` / TODO / `console.*` | **PASS, not re-measured this round** | ripgrep, no matches | earlier round |
@@ -1542,15 +1543,44 @@ is actually reading.
   twenty-second page cannot be forgotten the way the twenty-first was.
 - The e2e gate is green again, at 20 specs.
 
-### Two findings this round did not close
+### The real application, driven against Postgres
 
-**A live browser verification of the real application has not been obtained.**
-Every Playwright run in this project drives the fixtures, and the two attempts to
-run the built application this round were both invalidated by build thrash rather
-than by the application. The evidence above is direct Postgres reads instead,
-which answers the question that was asked but is not a substitute for driving
-the rendered pages. The gate is green, and the gate drives fixtures, so those two
-sentences are not in conflict — they are about different databases.
+Every Playwright run in this project drives the fixtures, so a green gate says
+nothing about the Supabase adapter. This round finally got the built application
+in front of a browser against the live project, once the tree went quiet and
+both `next start` processes were gone — the earlier two attempts had been
+invalidated by build thrash, not by the application.
+
+```
+pnpm build
+LIKO_DATA_MODE=supabase node --env-file=.env.local next start -p 3322
+LIKO_VERIFY_BASE_URL=http://127.0.0.1:3322 pnpm verify:app
+
+56 passed, 0 failed
+```
+
+All five demo accounts sign in and render every workspace route they are entitled
+to; the routes they are not entitled to are refused; a real attendance write is
+read back out of Postgres with the service key; the at-risk sweep, the push
+subscription lifecycle and the attendance endpoint are exercised; and no console
+or page error fires on any route.
+
+The static-asset check matters as much as the pass. The two earlier attempts both
+*looked* like application failures because `/_next/static/**` was answering 500,
+and one of them took a working page down with a message about a control that was
+never rendered. Checking a chunk's content type before trusting a browser run is
+what distinguishes "the page is broken" from "the build was replaced underneath
+the server".
+
+Two witnesses in that run are worth naming, because each is a thing this audit
+had previously got wrong. `/schedule` is asserted on `Clinic`, one of the two
+seeded Wednesday entries that overlap by half an hour, so it is present exactly
+when the real rows were read. `/flashcards` is asserted on `Unit 1: Atomic
+Structure`, which is what the seed writes and not the class title the fixture
+workspace uses for the same subject. Both previously asserted the fixture's
+answer and would have failed against a correctly working page.
+
+### Two findings this round did not close
 
 **The administrator privacy question is still a question.** The page is honest
 about it now; whether the policy should change is not decided here.
