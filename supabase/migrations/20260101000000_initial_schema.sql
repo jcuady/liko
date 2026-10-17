@@ -1874,6 +1874,40 @@ create policy "own notifications deletable" on public.notifications
   for delete to authenticated
   using (user_id = (select auth.uid()));
 
+-- WHY THERE WAS NO INSERT POLICY, AND WHY IT IS HERE NOW.
+--
+-- The table had select, update and delete, all own-only, and nothing anywhere
+-- could create a row. The bell was wired to realtime for rows that no code path
+-- and no trigger could ever produce, so it was an empty surface pretending to be
+-- a live one.
+--
+-- The recipient is never the writer. A student cannot hand themselves a
+-- notification, and a teacher cannot write into an arbitrary account: the row
+-- must belong to somebody linked to a class the writer owns, which is the same
+-- shape as "cards writable by deck author" and the same answer as RLS gives
+-- elsewhere in this file. A teacher owns no roster row, so this grants nothing
+-- to a teacher for themselves.
+--
+-- The two kinds are the ones the column already allows, `schedule_updated` and
+-- `class_linked`. Neither is a teacher-authored reminder and neither pretends to
+-- be: both describe something that happened to the recipient, which is why the
+-- column was narrowed to exactly those two in the first place.
+drop policy if exists "teachers may notify their own students" on public.notifications;
+create policy "teachers may notify their own students"
+  on public.notifications
+  for insert to authenticated
+  with check (
+    user_id <> (select auth.uid())
+    and exists (
+      select 1
+      from public.students s
+      join public.classes c on c.id = s.class_id
+      where s.account_id = notifications.user_id
+        and s.archived_at is null
+        and c.owner_id = (select auth.uid())
+    )
+  );
+
 -- Realtime for the notification bell. It has to be a separate guarded block
 -- rather than another arm of the one above, because that one executes before
 -- this table exists and PostgreSQL reads a migration top to bottom.

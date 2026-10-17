@@ -4,7 +4,7 @@ import * as React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
-  Bell,
+  BellRing,
   CircleUser,
   ClipboardList,
   History,
@@ -88,7 +88,20 @@ export const SECONDARY_NAV: NavItem[] = [
    */
   { href: '/quiz', label: 'Quizzes', icon: PencilLine },
   { href: '/history', label: 'History', icon: History },
-  { href: '/settings/notifications', label: 'Notifications', icon: Bell },
+  /*
+   * RENAMED FROM "Notifications", AND THE BELL ICON WENT WITH IT.
+   *
+   * The header now has an actual bell: notes about a timetable or a class,
+   * addressed to you. This page is a different thing, it is whether LIKO may
+   * push to this device when a student is at risk. Two bells in one product,
+   * both labelled Notifications, sending somebody to the wrong one, is worse
+   * than either name on its own.
+   *
+   * The route keeps its path. Renaming it would mean the RBAC route table, the
+   * responsive sweep and the live verification script all changing together for
+   * a URL nobody has bookmarked, which buys nothing a person can see.
+   */
+  { href: '/settings/notifications', label: 'Push alerts', icon: BellRing },
   { href: '/settings/profile', label: 'Profile', icon: CircleUser },
   { href: '/settings/appearance', label: 'Appearance', icon: Paintbrush },
 ];

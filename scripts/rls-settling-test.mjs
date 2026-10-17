@@ -455,6 +455,56 @@ async function main() {
         ? `THE INSERT SUCCEEDED with ${stolenCard.status}. Editing does not stay with the deck's author.`
         : `refused: ${stolenCard.status}`,
     );
+
+    /*
+     * The bell had no insert policy at all, which is why nothing could ever
+     * appear in it. The policy now exists, and both halves of it are refusals
+     * a student can attempt with the token this script already holds, so they
+     * are asserted here rather than only in the fixture.
+     *
+     * The positive half needs a teacher token and a throwaway teacher, which
+     * this script does not create; that is a genuine gap in the coverage and is
+     * stated rather than papered over.
+     */
+    console.log('\nNotifications: nobody writes into their own inbox');
+
+    const selfNote = await asUser('notifications', token, {
+      method: 'POST',
+      headers: { Prefer: 'return=representation' },
+      body: JSON.stringify({
+        user_id: studentId,
+        kind: 'schedule_updated',
+        title: 'For myself',
+        body: 'The policy refuses a row addressed to its own writer.',
+        url: null,
+      }),
+    });
+    check(
+      'a student CANNOT write a notification into their own inbox',
+      !selfNote.ok,
+      selfNote.ok
+        ? `THE INSERT SUCCEEDED with ${selfNote.status}. The user_id <> auth.uid() half of the rule is missing.`
+        : `refused: ${selfNote.status}`,
+    );
+
+    const foreignNote = await asUser('notifications', token, {
+      method: 'POST',
+      headers: { Prefer: 'return=representation' },
+      body: JSON.stringify({
+        user_id: rosterId,
+        kind: 'class_linked',
+        title: 'Somebody else',
+        body: 'A student is on nobody roster.',
+        url: null,
+      }),
+    });
+    check(
+      'a student CANNOT write a notification into any inbox',
+      !foreignNote.ok,
+      foreignNote.ok
+        ? `THE INSERT SUCCEEDED with ${foreignNote.status}. A student owns no class, so the teaches-recipient half must refuse.`
+        : `refused: ${foreignNote.status}`,
+    );
   } catch (error) {
     failures += 1;
     console.error(`\nSetup failed: ${error.message}`);

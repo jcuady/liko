@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 
 import { chooseOption } from './helpers/select';
+import { toastText } from './helpers/toast';
 
 /**
  * First-run setup.
@@ -150,7 +151,18 @@ test.describe('the three questions', () => {
     await expect(page.getByRole('button', { name: /PHY-1/ })).toBeVisible();
 
     await create('Another Physics', 'PHY-1');
-    await expect(page.getByText('PHY-1 is already in use.')).toBeVisible();
+    /*
+     * Scoped to the toast, and this was a latent flake rather than a new
+     * failure. `toast.error` writes into the assertive live region as well as
+     * into Sonner, so this exact text is in the document twice. The assertive
+     * region is never cleared and the Sonner toast is dismissed after four
+     * seconds, so a bare `getByText` passed whenever the assertion happened to
+     * resolve after the toast went and failed whenever it resolved inside the
+     * window. Which one it got was decided by how busy the machine was that
+     * minute. The message under test is a toast, so the read is scoped to the
+     * toast.
+     */
+    await expect(toastText(page, 'PHY-1 is already in use.')).toBeVisible();
   });
 
   test('an empty class is refused before it is sent', async ({ page }) => {

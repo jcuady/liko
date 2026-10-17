@@ -536,6 +536,18 @@ export interface WorkspaceData {
    */
   getMyStudentRecord(userId: string): Promise<StudentRecord | null>;
 
+  /**
+   * One roster row by its own id, for a caller who may act on it.
+   *
+   * `getMyStudentRecord` answers "which row is mine", which is not the same
+   * question: a teacher changing a student's week holds that student's row id
+   * and needs to know which login it belongs to. Resolving it there would mean
+   * guessing, and a guess that returns nobody is a notification nobody receives.
+   *
+   * The Supabase adapter is bounded by the same policy `listStudents` is.
+   */
+  getStudent(userId: string, studentId: string): Promise<StudentRecord | null>;
+
   /*
    * A student's week, and the dated things on top of it.
    *
@@ -568,6 +580,19 @@ export interface WorkspaceData {
 
   listNotifications(userId: string): Promise<NotificationRecord[]>;
   markNotificationRead(userId: string, notificationId: string): Promise<void>;
+
+  /**
+   * Writes a notification into somebody else's inbox.
+   *
+   * The recipient is an argument and never the caller: the database refuses a
+   * row whose `user_id` is the writer, and refuses one addressed to anyone the
+   * writer does not teach. The two adapters enforce the same rule so fixture
+   * mode cannot hand out a capability production would deny.
+   */
+  createNotification(
+    userId: string,
+    input: { recipientId: string; kind: NotificationRecord['kind']; title: string; body: string; url: string | null },
+  ): Promise<NotificationRecord>;
 }
 
 /**
@@ -2548,6 +2573,39 @@ const supabaseAdapter: WorkspaceData = {
    * one that is enforced, which is the arrangement the teacher reads avoid.
    */
 
+  async getStudent(userId, studentId) {
+    const supabase = await requireClient();
+    const { data, error } = await supabase
+      .from('students')
+      .select('*')
+      .eq('id', studentId)
+      .is('archived_at', null)
+      .maybeSingle();
+    throwIf(error);
+
+    const row = data as Row | null;
+    if (!row) return null;
+
+    /*
+     * The row is bounded by RLS, so a caller who may not read it sees nothing
+     * here. What it does NOT tell us is whether this caller may ACT on it, so
+     * the write authority is asked separately rather than inferred from being
+     * able to see a name.
+     */
+    if (row.account_id === userId) return mapStudent(row);
+    if (row.owner_id === userId) return mapStudent(row);
+
+    const ownsTheirClass = await supabase
+      .from('classes')
+      .select('id')
+      .eq('id', row.class_id)
+      .eq('owner_id', userId)
+      .maybeSingle();
+    throwIf(ownsTheirClass.error);
+
+    return ownsTheirClass.data ? mapStudent(row) : null;
+  },
+
   async getMyStudentRecord(userId) {
     /*
      * FILTERED BY THE ACCOUNT LINK, NOT BY `owner_id`.
@@ -2765,6 +2823,27 @@ const supabaseAdapter: WorkspaceData = {
       .eq('id', notificationId)
       .eq('user_id', userId);
     throwIf(error);
+  },
+
+  async createNotification(userId, input) {
+    const supabase = await requireClient();
+    const { data, error } = await supabase
+      .from('notifications')
+      .insert({
+        user_id: input.recipientId,
+        kind: input.kind,
+        title: input.title,
+        body: input.body,
+        url: input.url,
+      })
+      .select('*')
+      .single();
+    throwIf(error);
+    // `userId` is the writer and is deliberately not used to build the row. The
+    // policy admits the insert only when the recipient is somebody the writer
+    // teaches, so a refusal here is a real refusal rather than a silent no-op.
+    void userId;
+    return mapNotification(data as Row);
   },
 };
 

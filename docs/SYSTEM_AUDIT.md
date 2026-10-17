@@ -574,9 +574,14 @@ image-capable AI call are built and tested, the capture and confirm screens are
 not), terms, custom events, deadlines, teacher-to-student reminders, and the
 notification bell.
 
+*(Round three closed the photo capture and confirm screens, terms, custom events
+and deadlines. Round five closed the notification bell, end to end: a policy, a
+producer, a consumer and a journey that proves the two join up. See below.)*
+
 **Not 100%.** The objective asks for every page, button and workflow to be
-functional and audited. The largest remaining pieces are the rest of the
-calendar module and a redesign of sign-in and sign-up on the new branding.
+functional and audited. The largest remaining piece is a redesign of sign-in and
+sign-up on the new branding, plus `probe:ai`, which is blocked on Gemini capacity
+rather than on anything in this repository.
 
 ---
 
@@ -800,3 +805,263 @@ One real comment defect was in the same module: `scheduler.ts:131` claimed
 `hard` graduated "a day early" against a `good` that graduated later, and both
 branches were `1`. The dead ternary is gone, the comment now matches, and a
 test pins the real behaviour.
+---
+
+## Round five: a bell with nothing to ring it
+
+### The table had a realtime channel and no way to write to it
+
+`notifications` shipped with select, update and delete policies, all own-only,
+and it was added to the realtime publication. There was no `INSERT` policy, no
+method on the seam that created a row, and no surface that read one. Every part
+of the feature that can be switched on was switched on, and the one part that
+makes it a feature was missing.
+
+That direction is worth naming, because it is the opposite of the usual broken
+feature. A table nobody can write to fails closed and reads as empty. A table
+nobody can write to *while a socket is subscribed to it* reads as live: the
+transport is doing real work, delivering zero messages, and no error anywhere
+says the producer is missing.
+
+**The insert policy.** `supabase/migrations/20260101000000_initial_schema.sql`
+now carries `teachers may notify their own students`, whose `with check` states
+two conditions: the recipient is not the writer, and the recipient is an active
+student on a class the writer owns. Applied to the live project: 28 tables, RLS
+on all 28, **41 policies**. `check:sql` is green at 33 re-runnable policies.
+`scripts/rls-settling-test.mjs` gained two denial checks and reports **14 passed,
+0 failed**, because a policy that is sound on paper and unexercised against a
+real signed-in account is not a policy anybody has proved.
+
+### A fixture stricter than the database, for the third time in this repo
+
+`getStudent(userId, studentId)` is new in this round. It answers one question:
+may this caller act on this roster row, as opposed to see it. The
+implementation compared `cls.ownerId === userId`, and **the seeded demo classes
+carry the synthetic owner id `demo-owner`, which is nobody's account id**.
+
+So `getStudent('usr_demo_maya', 'stu_001')` returned `null` for the demo
+teacher, in fixture mode, while the Supabase adapter returns the row. That is
+the dangerous direction of a seam disagreement, and the direction that had
+already caused two of the bugs fixed in earlier rounds: a fixture stricter than
+Postgres does not announce itself. It makes a working feature look broken
+everywhere the fixture is what runs, which is the demo, the development server
+and every Playwright run.
+
+The same defect had already been found and fixed twice, in
+`createFlashcardDeck` and in `listClasses`. That is what made it findable the
+third time: not the search, the fact that the answer was already written down
+in a comment beside two other copies of it. **When a defect appears once in a
+family, the family is the finding.**
+
+**The fix uses `isDemoStaff`, not `isDemoAccount`, and the narrowness is the
+point.** `ownedClass` beside it uses the broader helper, and the two now differ
+on purpose: reading a roster is not authority over it. A demo student or
+guardian may legitimately see a class, and must not gain the right to write
+into somebody's inbox because of it. `getStudent` is a write-authority grant,
+`listStudents` is a read, and the code says so at the point of the difference.
+
+Three tests in `src/lib/api/notifications.test.ts` pin it: the demo teacher
+resolves the demo student, a demo student and a demo parent both get `null` for
+a roster row that is not theirs, and a student still resolves their own row.
+
+### The defect was a silent no-op, which is worse than an error
+
+`saveScheduleEntry` resolves the recipient, and skips the note when there is not
+one:
+
+```ts
+const recipient = await store.getStudent(session.userId, input.studentId);
+if (recipient?.accountId && recipient.accountId !== session.userId) {
+  await store.createNotification(session.userId, { ... });
+}
+```
+
+A `null` from `getStudent` takes the `if` branch as quietly as a student with no
+linked account does. The class is on the timetable either way. Nothing is logged,
+nothing is rendered, nothing is retried. **The failure mode of a notification
+system is silence, and silence is what the bug produced.**
+
+Two things about that block are deliberate and are not defects. The notify
+failure is swallowed on purpose, because a teacher whose class saved correctly
+must not be told it did not, and "notify failure must never fail the save" is
+the rule. And the recipient is resolved from the roster row rather than from the
+caller, because a student's `owner_id` is their teacher: `studentId` and account
+id are different values and only one of them is a login.
+
+### Three of my own tests were asserting the order they ran in
+
+The first version of `e2e/notifications.spec.ts` failed three of five, and one of
+the failures was the product defect above. The other two were mine.
+
+The demo student has one inbox and the whole suite shares it. `schedule.spec.ts`
+genuinely writes a note every time a teacher saves a class, and my own
+"mark all as read" test read every note in the inbox, which is **not reversible
+through the product**. With `fullyParallel`, "2 unread" is a statement about
+which worker ran first.
+
+Serialising the file would have hidden that rather than answered it, and the note
+in `schedule.spec.ts` already explains why that is the wrong move: it serialises
+every test in the file to protect two. What actually fixed it was changing what
+was claimed:
+
+- `e2e/notifications.spec.ts` asserts only what a fixed set of rows does. It
+  opens onto the inbox, names what is in it, checks that a teacher's inbox is
+  empty rather than full of a student's, and checks that the menu opens and
+  closes from the keyboard. No count assertion anywhere, because no count is
+  this file's to make.
+- The end-to-end journey lives in `schedule.spec.ts`, in **one test**. The
+  teacher saves a class, the student opens the bell, the row says "Unread.", the
+  click navigates to `/schedule`, and after a reload the same row does not. One
+  write, removed in a `finally`, in the file that already owns the demo week and
+  counts it.
+
+That last point is the rule the repo keeps teaching and that this cost two runs
+to relearn: **a test that writes must put the world back, and a test that cannot
+put it back must not assert on the part it consumed.**
+
+### An empty inbox is a feature nobody can see
+
+`fixtures.ts` seeded `notifications: []`. With the bell built, that renders as an
+empty circle for every demo visitor and every student: the feature is present,
+renders, and renders nothing, which is indistinguishable from a missing one. The
+same reasoning the seeded week and the seeded calendar already carry.
+
+Three rows for the demo student: two unread and one read. The badge, the
+highlighted row and the "Mark all as read" state are three different renders,
+and a demo showing only one of them shows the emptiest of the three.
+
+They are rows that already exist, not rows the demo session writes, so they do
+not go through `createNotification` and its refusal rules. Nobody is creating
+them; the teacher created them before the demo started.
+
+### A note with a number on it and no clock
+
+`src/lib/relative-time.ts` is a pure function with `now` as an argument, because
+a time formatter tested only through a DOM is a time formatter not tested. Its
+boundaries are the whole of it: truncation and a singular, never rounding. A
+reader told "1 hours ago" has been told something false, and one told "in -3
+minutes" has been told nothing at all. A timestamp later than `now` is a
+database clock disagreeing with this one, so it reports as "Just now" rather
+than as a date in the future.
+
+The component gates it on `useIsHydrated`, and that is the one thing that hook
+is for. "4 min ago" is a function of now, and now is the server's clock on the
+first render and the browser's on the next; a row crossing a boundary between the
+two is a hydration mismatch. The stamp is omitted until the client is mounted,
+rather than rendered from two disagreeing clocks and patched.
+
+**Nothing is subscribed to.** The table is on the realtime publication and a
+socket per open tab is a real cost for an update that is not urgent. A
+subscription would also fire in fixture mode against a database no fixture ever
+writes to, which is a surface that looks live and is not.
+
+### One collision I checked and did not "fix"
+
+`e2e/helpers/toast.ts` scopes a toast read with
+`getByRole('region', { name: /Notifications/ })`. The bell adds an
+`aria-label="Notifications"`, which looks like the collision I have been burned
+by before, so it was checked rather than assumed.
+
+In the installed `sonner@2.0.8`, that region is
+`<section aria-label={`${containerAriaLabel} ${hotkeyLabel}`}>` with the
+defaults `Notifications` and `altKey+T`, so it is a `region` named
+`"Notifications altKey+T"`. The bell's label is on a `role="menu"`, which
+`getByRole('region', ...)` cannot match. The regex is still necessary and still
+correct: the real name carries the hotkey, so it could not be an exact string.
+
+**Tightening it would have been a speculative edit to a helper that 224 tests
+depend on, to guard against a collision that does not exist.** Checked, recorded,
+left alone.
+
+### The bell carries no deletion, on purpose
+
+There is no "delete notification". Marking read is the whole of the consumer, and
+a bell whose list has to be emptied by hand is a bell that will not be emptied.
+The `delete` policy exists in the database and nothing calls it, which is the
+one loose end here: an unused policy is a small amount of unnecessary surface
+rather than a hole, and closing it would mean a seam method, an action, a
+confirmation and a test for a feature nobody asked for.
+
+### A latent flake from three commits ago, caught by the gate rather than by me
+
+The first gate run after this work came back **9 pass, 1 blocked, 1 fail**, with
+`e2e` red on a test I had not written and had never seen fail:
+
+```
+onboarding.spec.ts:153  expect(locator).toBeVisible() failed
+  strict mode violation: getByText('PHY-1 is already in use.') resolved to 2 elements:
+    1) ... aka getByRole('region', { name: 'Notifications alt+T' }).getByText(...)
+    2) <div class="sr-only" aria-live="assertive" id="liko-assertive-toasts">
+```
+
+My own full run of the same 224 tests had passed four minutes earlier. Both
+things are true, and the reason is the rule this document already states in the
+round-four section under a different heading: **adding user-visible text to the
+DOM breaks every assertion that matches that text, in both directions.**
+
+`toast.error` writes its title into two places, deliberately: the Sonner toast
+everybody sees, and the assertive live region that a screen reader is told
+about. Element 1 is the first, element 2 is the second. The Sonner toast is
+dismissed after four seconds; the assertive region is written on a 60 ms tick and
+**never cleared**. So a bare `getByText` saw two elements if it resolved inside
+the four-second window and one element if it resolved after it, and which of
+those happened was decided by how busy the machine was that minute. The gate runs
+e2e immediately after a build, which is the busiest moment in the run.
+
+This is not a new defect. It arrived with P2-07 in `e89b315`, and the same change
+broke `admin.spec.ts:166` and `quiz-maker.spec.ts:358` in the session that made
+it, at which point `e2e/helpers/toast.ts` was written and two call sites were
+repointed. **`onboarding.spec.ts` and `interactions.spec.ts` were missed.** Both
+are fixed, and both now say why in a comment, because a `toastText(...)` with no
+comment reads like redundancy and the next person will helpfully unwrap it.
+
+**The lesson is not about the two call sites.** It is that a fix which duplicates
+content into a second channel has a blast radius equal to every assertion that
+matches that content, and the blast radius was worked out by running the suite
+once, at a moment when it happened to land the right way. `onboarding.spec.ts`
+had been passing, loudly, for sessions.
+
+### Two bells, both called Notifications
+
+The sidebar already carried `{ href: '/settings/notifications', label:
+'Notifications', icon: Bell }`. Then the header got a real bell.
+
+Nothing broke. Every test passed, because nothing asserts that two controls on a
+screen have different jobs. But a user who wants to read their notifications now
+finds two bells, both labelled Notifications, one of which opens a switch for
+push alerts about at-risk students and the other of which opens their timetable
+notes. One of those is a settings page the wrong person opens, which is a small
+friction every single time.
+
+The sidebar item is now **"Push alerts"** with `BellRing`, so the two are
+distinguishable by shape before either is read. The route keeps its path:
+renaming it would mean the RBAC route table, the responsive sweep and the live
+verification script changing together for a URL nobody bookmarked. The settings
+page's `<h1>` and metadata title follow it, and the page now says outright that
+notes about your own timetable arrive in the header bell and are not switched on
+or off here.
+
+**A collision found by reading the nav rather than by running a test is still a
+collision.** The automated gates were asked to catch everything and could not
+have caught this one.
+
+### What round five changed
+
+| Change | Where |
+| --- | --- |
+| Insert policy, so the table has a producer | `supabase/migrations/20260101000000_initial_schema.sql` |
+| `createNotification` and `getStudent` on the seam, both adapters | `src/lib/api/client.ts`, `src/lib/api/fixtures.ts` |
+| `getStudent` no longer refuses the demo teacher | `src/lib/api/fixtures.ts` |
+| The producer, in `saveScheduleEntry` | `src/app/(dashboard)/schedule/actions.ts` |
+| Two actions and the bell itself | `src/app/(dashboard)/components/` |
+| Relative time, with its boundaries pinned | `src/lib/relative-time.ts` |
+| Three seeded rows so the demo is not an empty circle | `src/lib/api/fixtures.ts` |
+| Eight unit tests and four browser tests | `src/lib/api/notifications.test.ts`, `src/lib/relative-time.test.ts`, `e2e/notifications.spec.ts`, `e2e/schedule.spec.ts` |
+| Two latent toast flakes scoped to the toast | `e2e/onboarding.spec.ts`, `e2e/interactions.spec.ts` |
+| The sidebar's second bell renamed | `src/app/(dashboard)/components/Navigation.tsx`, `src/app/(dashboard)/settings/notifications/page.tsx` |
+
+Gate evidence for this round: unit **497 passed / 2 skipped across 37 files**.
+Browser: the bell and the week, run together, **21 of 21**; the whole suite,
+**224 passed**. The full gate at the end of the round is recorded in
+`docs/evidence/gates.json`, and `probe:ai` remains blocked on Gemini capacity,
+which is a blocked gate and not a pass.

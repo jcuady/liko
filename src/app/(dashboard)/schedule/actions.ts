@@ -176,6 +176,36 @@ export async function saveScheduleEntry(input: {
       room: row.room,
       source: 'manual',
     });
+
+    /*
+     * THE PRODUCER THE BELL WAS WAITING FOR.
+     *
+     * A student editing their own week does not notify themselves, and a
+     * teacher editing somebody else's does. The recipient is resolved from the
+     * roster row rather than from the caller for the same reason the seam
+     * ignores a supplied `studentId`: a student's `owner_id` is their teacher,
+     * so the two are different values and only one of them is a login.
+     *
+     * A failure to notify is deliberately NOT allowed to fail the save. The
+     * class is on the timetable either way, and telling a teacher their class
+     * was not saved because a notification bounced would be a lie.
+     */
+    if (input.studentId) {
+      try {
+        const recipient = await store.getStudent(session.userId, input.studentId);
+        if (recipient?.accountId && recipient.accountId !== session.userId) {
+          await store.createNotification(session.userId, {
+            recipientId: recipient.accountId,
+            kind: 'schedule_updated',
+            title: 'Your timetable changed',
+            body: `${row.title} was added to your week.`,
+            url: '/schedule',
+          });
+        }
+      } catch {
+        // Swallowed on purpose, and the reason is above.
+      }
+    }
   } catch {
     return { ok: false, message: 'That class could not be saved.' };
   }

@@ -266,7 +266,7 @@ function createStore(): FixtureStore {
     schedule: demoSchedule.map((entry) => ({ ...entry })),
     terms: [],
     events: demoCalendarEvents.map((event) => ({ ...event })),
-    notifications: [],
+    notifications: demoNotifications.map((note) => ({ ...note })),
     /*
      * Three recent generations against the demo teacher, so the meter renders a
      * part-spent bar rather than a full one. A demo workspace that always reads
@@ -464,6 +464,52 @@ const demoCalendarEvents: CalendarEventRecord[] = [
     kind: 'deadline',
     createdByRole: 'student',
     createdAt: '2026-03-05T00:00:00.000Z',
+  },
+];
+
+/**
+ * Three notes in the demo student's inbox, so the bell is not an empty circle.
+ *
+ * An inbox seeded empty is the same failure as an empty week: the feature is
+ * there, it renders, and it renders nothing, so nobody can tell a working bell
+ * from a missing one. Two are unread and one is read, because the badge, the
+ * highlighted row and the "Mark all as read" state are three different renders
+ * and a demo that only shows one of them shows the emptiest.
+ *
+ * These are rows that already exist, not rows this session wrote, so they do
+ * not go through `createNotification` and its refusal rules. Nobody is writing
+ * them here; the teacher wrote them before the demo started.
+ */
+const demoNotifications: NotificationRecord[] = [
+  {
+    id: 'ntf_demo_1',
+    userId: DEMO_STUDENT_ACCOUNT,
+    kind: 'schedule_updated',
+    title: 'Your timetable changed',
+    body: 'Chemistry was added to your week.',
+    url: '/schedule',
+    readAt: null,
+    createdAt: '2026-03-09T08:12:00.000Z',
+  },
+  {
+    id: 'ntf_demo_2',
+    userId: DEMO_STUDENT_ACCOUNT,
+    kind: 'class_linked',
+    title: 'You are on a class',
+    body: 'Biology has been added to your week.',
+    url: '/classes',
+    readAt: null,
+    createdAt: '2026-03-08T14:40:00.000Z',
+  },
+  {
+    id: 'ntf_demo_3',
+    userId: DEMO_STUDENT_ACCOUNT,
+    kind: 'schedule_updated',
+    title: 'Your timetable changed',
+    body: 'Physics moved to Thursday afternoon.',
+    url: '/schedule',
+    readAt: '2026-03-08T15:02:00.000Z',
+    createdAt: '2026-03-07T11:05:00.000Z',
   },
 ];
 
@@ -2258,6 +2304,92 @@ export const fixtures: WorkspaceData = {
       (note) => note.id === notificationId && note.userId === userId,
     );
     if (row) row.readAt = new Date().toISOString();
+  },
+
+  async getStudent(userId, studentId) {
+    guard('getStudent');
+    /*
+     * Visible AND actionable, in that order. `listStudents` is bounded by
+     * `ownedClass`, so a caller who may read a roster row may act on it; this
+     * answers the same question for one row rather than for a whole class.
+     */
+    const row = store.students.find((student) => student.id === studentId);
+    if (!row || row.archivedAt !== null) return null;
+
+    if (row.accountId === userId) return row;
+    if (row.ownerId === userId) return row;
+
+    /*
+     * `isDemoStaff`, and this is the same escape `createFlashcardDeck` and
+     * `listClasses` already use, for the same reason: the seeded classes and
+     * roster rows carry the synthetic `demo-owner`, which is nobody's account
+     * id, so the comparison below refuses the row to the very teacher the demo
+     * is built around.
+     *
+     * IT WAS A SILENT NO-OP, NOT AN ERROR. `saveScheduleEntry` resolves the
+     * recipient through this method and then writes a note, so a null here made
+     * the notification feature have no producer at all in fixture mode, the
+     * demo, and the whole Playwright suite, while the database returned the row
+     * and would have written the note. That is the dangerous direction of a seam
+     * disagreement: the fixture is stricter than Postgres, so nothing fails
+     * loudly and a working feature simply never appears.
+     *
+     * Narrower than `isDemoAccount` on purpose, even though `ownedClass` beside
+     * it uses the broader one. Reading a roster is not authority over it: a demo
+     * student or parent may legitimately see a class, and must not be handed the
+     * right to write into somebody's inbox because of it.
+     */
+    if (isDemoStaff(userId)) return row;
+
+    const ownsTheirClass = store.classes.some(
+      (cls) => cls.id === row.classId && cls.ownerId === userId,
+    );
+    return ownsTheirClass ? row : null;
+  },
+
+  async createNotification(userId, input) {
+    guard('createNotification');
+    /*
+     * The same refusal the policy makes, stated in the same terms.
+     *
+     * The database admits an insert only when the recipient is somebody the
+     * writer teaches, and never the writer themselves. Repeating it here is the
+     * point: a fixture that skipped the check would let fixture mode, the demo
+     * and the whole suite send a notification the real adapter would refuse.
+     *
+     * `isDemoStaff` rather than `isDemoAccount`, for the same reason
+     * `createFlashcardDeck` uses it. The demo set contains a student and a
+     * guardian, and neither owns a class, so widening this to every demo
+     * account would let a student write into any classmate's inbox.
+     */
+    if (input.recipientId === userId) {
+      throw new DataError('FORBIDDEN', 'You cannot notify yourself.');
+    }
+    if (!isDemoStaff(userId)) {
+      const teachesRecipient = store.students.some(
+        (student) =>
+          student.accountId === input.recipientId &&
+          student.archivedAt === null &&
+          store.classes.some((cls) => cls.id === student.classId && cls.ownerId === userId),
+      );
+      if (!teachesRecipient) {
+        throw new DataError('FORBIDDEN', 'You can only notify a student on your own roster.');
+      }
+    }
+
+    const now = new Date().toISOString();
+    const note: NotificationRecord = {
+      id: fixtureId('ntf', userId),
+      userId: input.recipientId,
+      kind: input.kind,
+      title: input.title,
+      body: input.body,
+      url: input.url,
+      readAt: null,
+      createdAt: now,
+    };
+    store.notifications = [note, ...store.notifications];
+    return { ...note };
   },
 };
 

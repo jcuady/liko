@@ -5,7 +5,7 @@ import { PushToggle } from './PushToggle';
 import { requireSession } from '@/lib/auth/guards';
 
 export const metadata: Metadata = {
-  title: 'Notifications',
+  title: 'Push alerts',
   description: 'Choose whether LIKO can reach you outside the workspace.',
 };
 
@@ -15,9 +15,14 @@ export default async function NotificationsPage() {
   return (
     <div className="mx-auto max-w-[42rem]">
       <PageHeader
-        title="Notifications"
-        description="LIKO can only interrupt you about a student who needs attention. Nothing else is sent."
+        title="Push alerts"
+        description="Whether LIKO may interrupt you on this device about a student who needs attention."
       />
+
+      <p className="mt-3 text-body text-ink-muted">
+        Notes about your own timetable and your classes are not push alerts. Those arrive
+        in the bell in the header, and this page does not switch them on or off.
+      </p>
 
       <div className="rounded-[16px] border border-border bg-surface p-5">
         <div className="flex flex-wrap items-start justify-between gap-4">

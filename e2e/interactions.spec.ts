@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 
 import { chooseOption, chosenValue, optionEntries, optionLabels } from './helpers/select';
+import { toastText } from './helpers/toast';
 
 /**
  * The interactive surface, driven the way a teacher drives it.
@@ -170,7 +171,19 @@ test.describe('attendance register', () => {
     await expect(excused).toBeVisible();
 
     await excused.click();
-    await expect(page.getByText('Clearing a mark is not available yet')).toBeVisible();
+    /*
+     * Scoped to the toast. `toast.error` mirrors its title into the assertive
+     * live region as well as into Sonner, so this text is in the document
+     * twice: once for as long as the toast lives and once in a region that is
+     * never cleared. A bare `getByText` therefore passed or failed depending on
+     * whether the assertion resolved inside the four-second toast window, which
+     * is the same latent flake `onboarding.spec.ts` had. Only the title is
+     * mirrored, so the description below is still safe to read anywhere.
+     */
+    await expect(toastText(page, 'Clearing a mark is not available yet')).toBeVisible();
+    await expect(
+      toastText(page, 'Set present, late, absent, or excused instead.'),
+    ).toBeVisible();
   });
 });
 

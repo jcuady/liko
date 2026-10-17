@@ -1,11 +1,14 @@
 import { redirect } from 'next/navigation';
 
 import { LikoLogo } from '@/components/brand/LikoLogo';
+import { data } from '@/lib/api/client';
 import { requireSession } from '@/lib/auth/guards';
+import type { NotificationRecord } from '@/lib/api/types';
 import { Sidebar, MobileTabBar } from './components/Navigation';
 import { OfflineBanner } from './components/OfflineBanner';
 import { UserMenu } from './components/UserMenu';
 import { CommandPalette } from './components/CommandPalette';
+import { NotificationBell } from './components/NotificationBell';
 
 /**
  * App shell.
@@ -22,6 +25,21 @@ export default async function DashboardLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   const session = await requireSession();
   if (!session) redirect('/login');
+
+  /*
+   * The unread count belongs on the first paint rather than after a request the
+   * browser makes once it has already drawn the header, so the bell is fed here
+   * where the session is already in hand. A read that fails leaves the bell with
+   * no badge, which is the honest state to be in when the inbox could not be
+   * read, and never takes the shell down with it.
+   */
+  let notifications: NotificationRecord[] = [];
+  try {
+    const store = await data();
+    notifications = await store.listNotifications(session.userId);
+  } catch {
+    notifications = [];
+  }
 
   return (
     <div className="flex min-h-[100dvh] flex-col lg:flex-row">
@@ -50,7 +68,10 @@ export default async function DashboardLayout({
               <CommandPalette />
             </div>
 
-            <UserMenu email={session.email} />
+            <div className="flex items-center gap-1">
+              <NotificationBell initialItems={notifications} />
+              <UserMenu email={session.email} />
+            </div>
           </header>
 
           <OfflineBanner />

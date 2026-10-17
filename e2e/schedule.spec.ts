@@ -533,3 +533,77 @@ test.describe('a student reads the term without being able to set it', () => {
     await expect(page.getByRole('button', { name: /^Remove .+ term$/ })).toHaveCount(0);
   });
 });
+
+/*
+ * THE WHOLE JOURNEY, IN ONE TEST, AND THAT IS THE POINT.
+ *
+ * A teacher saves a class, the student is told, reads the note, and it comes off
+ * their count. Each of those is small; the thing worth proving is that they join
+ * up, because the seam between them is exactly where the `demo-owner` defect was
+ * hiding: `saveScheduleEntry` resolves the recipient through `getStudent`, a
+ * null is a silent no-op, and the class still saves either way.
+ *
+ * It lives here rather than in `notifications.spec.ts` because creating a note
+ * means writing to the demo student's week, and this is the file that owns that
+ * week and counts it. One test, one write, removed in a `finally`.
+ */
+test.describe('a class a teacher saves reaches the student', () => {
+  const BELL_CLASS = 'Bell journey';
+
+  async function clearBellClass(page: Page): Promise<void> {
+    await page
+      .getByRole('button', { name: `Remove ${BELL_CLASS}` })
+      .click({ timeout: 2_000 })
+      .catch(() => {});
+  }
+
+  test('is told about it, reads it, and it comes off the count', async ({ page, browser }) => {
+    await signIn(page, 'maya@liko.test');
+    await page.goto(`/schedule?student=${DEMO_STUDENT_ID}`);
+    await expect(page.locator('#workspace-main')).toBeVisible();
+    await clearBellClass(page);
+
+    const studentContext = await browser.newContext();
+    const student = await studentContext.newPage();
+    await signIn(student, 'student@liko.test');
+
+    try {
+      await page.getByRole('button', { name: 'Add a class on Friday' }).click();
+      const dialog = page.getByRole('dialog');
+      await dialog.getByLabel('Class').fill(BELL_CLASS);
+      await dialog.getByLabel('Starts').fill('16:00');
+      await dialog.getByLabel('Ends').fill('17:00');
+      await dialog.getByRole('button', { name: 'Add class' }).click();
+      await expect(dialog).toHaveCount(0);
+
+      // Unread, because nothing has read it yet and the row says so.
+      await student.getByRole('button', { name: /^Notifications(, \d+ unread)?$/ }).click();
+      const menu = student.getByRole('menu', { name: 'Notifications' });
+      await expect(menu).toBeVisible();
+
+      const row = student.getByRole('menuitem', { name: new RegExp(`${BELL_CLASS} was added`) });
+      await expect(row, 'saving a class produced no note').toBeVisible();
+      await expect(row).toContainText('Unread.');
+
+      // Reading it takes it to the thing it is about, which is the reason the
+      // url column on the row exists at all.
+      await row.click();
+      await student.waitForURL(/\/schedule/, { timeout: 30_000 });
+      await expect(student.locator('#workspace-main')).toBeVisible();
+
+      // Re-read off the server rather than trusting the optimistic update: a
+      // badge that only moved in the browser is not a badge that was written.
+      await student.reload();
+      await student.getByRole('button', { name: /^Notifications(, \d+ unread)?$/ }).click();
+      const reopened = student.getByRole('menu', { name: 'Notifications' });
+      await expect(reopened).toBeVisible();
+
+      const after = student.getByRole('menuitem', { name: new RegExp(`${BELL_CLASS} was added`) });
+      await expect(after).toBeVisible();
+      await expect(after).not.toContainText('Unread.');
+    } finally {
+      await clearBellClass(page);
+      await studentContext.close();
+    }
+  });
+});
