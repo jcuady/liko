@@ -13,22 +13,32 @@ by a command that was run, or is marked **NOT VERIFIED** with the reason.
 
 ## Verification summary
 
-| Check | Result | Evidence |
-|---|---|---|
-| Build | **PASS** | `pnpm build`, exit 0 |
-| Typecheck | **PASS** | `pnpm typecheck`, exit 0 |
-| Lint | **PASS** | `pnpm lint`, exit 0 |
-| Unit tests | **PASS** | 373 passed, 2 skipped, 28 files |
-| e2e | **PASS** | 197 passed |
-| SQL parse + cross-refs | **PASS** | 228 statements, 25 tables, RLS on all 25, 27 policies re-runnable |
-| **Migration applied to production** | **PASS** | 25 of 25 tables present, measured before and after |
-| Dead handlers / `href="#"` / TODO / `console.*` | **PASS** | ripgrep, no matches |
-| Raw hex outside exemptions | **PASS** | 7 hits, all legitimately exempt |
-| `transition: all`, `h-screen`, `localStorage.setItem`, `text-white` | **PASS** | zero hits |
-| Responsive | **PASS** | 5 viewports 375-1920, no overflow |
-| Behaviour (anchors, reduced motion, no-JS) | **PASS** | all checks pass |
-| Student sign-up end to end | **PASS** | registers as a student and lands on `/classes`, not the teacher wizard |
-| Crafted `role: "admin"` | **REFUSED** | schema rejects it; no account created, and the test asserts that rather than a silent fallback |
+Measured against the working tree at the time each row was last run. Rows are
+**not** all current, and the two that are stale say so rather than being left to
+look green.
+
+| Check | Result | Evidence | Last run |
+|---|---|---|---|
+| Build | **PASS** | `pnpm build`, exit 0 | round eight |
+| Typecheck | **PASS** | `pnpm typecheck`, exit 0 | round eight |
+| Lint | **PASS** | `pnpm lint`, exit 0 | round eight |
+| Unit tests | **PASS** | **520 passed, 2 skipped, 39 files** | round eight |
+| e2e | **FAIL, last full run** | Recorded at `edb4e4f` as 10 of 11 gates green with e2e red at `flashcards.spec.ts:169`. **Not re-run since** the concurrent scheduler and auth work landed, so the count below is the last observed one and not a current measurement. See round eight. | `edb4e4f` |
+| SQL parse + cross-refs | **PASS, not re-measured this round** | 228 statements, 25 tables, RLS on all 25, 27 policies re-runnable | earlier round |
+| **Migration applied to production** | **PASS** | 25 of 25 tables present, measured before and after | earlier round |
+| Dead handlers / `href="#"` / TODO / `console.*` | **PASS, not re-measured this round** | ripgrep, no matches | earlier round |
+| Raw hex outside exemptions | **PASS, not re-measured this round** | 7 hits, all legitimately exempt | earlier round |
+| `transition: all`, `h-screen`, `localStorage.setItem`, `text-white` | **PASS, not re-measured this round** | zero hits | earlier round |
+| Responsive | **PASS, not re-measured this round** | 5 viewports 375-1920, no overflow | earlier round |
+| Behaviour (anchors, reduced motion, no-JS) | **PASS, not re-measured this round** | all checks pass | earlier round |
+| Student sign-up end to end | **BLOCKED externally** | Supabase answers `429 over_email_send_rate_limit`. Registration cannot be exercised until a custom SMTP provider is configured. This is a dashboard setting, not an application defect. | round five |
+| Crafted `role: "admin"` | **REFUSED** | schema rejects it; no account created, and the test asserts that rather than a silent fallback | earlier round |
+
+**The e2e row is the one to read.** Everything else in this table was green
+before this round and is green now. The single failure is an assertion the
+concurrent scheduler rewrite made stale, and it is recorded as a failure rather
+than described around, because a gate that is red and a gate that is green look
+identical in a summary unless one of them is written down honestly.
 
 ---
 
@@ -1328,3 +1338,190 @@ students" are different facts and only one of them is true here.
 students and production shows none. This is the fourth time this project has
 found that shape, and the comment on `listClasses` already describes it in full
 for the earlier occurrence.
+
+## Round eight: a contract that was false on the path it was written about
+
+### Round seven's three open findings are closed
+
+They are recorded above as open. They are not any more, and leaving them worded
+that way would be the doc lying in the way this audit exists to prevent.
+
+**`schedule_entries` is empty in the live database — closed (`bf49804`).**
+`scripts/seed.mjs` grew `seedWeek`, `seedFlashcards`, `seedTermAndDates` and
+`seedTeachingSurface`, all run from the existing-class branch and guarded by a
+lookup rather than a flag. The live database now holds **360
+`weekly_schedule_entries`, 3 decks, 18 cards, 3 terms and 2 calendar events**.
+Idempotence was proved rather than assumed: a second run wrote 0 rows. Confirmed
+on production, where the student week renders fifteen lessons and the conflict
+panel fires on the seeded Wednesday overlap, and where a teacher's `/flashcards`
+reads "Unit 1: Atomic Structure, 6 cards".
+
+**An administrator sees "0 students" for a class of eight — closed (`d75a38a`).**
+Not by widening RLS, because whether an administrator may read a child's record
+is a privacy decision and not an audit's to take by default. `ClassSummary` now
+carries `rosterVisible: classRecord.ownerId === session.userId` beside the count,
+so the card reads "Roster not visible to you", the header reads "N students
+across the M rosters you can see", and the roster panel names whose class it is.
+Verified against real Postgres rather than against the fixture: `dev@` sees
+"3 classes. 8 students across the 1 roster you can see." and `maya@` is unchanged.
+The privacy question itself stays open and is recorded as such.
+
+**The fixture hides it — partially closed, and honestly.** The demo accounts are
+still exempted, so a browser run continues to answer a question production does
+not. What changed is that the page can no longer be wrong: it reports what it was
+permitted to read rather than what it happened to be handed.
+
+### A `?? ''` that turned "not signed in" into a Postgres type error
+
+`currentStudentId` resolved the roster row by reading the account id inline:
+
+```ts
+.eq('account_id', (await supabase.auth.getUser()).data.user?.id ?? '')
+```
+
+`account_id` is a uuid. When `getUser()` returns no user that renders
+`account_id=eq.`, and Postgres answers `22P02 invalid input syntax for type uuid:
+""`. The function's own docstring promised *"Returns null rather than throwing for
+an account with no roster row"*, so the contract was false on precisely the path
+it was written about.
+
+The two answers are now separated, because they are different facts. **Null**
+means signed in and not a student, and every caller may render an empty review
+session for it. **Throwing** means not signed in, and a caller handed null there
+would show an empty session to somebody who is not signed in at all, which is the
+silent no-op a `null` must never be. That distinction is the whole fix; the
+guard is what keeps it.
+
+**Reachability was checked rather than assumed.** There is no Next middleware in
+the original tree, and in `supabase` mode the dashboard gate is the LIKO cookie
+alone: `guards.ts` returned the signed cookie without revalidating it. That
+cookie lives seven days under "remember me" while the Supabase session it shadows
+can be revoked, rotated out, or simply fail to refresh. The two genuinely
+diverge, so the old line turned that window into a raw Postgres error.
+
+Honest scope: **this is latent, not an active outage.** All six live accounts have
+real Supabase sessions and the dead-session path has never been observed firing.
+The documented behaviour was wrong regardless, which is why it was worth fixing
+while the window was theoretical.
+
+Measured against production Postgres, before the finding was written down:
+
+| call | result |
+| --- | --- |
+| `.eq(uuid_col, '')` | `22P02 invalid input syntax for type uuid: ""` |
+| `.in(col, [])` | no error, zero rows |
+| `.is('id', '<uuid>')` | `PGRST100 failed to parse filter` |
+
+and after the fix, the query the function actually builds:
+
+| account | roster row | error |
+| --- | --- | --- |
+| `student@liko.test` | `312d15c9… "Ana Ferreira"` | none |
+| `ingrid@` (teacher) | no rows | none |
+| `dev@` (admin) | no rows | none |
+| `guardian@` | no rows | none |
+
+### The guard asserts the query, not the text
+
+The first version of this guard scanned `client.ts` for the reflex. It went red
+on exactly one line, which is the point of writing it, but a source scan has a
+blind spot worth naming: it matches a fallback written on the same line as the
+`.eq()`, and an empty value computed earlier and passed under a name would walk
+straight past it.
+
+So the tests now drive the function with a stub client and assert **which queries
+it declines to build** — that a dead session throws before any `.eq()` is issued,
+that a signed-in account with no roster row still returns `null`, and that a
+failed session lookup surfaces instead of being queried with. The defect was
+never in the characters, so pinning the characters was never going to be enough.
+
+That third case is the one worth keeping: it is what stops a future fix from
+quietly merging "no session" back into "not a student" and reintroducing the
+silent no-op.
+
+### The rewrite that did land, and the one assertion still holding it
+
+The interval question from round four came back and was settled by observation
+rather than by re-reading a comment. Running the real scheduler against a new
+card:
+
+| | again | hard | good | easy |
+| --- | --- | --- | --- | --- |
+| new card | `1m` | `10m` | `1d` | `3d` |
+| review card at 1 day | `1m` | `2d` | `3d` | `4d` |
+
+Four distinct labels, where the old ladder produced `10m` under three of them. The
+unit tests were rewritten to match, including one that had pinned the wrong
+specification and was replaced with an ordering assertion.
+
+One e2e assertion still reads the old world:
+
+```
+e2e/flashcards.spec.ts:169    await expect(good).toContainText('10m');
+```
+
+It has to change to `'1d'`, and it has to land **in the same commit** as the
+scheduler: changed alone it turns `HEAD` red in the opposite direction, because
+`HEAD` still holds the old scheduler. The hint cannot drift from what the
+scheduler writes — `previewIntervals` is `formatInterval(review(...))`, so it
+*is* the scheduler — which is what makes that assertion a real witness rather
+than a string that happened to be pinned.
+
+### Three failures that were the instruments, not the application
+
+Recorded because each was reported as a product defect and none was one.
+
+**`git status` hid four modified files.** The index stat cache goes stale on
+Windows and OneDrive, so `git status --porcelain` reported a clean set while
+`git diff HEAD --name-only` listed six. Work belonging to a concurrent process
+was being attributed from `git status`, and two files were misattributed as a
+result. When a second process is working in the same checkout, the authoritative
+list is `git diff HEAD --name-only`; it reads content and cannot be fooled by a
+stale cache.
+
+**Two `next start` on one `.next` 500 every static chunk.** The symptom was 225
+console errors, `text/plain` on every `/_next/static/**`, and a page that never
+hydrated — which surfaced downstream as *"the control was not rendered, so the
+write was never attempted"*, which reads exactly like a broken feature. The
+server log was clean throughout. A 500 on a static asset under `next start` is
+almost never the application; it is build thrash.
+
+**The verifier read its own source mid-edit.** A `const ERROR_BOUNDARY` used two
+hundred lines below it threw `ReferenceError: ERROR_BOUNDARY is not defined`, and
+the harness printed it as a failed account. The declaration and the use had
+landed in two separate saves, and Node had loaded the file between them. A
+`ReferenceError` naming a symbol that is visibly declared on disk is a stale
+read, not a bug.
+
+All three had already been reported as product failures before they were
+attributed, and each had to change what the product appeared to be doing. That is
+the common shape, and it is why the habit matters more than any one of them: a
+tool failure must never be reported as a product failure, and the cheapest
+question to ask when a failure appears in a shared tree is what the instrument
+is actually reading.
+
+### What round eight changed
+
+- `currentStudentId` no longer builds a uuid filter from a value that might not be
+  one, and no longer throws a Postgres type error where it promised to return
+  `null`.
+- `postgrest-filter.test.ts` gained a behavioural half that pins which queries the
+  function declines to build, beside the source scan that found the defect.
+- Round seven's first three open findings are closed above, and the admin privacy
+  question is recorded as still open rather than quietly answered.
+- Two production seed gaps closed: the timetable and the flashcard decks.
+
+### Three findings this round did not close
+
+**The scheduler rewrite and one e2e assertion are still coupled and unshipped.**
+This is the only thing standing between the tree and a green gate.
+
+**A live browser verification has not been obtained.** Every Playwright run in
+this project drives the fixtures, and the two attempts to run the real
+application this round were both invalidated by build thrash rather than by the
+application. The evidence above is direct Postgres reads instead, which answers
+the question that was asked but is not a substitute for driving the rendered
+pages.
+
+**The administrator privacy question is still a question.** The page is honest
+about it now; whether the policy should change is not decided here.
