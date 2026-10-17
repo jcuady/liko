@@ -3027,18 +3027,55 @@ function mapProgress(row: Row): FlashcardProgressRecord {
  * works that way. Returns null rather than throwing for an account with no
  * roster row: a teacher holding no schedule is an ordinary state, and the only
  * thing the caller can do with it is show no review session.
+ *
+ * THROWS WHEN THERE IS NO SUPABASE USER, and that is a different fact from the
+ * one above. The two were conflated by reading the account id inline as
+ * `(await supabase.auth.getUser()).data.user?.id ?? ''`, which turned "this
+ * request has no Supabase session" into a query filtering `account_id=''`.
+ * `account_id` is a uuid, so Postgres answered `22P02 invalid input syntax for
+ * type uuid: ""` and the documented "returns null rather than throwing" was
+ * false on exactly the path it was written about.
+ *
+ * The two answers have to stay separate. Null means "signed in, not a student",
+ * and every caller is free to show an empty review session for it. Throwing
+ * means "not signed in", and a caller that rendered null for that would show an
+ * empty review session to somebody who is not signed in at all, which is the
+ * silent no-op a null is never allowed to be.
  */
 async function currentStudentId(
   supabase: Awaited<ReturnType<typeof requireClient>>,
 ): Promise<string | null> {
+  const { data: userData, error: userError } = await supabase.auth.getUser();
+  if (userError) throw userError;
+  const accountId = userData.user?.id;
+  if (!accountId) {
+    throw new Error(
+      'No Supabase session is attached to this request, so there is no account to resolve a roster row for. A LIKO session that outlives its Supabase session reaches this.',
+    );
+  }
+
   const { data, error } = await supabase
     .from('students')
     .select('id')
-    .eq('account_id', (await supabase.auth.getUser()).data.user?.id ?? '')
+    .eq('account_id', accountId)
     .is('archived_at', null)
     .maybeSingle();
   if (error) throw error;
   return data ? str((data as Row).id) : null;
+}
+
+/**
+ * Test seam for `currentStudentId`, which is otherwise private.
+ *
+ * The client is a parameter precisely so this is possible: the function's only
+ * interesting behaviour is which queries it declines to build, and that cannot
+ * be observed from outside without a network. Exported for that reason and no
+ * other, so a reader can tell it apart from the adapter surface.
+ */
+export function __resolveCurrentStudentId(
+  supabase: Parameters<typeof currentStudentId>[0],
+): Promise<string | null> {
+  return currentStudentId(supabase);
 }
 
 function mapSlide(row: Row): SlideRecord {

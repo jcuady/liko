@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { __resolveCurrentStudentId } from './client';
 
 /**
  * PostgREST's `is` operator is not "equals", and this file exists because it
@@ -162,8 +163,113 @@ describe('PostgREST is-vs-eq, as this repo uses them', () => {
     expect(lines.filter((line) => /\.is\('[a-z_]+', null\)/.test(line)).length).toBeGreaterThan(0);
   });
 
+  it('never falls back to an empty string inside .eq()', () => {
+    /*
+     * The same trap, one layer down, and proved rather than assumed.
+     *
+     * Measured against the live database:
+     *   .eq('owner_id', '')   -> 22P02 invalid input syntax for type uuid: ""
+     *   .in('class_id', [])   -> no error, zero rows
+     *   .is('id', '<uuid>')   -> PGRST100 failed to parse filter
+     *
+     * `?? ''` is the reflex when an id might be missing, and it is the correct
+     * reflex for a text column and a 22P02 crash for a uuid one. The two are
+     * indistinguishable in the source, so the adapter has none.
+     *
+     * SCOPE, stated so the guard is not read as more than it is. This matches a
+     * fallback written on the same line as the `.eq()`, which is where the reflex
+     * actually lands. An empty value computed on an earlier line and passed in
+     * under a name would pass this scan, which is why the behavioural tests below
+     * assert the built query rather than the text that builds it.
+     */
+    const offenders = lines
+      .map((line, index) => ({ line, number: index + 1 }))
+      .filter(({ line }) => /\.eq\('/.test(line) && /(\?\?|\|\|)\s*(''|"")/.test(line));
+
+    expect(
+      offenders,
+      `.eq() with an empty-string fallback: ${offenders
+        .map((o) => `stripped line ${o.number}: ${o.line}`)
+        .join(' | ')}`,
+    ).toEqual([]);
+  });
+
   it('leaves no comment markers behind in what it scans', () => {
     expect(lines.some((line) => line.startsWith('//'))).toBe(false);
     expect(lines.some((line) => line.startsWith('*'))).toBe(false);
+  });
+});
+
+/**
+ * The scan above reads text. This reads behaviour, because the defect it
+ * exists to catch was never in the characters: it was in a branch that built a
+ * query it should have declined to build, and only running the function shows
+ * which branch it takes.
+ */
+describe('resolving the roster row for the signed-in account', () => {
+  const UUID = '3f2a1b4c-5d6e-4f70-8192-a3b4c5d6e7f8';
+
+  function stub(options: {
+    userId: string | null;
+    getUserError?: unknown;
+    rows: Record<string, unknown> | null;
+  }) {
+    const eqCalls: Array<[string, unknown]> = [];
+    const query = {
+      select: () => query,
+      eq: (column: string, value: unknown) => {
+        eqCalls.push([column, value]);
+        return query;
+      },
+      is: () => query,
+      maybeSingle: async () => ({ data: options.rows, error: null }),
+    };
+    const client = {
+      auth: {
+        getUser: async () => ({
+          data: { user: options.userId ? { id: options.userId } : null },
+          error: options.getUserError ?? null,
+        }),
+      },
+      from: () => query,
+    };
+    return {
+      eqCalls,
+      resolve: () =>
+        __resolveCurrentStudentId(client as unknown as Parameters<typeof __resolveCurrentStudentId>[0]),
+    };
+  }
+
+  it('never sends an empty string to a uuid column', async () => {
+    /*
+     * The defect, as a behaviour. `account_id` is a uuid, and Postgres answers
+     * `22P02 invalid input syntax for type uuid: ""` rather than an empty
+     * result, so a caller that assumed "no rows" was reading a crash.
+     */
+    const noSession = stub({ userId: null, rows: null });
+    await expect(noSession.resolve()).rejects.toThrow(/No Supabase session/);
+    expect(noSession.eqCalls).toEqual([]);
+
+    const live = stub({ userId: UUID, rows: { id: 'stu_001' } });
+    expect(await live.resolve()).toBe('stu_001');
+    expect(live.eqCalls).toEqual([['account_id', UUID]]);
+  });
+
+  it('returns null for a signed-in account with no roster row', async () => {
+    /*
+     * The documented contract, and the reason this function returns null at all:
+     * a teacher holding no review schedule is an ordinary state, not an error.
+     * It is worth pinning because it is the answer that must NOT change when the
+     * no-session case starts throwing.
+     */
+    const teacher = stub({ userId: UUID, rows: null });
+    expect(await teacher.resolve()).toBeNull();
+    expect(teacher.eqCalls).toEqual([['account_id', UUID]]);
+  });
+
+  it('surfaces a failed session lookup instead of querying with what it returned', async () => {
+    const broken = stub({ userId: null, getUserError: new Error('Auth session missing!'), rows: null });
+    await expect(broken.resolve()).rejects.toThrow('Auth session missing!');
+    expect(broken.eqCalls).toEqual([]);
   });
 });
