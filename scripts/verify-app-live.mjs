@@ -92,7 +92,21 @@ const ACCOUNTS = [
     label: 'admin',
     routes: [
       ['/overview', null],
-      ['/classes', 'Ana Ferreira'],
+      /*
+       * Renders, and deliberately not asserted for a student's name.
+       *
+       * This used to expect 'Ana Ferreira', which was the fixture's answer rather
+       * than the database's. `classes` carries `admin reads classes`, so an
+       * administrator lists every class in the organisation; `students` has no
+       * admin policy, so the roster read returns nothing for a class they do not
+       * teach. Asserting a student here would have demanded that RLS be widened
+       * to admit children's names to every administrator, disguised as a data
+       * check.
+       *
+       * What is asserted instead is that the page refuses to invent a number,
+       * which is the part that was wrong and is now pinned.
+       */
+      ['/classes', /Roster not visible to you/],
       // The member list is an embed across memberships and profiles. It reads
       // through a foreign key PostgREST can only resolve if it points at a table
       // in the public schema, and when it cannot it throws PGRST200 and takes the
@@ -294,6 +308,22 @@ async function verifyRoutes(account) {
         if (!body.includes(expect)) {
           ok = false;
           detail = `HTTP 200 but "${expect}" is not on the page, so this is an empty state rather than real data`;
+        }
+      } else if (ok && expect instanceof RegExp) {
+        /*
+         * A regular expression is a real assertion, and it has to be handled
+         * rather than ignored.
+         *
+         * The branch below it checks `expect.input`, and a RegExp is an object
+         * without an `input` property, so a route written as `['/classes',
+         * /some text/]` fell through both branches and passed without reading the
+         * page at all. A check that cannot fail is worse than no check, because
+         * it looks like coverage in the output.
+         */
+        const body = await pageText(page);
+        if (!expect.test(body)) {
+          ok = false;
+          detail = `HTTP 200 but ${expect} does not match the page, which reads: ${body.slice(0, 120)}`;
         }
       } else if (ok && expect && typeof expect === 'object' && expect.input) {
         const control = page.getByLabel(expect.input, { exact: false }).first();

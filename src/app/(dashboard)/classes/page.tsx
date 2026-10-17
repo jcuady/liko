@@ -58,6 +58,25 @@ export default async function ClassesPage() {
     level: classRecord.level,
     meetsPerWeek: classRecord.meetsPerWeek,
     students: byClass.get(classRecord.id) ?? [],
+    /*
+     * WHETHER THE ROSTER IS OURS TO READ, WHICH IS NOT THE SAME AS BEING EMPTY.
+     *
+     * `classes` carries an admin policy, so an administrator lists every class
+     * in the organisation. `students` has only "own rows" and "linked reads own
+     * student row", neither of which admits an administrator, so every roster
+     * read for a class they do not teach returns nothing.
+     *
+     * That arrives here as an empty array, and an empty array rendered as a
+     * count is a lie: the page said "0 students" about a class of eight, in the
+     * same breath as a header saying "8 students in total". RLS cannot report a
+     * denial, so the count cannot be inferred from the data. It has to be
+     * carried alongside it, from the one fact that does distinguish the two.
+     *
+     * This is deliberately independent of whether an administrator *should* see
+     * children's records. If that policy widens, this can be relaxed; until then
+     * the page must not state a number it was not permitted to read.
+     */
+    rosterVisible: classRecord.ownerId === session.userId,
   }));
 
   return (

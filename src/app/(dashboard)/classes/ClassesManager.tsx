@@ -82,25 +82,45 @@ export interface ClassSummary {
   level: ClassLevel;
   meetsPerWeek: number;
   students: StudentRecord[];
+  /**
+   * Whether this account may read the roster, as opposed to merely seeing the
+   * class. False renders no count, because RLS cannot tell an empty class from
+   * a denied one and a printed "0" would be a claim nobody checked.
+   */
+  rosterVisible: boolean;
 }
 
 export function ClassesManager({ classes }: { classes: ClassSummary[] }) {
   const [selectedId, setSelectedId] = React.useState<string | null>(classes[0]?.id ?? null);
   const selected = classes.find((item) => item.id === selectedId) ?? classes[0] ?? null;
 
+  const visible = classes.filter((item) => item.rosterVisible);
+  const studentsSeen = visible.reduce((total, item) => total + item.students.length, 0);
+  const classNoun = classes.length === 1 ? 'class' : 'classes';
+
+  /*
+   * The old sentence, and the honest one.
+   *
+   * "3 classes, 8 students in total" is true when every roster is yours. It is
+   * false when one is not, and it was false in production for exactly one
+   * account. So the total is only stated across the rosters this account may
+   * actually read, and the count of those is said rather than implied.
+   */
+  const summary =
+    classes.length === 0
+      ? 'Nothing yet.'
+      : visible.length === classes.length
+        ? `${classes.length} ${classNoun}, ${studentsSeen} students in total.`
+        : `${classes.length} ${classNoun}. ${studentsSeen} students across the ${visible.length} ${
+            visible.length === 1 ? 'roster' : 'rosters'
+          } you can see.`;
+
   return (
     <div className="flex flex-col gap-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h2 className="text-h4">Your classes</h2>
-          <p className="text-meta text-ink-muted">
-            {classes.length === 0
-              ? 'Nothing yet.'
-              : `${classes.length} ${classes.length === 1 ? 'class' : 'classes'}, ${classes.reduce(
-                  (total, item) => total + item.students.length,
-                  0,
-                )} students in total.`}
-          </p>
+          <p className="text-meta text-ink-muted">{summary}</p>
         </div>
         <NewClassDialog />
       </div>
@@ -144,9 +164,15 @@ export function ClassesManager({ classes }: { classes: ClassSummary[] }) {
                       <Badge tone={active ? 'accent' : 'neutral'}>{item.code}</Badge>
                     </span>
                     <span className="mt-1 block text-meta text-ink-muted">
-                      {LEVEL_LABELS[item.level]} · {item.students.length}{' '}
-                      {item.students.length === 1 ? 'student' : 'students'} · {item.meetsPerWeek}{' '}
-                      {item.meetsPerWeek === 1 ? 'lesson' : 'lessons'} a week
+                      {item.rosterVisible
+                        ? `${LEVEL_LABELS[item.level]} · ${item.students.length} ${
+                            item.students.length === 1 ? 'student' : 'students'
+                          } · ${item.meetsPerWeek} ${
+                            item.meetsPerWeek === 1 ? 'lesson' : 'lessons'
+                          } a week`
+                        : `${LEVEL_LABELS[item.level]} · Roster not visible to you · ${
+                            item.meetsPerWeek
+                          } ${item.meetsPerWeek === 1 ? 'lesson' : 'lessons'} a week`}
                     </span>
                   </button>
                 </li>
@@ -266,7 +292,20 @@ function RosterPanel({ classRecord }: { classRecord: ClassSummary }) {
           document by 16px: a page that scrolled sideways by a hair for no
           visible reason.
         */}
-        {classRecord.students.length === 0 ? (
+        {/*
+          THREE THINGS LOOK THE SAME HERE AND ONLY ONE OF THEM IS TRUE: a roster
+          nobody has added to, a roster you are not allowed to read, and a
+          roster that failed to load. The second says so, because "add the first
+          one" is advice that is wrong when the answer is that you cannot see
+          them, and it invites an administrator to try to write into a class
+          they do not teach.
+        */}
+        {!classRecord.rosterVisible ? (
+          <p className="text-body text-ink-muted">
+            This roster belongs to another teacher, so you cannot see the names on it. The
+            class, its register and its gradebook are unaffected.
+          </p>
+        ) : classRecord.students.length === 0 ? (
           <p className="text-body text-ink-muted">
             No students on this roster yet. Add the first one and the register, gradebook, and
             history all start filling in.
