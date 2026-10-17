@@ -404,6 +404,242 @@ async function seedScannableQuiz(supabase, ownerId, klass) {
   if (questionError) throw questionError;
 }
 
+/**
+ * THE WEEK, WHICH NOTHING EVER SEEDED.
+ *
+ * WHY THIS EXISTS AND WHY IT IS HERE RATHER THAN IN THE CLASS BLOCK. The seed
+ * wrote classes, rosters, attendance, assessments and grades, and never wrote a
+ * timetable. So the deployment's flagship page rendered "No classes yet" for
+ * every student while the fixtures showed a full week: a green test suite and a
+ * blank screen, which is the exact combination that hides a seed gap. Putting
+ * this inside the "class already exists" branch is the whole point, because the
+ * database this fixes is one that has already been seeded, and code that only
+ * runs on first creation never repairs anything.
+ *
+ * GUARDED BY A LOOKUP, NOT BY A FLAG. It asks whether any of these students
+ * already has a row, and returns without writing if so. A seed that decides
+ * what to do from a boolean in its own memory will eventually be run twice and
+ * double the timetable; this cannot.
+ *
+ * THE DOUBLE BOOKING IS DELIBERATE, mirroring the fixture. Wednesday's
+ * Technology and Clinic overlap by thirty minutes, which is the state the
+ * conflict panel exists to report. A demo week with no conflicts exercises
+ * nothing.
+ */
+const DEMO_WEEK = [
+  [1, 7 * 60, 'Filipino', 'Dela Cruz', 'Room 201'],
+  [1, 8 * 60 + 30, 'Mathematics', 'Santos', 'Room 204'],
+  [1, 10 * 60, 'English', 'Reyes', 'Room 118'],
+  [2, 7 * 60 + 30, 'Science', 'Lopez', 'Lab 2'],
+  [2, 9 * 60, 'Mathematics', 'Santos', 'Room 204'],
+  [2, 10 * 60 + 30, 'History', 'Aquino', 'Room 210'],
+  [3, 8 * 60, 'Science', 'Lopez', 'Lab 2'],
+  [3, 9 * 60 + 30, 'English', 'Reyes', 'Room 118'],
+  [3, 13 * 60, 'Technology', 'Cruz', 'Lab 1'],
+  [3, 13 * 60 + 30, 'Clinic', 'School nurse', null],
+  [4, 7 * 60 + 30, 'Filipino', 'Dela Cruz', 'Room 201'],
+  [4, 9 * 60, 'Mathematics', 'Santos', 'Room 204'],
+  [4, 10 * 60 + 30, 'Physical Education', 'Ramos', 'Gym'],
+  [5, 8 * 60, 'English', 'Reyes', 'Room 118'],
+  [5, 10 * 60, 'Values Education', 'Torres', 'Room 105'],
+];
+
+async function seedWeek(supabase, ownerId, classId) {
+  const { data: students } = await supabase
+    .from('students')
+    .select('id')
+    .eq('class_id', classId)
+    .is('archived_at', null);
+
+  if (!students?.length) return 0;
+  const ids = students.map((row) => row.id);
+
+  const { data: already } = await supabase
+    .from('weekly_schedule_entries')
+    .select('id')
+    .in('student_id', ids)
+    .limit(1);
+
+  if (already?.length) return 0;
+
+  const rows = [];
+  for (const student of students) {
+    for (const [dayOfWeek, startMinute, title, teacherName, room] of DEMO_WEEK) {
+      rows.push({
+        student_id: student.id,
+        owner_id: ownerId,
+        day_of_week: dayOfWeek,
+        start_minute: startMinute,
+        end_minute: startMinute + 60,
+        title,
+        teacher_name: teacherName,
+        room,
+        source: 'manual',
+      });
+    }
+  }
+
+  const { error } = await supabase.from('weekly_schedule_entries').insert(rows);
+  if (error) throw error;
+  return rows.length;
+}
+
+/**
+ * ONE SHARED DECK, BECAUSE FLASHCARDS WITH NO ROWS HAVE NEVER BEEN PROVEN.
+ *
+ * `listFlashcardDecks` was exercised against a real policy and a real signed-in
+ * account, and `/flashcards` had still only ever rendered its empty state in
+ * production. A deck shared into a class is what puts the read path, the RLS and
+ * the deck list on screen at the same time.
+ *
+ * `shared_at` is set together with `class_id` because the table refuses a deck
+ * that claims to be shared without saying where.
+ */
+const DECK_TITLE = 'Unit 1: Atomic Structure';
+const DECK_CARDS = [
+  { front: 'What does the number of protons in an atom determine?', back: 'The element. Change the proton count and it is a different element entirely.' },
+  { front: 'Why do electrons sit in shells rather than orbiting like planets?', back: 'Quantum states. Each shell holds a fixed maximum, and the outermost shell is what takes part in bonding.' },
+  { front: 'What is the first shell capacity?', back: 'Two electrons.' },
+  { front: 'What is the second shell capacity?', back: 'Eight electrons.' },
+  { front: 'What holds an atom together?', back: 'The electromagnetic attraction between the positive nucleus and the negative electrons.' },
+  { front: 'What is an isotope?', back: 'Same element, different number of neutrons. Same protons, so same element; different mass because of the neutrons.' },
+];
+
+async function seedFlashcards(supabase, ownerId, classId) {
+  const { data: existing } = await supabase
+    .from('flashcard_decks')
+    .select('id')
+    .eq('owner_id', ownerId)
+    .eq('title', DECK_TITLE)
+    .maybeSingle();
+
+  if (existing) return 0;
+
+  const { data: deck, error } = await supabase
+    .from('flashcard_decks')
+    .insert({
+      owner_id: ownerId,
+      class_id: classId,
+      title: DECK_TITLE,
+      subject: 'Science',
+      description: 'Six questions from the first unit, shared with the class.',
+      shared_at: new Date().toISOString(),
+    })
+    .select()
+    .single();
+
+  if (error) throw error;
+
+  const { error: cardError } = await supabase.from('flashcards').insert(
+    DECK_CARDS.map((card) => ({ ...card, deck_id: deck.id, owner_id: ownerId })),
+  );
+  if (cardError) throw cardError;
+
+  return DECK_CARDS.length;
+}
+
+/**
+ * A moment `daysAhead` from today at `hour`:00 UTC.
+ *
+ * `iso` above takes `daysAgo` and keeps the clock's current time of day, which
+ * is right for a row that is stamped and wrong for an event at nine in the
+ * morning. The first version of this seed tried to fix that with a string
+ * `.replace('T00:00:00.000Z', 'T09:00:00.000Z')`, which silently does nothing,
+ * because `iso` never returns midnight unless the seed happened to run then.
+ */
+function atHour(daysAhead, hour) {
+  const date = new Date();
+  date.setDate(date.getDate() + daysAhead);
+  date.setUTCHours(hour, 0, 0, 0);
+  return date.toISOString();
+}
+
+/**
+ * A term, and two dated things, because "Deadlines and dates" opens with the
+ * sentence "No term has been set up yet" on a database that has had classes in
+ * it for a while.
+ *
+ * NOTE THE SIGN. `dateOnly` takes `daysAgo`, so a positive number is in the past
+ * and a negative one is in the future. The first version had the term reversed,
+ * which is exactly what `academic_terms_ordered` exists to catch, and catching
+ * it was worth more than not writing it.
+ */
+async function seedTermAndDates(supabase, ownerId, classId, studentId) {
+  const { data: existingTerm } = await supabase
+    .from('academic_terms')
+    .select('id')
+    .eq('owner_id', ownerId)
+    .maybeSingle();
+
+  if (!existingTerm) {
+    const { error } = await supabase.from('academic_terms').insert({
+      owner_id: ownerId,
+      name: 'First term',
+      // NOT NULL, and one of exactly four words. Omitting it failed the run
+      // against the real table, which is the only place a NOT NULL constraint
+      // can be discovered rather than remembered.
+      kind: 'term',
+      starts_on: dateOnly(45),
+      ends_on: dateOnly(-60),
+    });
+    if (error) throw error;
+  }
+
+  const { data: existingEvent } = await supabase
+    .from('calendar_events')
+    .select('id')
+    .eq('owner_id', ownerId)
+    .maybeSingle();
+
+  if (!existingEvent) {
+    const { error } = await supabase.from('calendar_events').insert([
+      {
+        owner_id: ownerId,
+        student_id: studentId,
+        title: 'Science quiz: atomic structure',
+        notes: 'Chapters 1 to 3. Bring a calculator.',
+        starts_at: atHour(2, 9),
+        all_day: false,
+        kind: 'assessment',
+        created_by_role: 'instructor',
+      },
+      {
+        owner_id: ownerId,
+        student_id: studentId,
+        title: 'Project draft due',
+        notes: null,
+        starts_at: atHour(7, 12),
+        all_day: true,
+        kind: 'deadline',
+        created_by_role: 'instructor',
+      },
+    ]);
+    if (error) throw error;
+  }
+}
+
+/**
+ * Everything that makes a page show a real thing rather than an empty state.
+ * Safe to run against a database that has been seeded already, which is the
+ * only kind this ever gets pointed at.
+ */
+async function seedTeachingSurface(supabase, ownerId, classId, label) {
+  const weeks = await seedWeek(supabase, ownerId, classId);
+  const cards = await seedFlashcards(supabase, ownerId, classId);
+
+  const { data: first } = await supabase
+    .from('students')
+    .select('id')
+    .eq('class_id', classId)
+    .is('archived_at', null)
+    .limit(1);
+  await seedTermAndDates(supabase, ownerId, classId, first?.[0]?.id ?? null);
+
+  console.log(
+    `    teaching surface ${label}: ${weeks} timetable rows, ${cards} flashcards (0 means already there)`,
+  );
+}
+
 async function seed() {
   /** Account id per email, so the tenancy pass below can attach everyone. */
   const accounts = new Map();
@@ -435,6 +671,7 @@ async function seed() {
     if (existingClass) {
       console.log(`  class ${spec.classCode} already exists, checking the scannable quiz`);
       await seedScannableQuiz(supabase, ownerId, existingClass);
+      await seedTeachingSurface(supabase, ownerId, existingClass.id, 'repaired');
       continue;
     }
 
@@ -520,6 +757,7 @@ async function seed() {
     );
 
     await seedScannableQuiz(supabase, ownerId, klass);
+    await seedTeachingSurface(supabase, ownerId, klass.id, 'created');
 
     await supabase.from('lesson_plans').insert({
       owner_id: ownerId,
