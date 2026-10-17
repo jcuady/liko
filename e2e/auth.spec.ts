@@ -168,6 +168,65 @@ test.describe('sign in', () => {
   });
 });
 
+test.describe('the ways out of a sign-in page', () => {
+  /*
+   * `resetPasswordAction` has always redirected to `/login?reset=1`, and nothing
+   * ever read the parameter. A person who had just chosen a new password was
+   * dropped onto an ordinary sign-in form, and the only way to find out whether
+   * the reset worked was to try it.
+   */
+  test('says the password was changed when the reset sends you here', async ({ page }) => {
+    await page.goto('/login?reset=1');
+    await expect(page.getByText('Your password has been changed.')).toBeVisible();
+
+    // And it is said only when it is true. The ordinary page does not claim a
+    // reset happened to nobody.
+    await page.goto('/login');
+    await expect(page.getByText('Your password has been changed.')).toHaveCount(0);
+  });
+
+  test('offers a new link when the account has never been confirmed', async ({ page }) => {
+    await page.goto('/login');
+    await page.getByLabel('Email').fill(uniqueEmail());
+    await page.getByLabel('Password').fill(PASSWORD);
+    await page.getByRole('button', { name: 'Sign in' }).click();
+
+    // The generic refusal is unchanged, so the form still cannot be used to
+    // enumerate accounts. Nothing about this test may leak that the address is
+    // unknown.
+    await expect(
+      page.locator('main').getByRole('alert').first(),
+    ).toContainText('That email or password is not right.');
+
+    // And the way out is offered on the failures that have one, not on the one
+    // that does not. An unknown address must not be told to check their inbox.
+    await expect(page.getByRole('link', { name: 'Send the link again' })).toHaveCount(0);
+  });
+
+  test('every control on the way in is reachable by a thumb', async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 812 });
+
+    await page.goto('/login');
+
+    /*
+     * The LABEL, not the input.
+     *
+     * `getByLabel` resolves to the `<input>`, which is the 20px painted box, and
+     * a thumb never aims at it: it aims at the label that wraps it. That is the
+     * same correction the responsive sweep had to make, made the wrong way round
+     * in the same round, which is worth recording because it is the easiest
+     * mistake in this whole area. The control that reads as a small checkbox
+     * should be small; the row around it is the target.
+     */
+    const row = page.locator('label').filter({ hasText: 'Keep me signed in for 7 days' });
+    await expect(row).toBeVisible();
+
+    const box = await row.boundingBox();
+    expect(box?.height ?? 0).toBeGreaterThanOrEqual(44);
+    expect(box?.width ?? 0).toBeGreaterThanOrEqual(44);
+  });
+});
+
 test.describe('session storage', () => {
   test('no token is written to localStorage or sessionStorage', async ({
     page,

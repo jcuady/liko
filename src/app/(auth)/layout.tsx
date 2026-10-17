@@ -14,7 +14,17 @@ export default function AuthLayout({
   return (
     <div className="grid min-h-[100dvh] lg:grid-cols-2">
       <div className="flex flex-col px-6 py-8 sm:px-10 lg:px-14">
-        <Link href="/" className="shrink-0 self-start" aria-label="LIKO home">
+        {/*
+          `-m-2 p-2` around the mark: the wordmark is 28px tall, which is right
+          for a logo and small for a thumb. The column above already carries
+          `py-8`, so the extra 16px is padding around the link rather than
+          height, and the mark sits exactly where it did.
+        */}
+        <Link
+          href="/"
+          className="-m-2 flex w-fit shrink-0 items-center self-start rounded-[8px] p-2 hover:bg-surface-sunken focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+          aria-label="LIKO home"
+        >
           <LikoLogo showWordmark />
         </Link>
 

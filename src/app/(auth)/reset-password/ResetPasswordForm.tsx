@@ -1,12 +1,12 @@
 'use client';
 
 import * as React from 'react';
-import Link from 'next/link';
 import { useFormState } from 'react-dom';
 
 import {
   AuthFooter,
   AuthHeading,
+  AuthLink,
   Field,
   FormMessages,
   SubmitButton,
@@ -66,12 +66,7 @@ export function ResetPasswordForm() {
 
       <div className="mt-8 border-t border-border pt-6">
         <AuthFooter>
-          <Link
-            href="/login"
-            className="font-medium text-accent underline-offset-4 hover:underline"
-          >
-            Back to sign in
-          </Link>
+          <AuthLink href="/login">Back to sign in</AuthLink>
         </AuthFooter>
       </div>
     </>

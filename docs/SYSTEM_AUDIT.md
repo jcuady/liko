@@ -1065,3 +1065,113 @@ Browser: the bell and the week, run together, **21 of 21**; the whole suite,
 **224 passed**. The full gate at the end of the round is recorded in
 `docs/evidence/gates.json`, and `probe:ai` remains blocked on Gemini capacity,
 which is a blocked gate and not a pass.
+
+---
+
+## Round six: the pages nobody had ever measured
+
+### The auth shell was outside every sweep, and that is why it was wrong
+
+`responsive.spec.ts` has two sweeps: nothing overflows sideways, and every
+control is at least 44px. Both **sign in before they measure**.
+
+That is correct for the workspace and wrong for `/login`, `/register`,
+`/forgot-password` and `/reset-password`, which redirect a signed-in visitor.
+Adding them to `ROUTES` would have measured the redirect target and reported a
+clean result for a page nobody visited. So the consequence of the sweep being
+correct was that the entire auth shell had never been measured, on the one
+screen every single person meets before they have an account to sign in with.
+
+Added, anonymously, at 375 and 393. It found **16 controls under 44px**, and
+three of them turned out to be real.
+
+### The measurement was wrong twice before it was right
+
+The first run reported sixteen offenders. Two thirds of them were not defects,
+and both causes were mistakes in the test rather than in the product, which is
+the part worth writing down.
+
+**A checkbox is not its target.** `Checkbox` in `components/ui/checkbox.tsx` is
+deliberately a 20px painted box inside a 44px span, with the file's own comment
+saying so: a 20px box next to 15px body type is the right shape for a checkbox,
+and the extra 24px belongs in the padding and the label. The sweep measured the
+`<input>`, which is the box. A thumb aims at the row.
+
+**`label[for]` is a caption, not a target.** Fixing the first one naively, by
+resolving a control's target through `label[for=...]`, reported every text field
+on every auth page as a `345x23` offender. `FormField` uses `<label htmlFor>` as a
+caption *beside* the input, and that caption is a 14px line of text; the input
+next to it is `h-11`. Only an **ancestor** label absorbs the tap.
+
+**And the link exemption needed a parent, not just text.** Testing "does the
+parent contain other text" exempted the logo link, because its parent is the
+whole page column and the column contains the form. Restricted to text-flow
+parents (`P`, `LI`, `LABEL`, `SPAN`, ...), the logo is a target again and
+"Terms of Use" stays exempt, which is right: WCAG 2.5.8 excludes targets inline
+in a block of text, and widening an in-sentence link would break the line it sits
+in.
+
+**I then made the first of these two mistakes again, immediately, in the very
+test I wrote to lock the fix in.** `getByLabel('Keep me signed in')` resolves to
+the input, which measured 20, and the test failed against a product that was
+already correct. The lesson is not about touch targets: **a target-size test has
+to decide what the target is before it measures anything**, and that decision is
+the easy part to get wrong.
+
+### What was actually wrong
+
+| Control | Was | Now |
+| --- | --- | --- |
+| "Keep me signed in for 7 days" on `/login` | 345x23 | 44px row, via `Checkbox` |
+| "Forgot password" on `/login` | 108x23 | 44px, via `AuthLink` |
+| "Back to sign in" on `/reset-password` | 102x20 | 44px, via `AuthLink` |
+| The LIKO mark, on all four auth pages | 84x28 | 44px, padding around the link |
+
+The `remember` box was also the only control in the auth shell that was not built
+from a primitive: a bare `<input size-4>` with a hand-written `accent-[var(--accent)]`,
+sitting next to a consent gate that had solved the identical problem with
+`Checkbox` three files away. Two forms, one job, two answers. That inconsistency
+is the more expensive of the two findings, because the primitive was already
+written and already correct.
+
+`AuthLink` exists for the three links that stand alone. `AuthFooter`'s inline
+links stay as they are, because they are in a sentence.
+
+### Two ways off the sign-in page that did not exist
+
+**`?reset=1` was written and read by nobody.** `resetPasswordAction` redirects to
+`/login?reset=1` on success. `login/page.tsx` read `next` and nothing else. So
+the person who had just chosen a new password was dropped onto an ordinary
+sign-in form with no word that it had worked, and the only way to find out was to
+try it. Exactly the defect `register/page.tsx` already documents for `?plan=`, one
+file over.
+
+Fixed at the point of the redirect and asserted both ways: the confirmation shows
+when the parameter is there, and it does **not** show on an ordinary visit.
+
+**An unconfirmed account was told to open an email it might never have had.**
+`loginAction` returned "Confirm your email address first. Open the link we sent,
+then sign in again." and stopped. The email that link came from is the most
+likely reason somebody is signing in again, and there was no way to ask for
+another from where they were standing. `/verify-email` works with no session,
+because the session is precisely what has not been issued yet.
+
+`ActionResult` gained a `code`, and the unverified branch returns
+`code: 'EMAIL_UNVERIFIED'`. The wording stays here and may change; a link that
+appears only when a sentence happens to read a certain way is a link that
+silently disappears the next time somebody improves the sentence. The test
+asserts the link is **absent** for an unknown address, because offering it there
+would both be useless and start to leak which addresses exist.
+
+### What round six changed
+
+| Change | Where |
+| --- | --- |
+| The auth shell is measured at last | `e2e/responsive.spec.ts` |
+| Four controls brought to 44px | `src/app/(auth)/layout.tsx`, `login/LoginForm.tsx`, `reset-password/ResetPasswordForm.tsx` |
+| `Checkbox` and `AuthLink` shared across the auth forms | `src/app/(auth)/components/AuthForm.tsx` |
+| `?reset=1` read at last | `login/page.tsx`, `login/LoginForm.tsx` |
+| A way out of the unverified branch, by code | `src/app/(auth)/actions.ts` |
+| Three browser tests | `e2e/auth.spec.ts` |
+
+Auth: **11 of 11**. Responsive, auth pages included: green at 375 and 393.

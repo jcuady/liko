@@ -46,6 +46,15 @@ export interface ActionResult {
   ok: boolean;
   message?: string;
   fieldErrors?: Record<string, string>;
+  /**
+   * A stable name for the failure, so a surface can offer the right way out of
+   * it without matching on the wording.
+   *
+   * The wording is written here and may change; a link that appears only when a
+   * sentence happens to read a certain way is a link that silently disappears
+   * the next time somebody improves the sentence. Codes, never free text.
+   */
+  code?: string;
 }
 
 const GENERIC_FAILURE = 'That email or password is not right.';
@@ -136,8 +145,18 @@ export async function loginAction(
   const { user } = result;
 
   if (!user.emailVerified) {
+    /*
+     * With a code, so the form can offer the one thing that actually helps.
+     *
+     * This used to be a dead end stated in four words: "open the link we sent".
+     * The email that link came from is the thing most likely to have been the
+     * reason somebody is signing in again, and there was no way to ask for
+     * another one from where they were standing. `/verify-email` works with no
+     * session, because the session is exactly what has not been issued yet.
+     */
     return {
       ok: false,
+      code: 'EMAIL_UNVERIFIED',
       message:
         'Confirm your email address first. Open the link we sent, then sign in again.',
     };

@@ -15,10 +15,16 @@ export const metadata: Metadata = {
 export default async function LoginPage({
   searchParams,
 }: {
-  searchParams: Promise<{ next?: string }>;
+  searchParams: Promise<{ next?: string; reset?: string }>;
 }) {
   const params = await searchParams;
   const next = params.next ?? '';
 
-  return <LoginForm next={next} />;
+  /*
+   * `?reset=1` is written by `resetPasswordAction` after a password is changed.
+   * It used to arrive here and be read by nothing at all, which left the person
+   * who had just reset their password staring at an ordinary sign-in form with
+   * no word that it had worked.
+   */
+  return <LoginForm next={next} passwordReset={params.reset === '1'} />;
 }

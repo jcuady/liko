@@ -46,7 +46,14 @@ export function SubmitButton({
  * Form-level error summary. Renders above the fields and takes focus after a
  * failed submit so a screen reader hears every problem before tabbing in.
  */
-export function FormMessages({ result }: { result: ActionResult | null }) {
+export function FormMessages({
+  result,
+  children,
+}: {
+  result: ActionResult | null;
+  /** A way out of the failure, rendered beside the message. */
+  children?: React.ReactNode;
+}) {
   const summaryRef = React.useRef<HTMLDivElement>(null);
   const errors = React.useMemo(() => {
     if (!result?.fieldErrors) return [];
@@ -80,6 +87,7 @@ export function FormMessages({ result }: { result: ActionResult | null }) {
           {result.message}
         </p>
       ) : null}
+      {result?.message && children ? <div>{children}</div> : null}
     </div>
   );
 }
@@ -128,6 +136,41 @@ export function Field({
         />
       )}
     </FormField>
+  );
+}
+
+/**
+ * A link that stands on its own rather than inside a sentence.
+ *
+ * A link in running text is exempt from the 44px target rule under WCAG 2.5.8,
+ * because widening it would break the line it sits in. A link that is the only
+ * thing in its paragraph has no such excuse: it measured 102x20 on
+ * `/reset-password` and 108x23 on `/login`, and both are the single way out of
+ * the page. So the two cases are styled differently and deliberately.
+ *
+ * The padding is vertical only, so the row reaches 44px without the text moving.
+ */
+export function AuthLink({
+  href,
+  children,
+  className,
+}: {
+  href: string;
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <Link
+      href={href}
+      className={cn(
+        'inline-flex min-h-11 items-center rounded-[6px] font-medium text-accent',
+        'underline-offset-4 hover:underline',
+        'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent',
+        className,
+      )}
+    >
+      {children}
+    </Link>
   );
 }
 
