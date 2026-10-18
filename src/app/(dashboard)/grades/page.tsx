@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 
 import { PageHeader } from '../components/PageHeader';
+import { NoClassesYet } from '../components/NoClassesYet';
 import { requirePagePermission } from '@/lib/auth/guards';
 import { data } from '@/lib/api/client';
 
@@ -35,9 +36,7 @@ export default async function GradesPage() {
           title="Gradebook"
           description="Marks that keep the rubric reasoning attached, so any number can be explained later."
         />
-        <p className="rounded-[16px] border border-dashed border-border bg-surface px-6 py-12 text-center text-body text-ink-muted">
-          Marks belong to a class, and there are none yet. Create a class first.
-        </p>
+        <NoClassesYet role={session.role} subject="Marks" />
       </div>
     );
   }
