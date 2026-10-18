@@ -1765,3 +1765,82 @@ The fix is one of two shapes and belongs to whoever owns the privacy call.
 **The other process's work is still uncommitted.** Fifteen files, including the
 auth rewrite, the SRS scheduler and the `1d` e2e assertion, remain on disk
 outside `origin/main` and outside production.
+
+## Round ten: the linked scope reaches three tables out of ten
+
+Round nine said the guardian seat was granted two scopes nothing could satisfy.
+The seat is linked now, and measuring that turned one dead role into a map.
+
+### Why this could not be measured before
+
+A probe run against a guardian returns zero for two independent reasons at once:
+the seat has no link, and most class-scoped tables admit no linked account. Until
+the seat was linked, a zero proved neither. The other branch recorded that
+caution explicitly and declined to put a number on it, which was the right call.
+
+Linking the seat removes the first reason, and the two separate.
+
+### The map, read with the guardian's own token
+
+| table | guardian | its own teacher | admits a linked account |
+| --- | --- | --- | --- |
+| `classes` | 1 | 1 | **yes** |
+| `students` | 1 | 8 | **yes** |
+| `weekly_schedule_entries` | 15 | 120 | **yes** |
+| `assessments` | 0 | 2 | no |
+| `grades` | 0 | 9 | no |
+| `student_history` | 0 | 8 | no |
+| `lesson_plans` | 0 | 1 | no |
+| `attendance` | 0 | 40 | no |
+| `calendar_events` | 0 | 10 | no |
+
+**Three of ten.** The service role was used only to confirm the seat really is
+linked, because it bypasses RLS and would answer yes to everything: two rows
+carry an `account_id`, Ana Ferreira for the student seat and Ben Osei for the
+guardian. So a zero in the table above is a policy, not a missing link.
+
+### This is why `/schedule` worked and `/grades` did not
+
+That asymmetry is the map. `weekly_schedule_entries` carries a linked-aware
+policy, so the guardian's week renders fifteen lessons. `grades` has only the
+generated `own rows` policy, and a mark's `owner_id` is the teacher's id, so a
+linked account is admitted nothing and the page says there are no assessments.
+
+It also settles which half of a fix is which. Removing `.eq('owner_id', userId)`
+from a read is only correct where a linked-aware policy already admits the row.
+On `students` the policy exists and the filter was discarding it, so removing the
+filter is the whole fix. On `grades` and `student_history` the filter is
+redundant and the policy is absent, so removing it would change nothing and leave
+the page reading exactly as it does now. **Two tables, the same filter, opposite
+answers**, which is why this is a map and not a pattern replace.
+
+### What it means for the product
+
+The RBAC matrix grants a guardian `class:read`, `grade:read`, `history:read` and
+`flashcard:read` at scope `linked`. The database delivers `linked` on three of
+those and nothing on the others. So the matrix states an intent the schema has
+not implemented for most of it, and the honest reading is that a parent account
+is a partially built feature rather than a working one.
+
+Adding the missing policies is a privacy decision and not an audit's to take by
+default: a mark, an attendance row and a lesson plan are three different things
+to hand to a parent, and `attendance` in particular has no parent-facing story in
+this product at all. Recorded as the shape of the gap and left open.
+
+### One thing this round got wrong before it got it right
+
+Resolving a cherry-pick by hand shipped a file that did not parse. The edit that
+removed the `<<<<<<< HEAD` side also consumed the `*/` that closed the comment,
+and a stray `>` survived from the `>>>>>>>` marker. Typechecking the tree the
+commit came from was green, because that is not the tree the commit was made on.
+
+**A commit is not the tree you tested.** Typecheck the pushed state, not the
+state you edited. That check cost one `tsc` run and it found two syntax errors
+that a unit suite run in the wrong directory would not have.
+
+The same run produced a false positive too: `src/lib/slides/generate.test.ts`
+fails in a freshly created worktree and passes in the primary checkout on
+byte-identical content, because `core.autocrlf` is true and the two files that
+test compares were checked out with different endings. A test asserting two files
+hold the same prompt should normalise line endings before comparing, or it passes
+or fails depending on who checked the file out.
