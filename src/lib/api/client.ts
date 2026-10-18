@@ -723,12 +723,16 @@ const supabaseAdapter: WorkspaceData = {
     return (data ?? []).map(mapClass);
   },
 
+  /*
+   * NO `.eq('owner_id', userId)` HERE. See `listStudentsForClasses` above: the
+   * two read policies on `students` already express the caller, and intersecting
+   * them with "and it is mine" removes every row a linked account may read.
+   */
   async listStudents(userId, classId) {
     const supabase = await requireClient();
     const { data, error } = await supabase
       .from('students')
       .select('*')
-      .eq('owner_id', userId)
       .eq('class_id', classId)
       .is('archived_at', null)
       .order('full_name');
@@ -737,12 +741,27 @@ const supabaseAdapter: WorkspaceData = {
   },
 
   /*
-   * One read for every class on the page rather than one per class.
+   * NO `.eq('owner_id', userId)` HERE, FOR THE SAME REASON `listClasses` HAS NONE.
    *
-   * The roster panel renders real rows for the class the teacher selects on the
-   * client, so these are student records and not counts; the win is the round
-   * trips, five queries becoming one. Ordering is applied after the fetch because
-   * each class's roster has to come back alphabetically on its own.
+   * This filter used to sit here and it was the same defect in a second place.
+   * `students` carries two read policies: `own rows`, where the caller is the
+   * class's teacher, and `linked reads own student row`, where the caller is the
+   * login attached to that child's record. RLS admits both. This line then threw
+   * away the second, because a linked child's `owner_id` is their TEACHER's
+   * account id rather than their own, so `owner_id = auth.uid()` is false for
+   * every row a student or a guardian is entitled to.
+   *
+   * PostgREST intersects the policy and the filter, and the intersection of
+   * "permitted" and "mine" is "mine", which for a linked account is nothing. So
+   * `/classes` said "0 students across the 0 rosters you can see" and `/grades`
+   * said "This class has no students" to accounts that RLS was in the act of
+   * admitting — measured on production, where a guardian session read their
+   * child straight out of PostgREST while the page drew an empty roster.
+   *
+   * Dropping the filter widens nothing. The two policies above are exactly the
+   * set this method was trying to approximate, and they are computed by the one
+   * place that cannot be bypassed. The write paths keep their own `.eq('owner_id',
+   * userId)`, where it is doing real work rather than narrowing a read.
    */
   async listStudentsForClasses(userId, classIds) {
     if (classIds.length === 0) return [];
@@ -751,7 +770,6 @@ const supabaseAdapter: WorkspaceData = {
     const { data, error } = await supabase
       .from('students')
       .select('*')
-      .eq('owner_id', userId)
       .in('class_id', classIds)
       .is('archived_at', null);
     throwIf(error);

@@ -238,32 +238,63 @@ async function seedTenancy(accounts) {
     }
   }
 
-  // The guardian is reached by address rather than by account, so the student
-  // and guardian seats exercise two different visibility paths.
+  /*
+   * The guardian seat, linked the only way a policy can read.
+   *
+   * THIS USED TO WRITE `guardian_email` AND NOTHING ELSE, which read as a second
+   * visibility path and was not one. `guardian_email` appears exactly once in
+   * the schema, as a column definition; no policy reads it. Both guardian-facing
+   * policies join on `account_id`:
+   *
+   *   students: for select using (account_id = auth.uid())
+   *   classes:  exists (... where s.class_id = classes.id
+   *                        and s.account_id = auth.uid() ...)
+   *
+   * So the guardian seat was granted `class:read` and `grade:read` at scope
+   * `linked` by the matrix, and neither scope could resolve to a row. Measured
+   * against production with a real guardian session: 0 classes, 0 students. The
+   * role rendered correctly and demonstrated nothing.
+   *
+   * `account_id` IS THE RIGHT COLUMN, and the migration says so itself. The
+   * policy above is commented "a logged-in student or guardian may read the one
+   * record that is theirs", so it means the login that manages a child's record,
+   * not only the login of the child. A parent and a pupil are two different
+   * logins for two different children, which is why the candidate excludes Ana
+   * Ferreira: that row already carries the student seat.
+   *
+   * `guardian_email` is still written, because it is true data — the parent of
+   * that child — and a demo that forgot it would be teaching the wrong shape.
+   */
   const guardianEmail = 'guardian@liko.test';
-  const { data: guardianLinked } = await supabase
-    .from('students')
-    .select('id')
-    .eq('guardian_email', guardianEmail)
-    .maybeSingle();
+  const guardianUser = accounts.get(guardianEmail);
 
-  if (!guardianLinked && mayaUser) {
-    const { data: candidate } = await supabase
+  if (guardianUser && mayaUser) {
+    const { data: guardianLinked } = await supabase
       .from('students')
-      .select('id, full_name')
-      .eq('owner_id', mayaUser)
-      .neq('full_name', 'Ana Ferreira')
-      .is('account_id', null)
-      .order('full_name')
-      .limit(1)
+      .select('id')
+      .eq('account_id', guardianUser)
       .maybeSingle();
 
-    if (candidate) {
-      await supabase
+    if (guardianLinked) {
+      console.log('  guardian account is already linked to a record');
+    } else {
+      const { data: candidate } = await supabase
         .from('students')
-        .update({ guardian_email: guardianEmail })
-        .eq('id', candidate.id);
-      console.log(`  pointed the guardian seat at ${candidate.full_name}`);
+        .select('id, full_name')
+        .eq('owner_id', mayaUser)
+        .neq('full_name', 'Ana Ferreira')
+        .is('account_id', null)
+        .order('full_name')
+        .limit(1)
+        .maybeSingle();
+
+      if (candidate) {
+        await supabase
+          .from('students')
+          .update({ account_id: guardianUser, guardian_email: guardianEmail })
+          .eq('id', candidate.id);
+        console.log(`  linked the guardian account to ${candidate.full_name}`);
+      }
     }
   }
 }
