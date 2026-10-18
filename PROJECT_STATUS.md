@@ -28,6 +28,46 @@ The supplied brand design in `Liko new landing design and branding/` has been ap
 - The mock's internal titles were real `h3` and `h4` elements sitting directly under the page `h1`, which is a heading-level skip. They are paragraphs now.
 - The logo, app icons, maskable icon and Open Graph image were still painted `#29813d`, the pre-rebrand green, because `BRAND_GREEN` was a constant nobody had revisited.
 
+## Open: linked accounts can see a class but not the marks on it
+
+**Status: derived from the policies, NOT measured. Do not treat as a confirmed defect until it is measured — see the confounding note at the end.**
+
+While verifying another agent's in-flight `client.ts` fix I swept every read
+path that still filters `.eq('owner_id', userId)`. Removing that filter is
+correct on `students`, because `students` carries a second, linked-aware
+policy and the app-level filter was throwing away rows RLS was admitting. It
+is **not** a fix anywhere the table has no such policy, because there RLS
+already returns nothing and the filter is not what is stopping the read.
+
+The two tables a linked account is entitled to and cannot reach:
+
+| Table | Policies present | Reachable by |
+|---|---|---|
+| `students` | `own rows` **+** `linked reads own student row` | guardian, student |
+| `classes` | `own rows` **+** an `exists (... s.account_id = auth.uid() ...)` policy | guardian, student |
+| `grades` | `own rows` **only** | **nobody linked** |
+| `student_history` | `own rows` **only** | **nobody linked** |
+
+`grades.owner_id` and `student_history.owner_id` hold the **teacher's**
+account id, not the child's. So for a guardian or a student the `own rows`
+predicate is false on every row, and RLS returns an empty set before the
+application filter is even reached.
+
+Why it is still open rather than fixed here: `/grades` maps to `grade:read`
+and `/history` to `history:read`, and the matrix already grants a guardian
+`linked` on both and a student `own` on both. **The intent is already
+recorded; only the policy is missing.** That is a migration, and it is a
+policy decision about a minor's records — the same class of decision as the
+guardian seat itself, so it is not one to take unilaterally.
+
+**The measurement is currently confounded and must not be taken yet.** The
+demo guardian seat is not linked to a student row at all, so probing it today
+returns zero for *two* independent reasons at once. Those have to be
+separated before any number from it means anything: link the seat first, then
+read `grades` and `student_history` as that session, and only then compare
+against a teacher session on the same class. A zero observed before the link
+exists proves nothing about these two policies.
+
 ## Executive Summary
 
 LIKO is a teaching-workspace PWA: a teacher plans lessons, builds assessments, takes attendance, grades, and watches student history on one thread, and slides decks for the lesson.
