@@ -76,7 +76,7 @@ export default async function ClassesPage() {
      * This is deliberately independent of whether an administrator *should* see
      * children's records. If that policy widens, this can be relaxed; until then
      * the page must not state a number it was not permitted to read.
-     *
+*
      * AND `isDemoStaff`, BECAUSE OWNERSHIP ALONE DENIES THE DEMO ITS OWN ROSTER.
      * This was the one seam left without the escape the fixture adapter applies
      * everywhere else — `rosterOwner`, `ownedClass`, `ownedDeck`, `getStudent`,
