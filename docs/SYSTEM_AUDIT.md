@@ -27,6 +27,8 @@ look green.
 | **Full gate** | **10 pass, 1 blocked, 0 fail, 0 error** | `pnpm gates` at `058002b`. The single non-pass is `probe:ai`, blocked on the provider. A blocked gate is not a pass. | round eight |
 | **Live app against Postgres** | **PASS** | `verify:app`, 56 passed, 0 failed. All five accounts, every entitled route, refusals, a real attendance write, cron, push, and no page errors. The one check that is not the fixtures. | round eight |
 | **Deployed to production** | **PASS** | `a101b53` live at 14:35→18:33. `/classes` re-read on production and the false count is gone; `/forbidden` with no session lands on `/login`. | round eight |
+| **Per-role sweep of the deployed site** | **PASS, and it found round nine** | 27 of 28 route visits across all five accounts rendered or refused as expected. The 28th was my expectation being wrong, not the app. | round nine |
+| **Guardian read path in production** | **FAIL** | `guardian@liko.test` reads 0 classes and 0 students through RLS. The matrix grants `class:read` and `grade:read` at `linked`, and no policy can satisfy either. | round nine |
 | SQL parse + cross-refs | **PASS, not re-measured this round** | 228 statements, 25 tables, RLS on all 25, 27 policies re-runnable | earlier round |
 | **Migration applied to production** | **PASS** | 25 of 25 tables present, measured before and after | earlier round |
 | Dead handlers / `href="#"` / TODO / `console.*` | **PASS, not re-measured this round** | ripgrep, no matches | earlier round |
@@ -1631,3 +1633,135 @@ about it now; whether the policy should change is not decided here.
 
 **`probe:ai` is blocked.** The provider is at capacity. Nothing in the tree
 causes it and nothing in the tree can clear it.
+
+## Round nine: a whole role that renders perfectly and demonstrates nothing
+
+Found by sweeping the deployed site per role rather than per route, which is the
+one angle earlier rounds had not taken.
+
+### What the sweep said
+
+Twenty-seven of twenty-eight route visits rendered or refused as expected. The
+one that did not was `guardian@liko.test` reaching `/grades`, which my sweep had
+listed as forbidden.
+
+**That expectation was wrong and the application was right.** The matrix grants
+`guardian` `'grade:read': 'linked'`, so reaching a gradebook is by design. The
+instrument was the suspect, not the artefact, and checking the matrix before
+filing a finding is the whole difference between a real defect and a wasted
+afternoon.
+
+But the sweep had been pointed at the wrong question. It asked whether the
+guardian was refused. The interesting question is what they were shown.
+
+### What the guardian is actually shown
+
+```
+/grades as guardian@liko.test
+  Gradebook. Marks belong to a class, and there are none yet. Create a class first.
+```
+
+A guardian holds `'class:write': 'no'` and is being instructed to create a class.
+The same three pages — `/grades`, `/assess`, `/plan` — hand-roll that sentence in
+a bare `<p>` while the rest of the application uses the `EmptyState` component
+that exists for exactly this.
+
+### The reason behind it is worse than the copy
+
+Reading the RLS policies settled what the empty state was actually reporting.
+
+Both guardian-facing policies join on `account_id`:
+
+```sql
+-- students
+create policy "linked reads own student row" on public.students
+  for select using (account_id = auth.uid());
+
+-- classes
+create policy "linked read classes" on public.classes
+  for select using (
+    exists (select 1 from public.students s
+            where s.class_id = classes.id
+              and s.account_id = auth.uid()
+              and s.archived_at is null));
+```
+
+Note that the `students` policy contains **no role test at all**. Its comment
+says "A logged-in student or guardian may read the one record that is theirs",
+but `account_id = auth.uid()` admits whoever their id happens to sit in that
+column, which the seed only ever puts a *student's* login in.
+
+And the seed links the guardian somewhere else entirely:
+
+```js
+// scripts/seed.mjs
+// The guardian is reached by address rather than by account, so the student
+// and guardian seats exercise two different visibility paths.
+await supabase.from('students').update({ guardian_email: guardianEmail }).eq('id', candidate.id);
+```
+
+`guardian_email` appears **exactly once in the entire schema**: as a column
+definition at line 209. No policy reads it. Not one.
+
+So the seed deliberately creates a second visibility path for the guardian, and
+the database has no policy that can traverse it. Measured with a real guardian
+session against production, because the service role bypasses RLS and cannot
+answer this:
+
+| read, as | classes | students |
+| --- | --- | --- |
+| `guardian@liko.test` | **0** | **0** |
+| `maya@liko.test` | 1 | — |
+| service role (bypasses RLS) | 3 | 24 |
+
+One of the 24 students has a linked `account_id`. That is the student seat. The
+guardian seat has no path at all.
+
+**The RBAC matrix grants a guardian two scopes the database cannot satisfy.**
+`class:read: 'linked'` and `grade:read: 'linked'` describe a relationship that no
+query resolves to a row, so every guardian page in the application resolves to
+its empty state and the role demonstrates nothing in production.
+
+### Why nothing caught it
+
+This is the part worth keeping.
+
+- The e2e gate drives the **fixtures**, where the demo workspace is not subject to
+  RLS and the guardian sees seeded data.
+- `verify:app` does sign the guardian in on the real database, and it passes,
+  because an empty state is a **legitimate render**. The page returned HTTP 200,
+  drew a header and a paragraph, and produced no console error.
+- The migration's own RLS settling test covers the policies it defines. Both
+  policies are correct as written; the defect is that no policy covers the column
+  the seed writes.
+
+**An empty state renders identically whether it is correct or whether a role
+simply cannot read anything.** Nothing that checks "did it render?" can tell those
+apart, and every check in this project was of that shape. A role can be 100%
+green and demonstrate zero of the product.
+
+### What this needs, and what it does not
+
+It is a policy decision and not an audit's to take by default, because it is a
+decision about a minor's data. The two candidate shapes:
+
+1. **Point the guardian seat at `account_id` as the student seat is.** The
+   existing policies already work; this is a seed change and touches no policy.
+   It loses the "two different visibility paths" intent the seed states, and it
+   models a guardian as if a guardian were a pupil.
+2. **Add a policy branch joining `guardian_email` to the caller's own profile
+   email**, which is what the seed's comment says was intended. It keeps the two
+   paths distinct, but it makes a teacher-typed free-text address an
+   authentication input, which is weaker than a uuid link.
+
+Recorded, not chosen. What is not a decision is that the page must stop telling a
+role it cannot create a class to create one.
+
+### Two findings this round did not close
+
+**The guardian visibility path is still dead.** Everything above is a diagnosis.
+The fix is one of two shapes and belongs to whoever owns the privacy call.
+
+**The other process's work is still uncommitted.** Fifteen files, including the
+auth rewrite, the SRS scheduler and the `1d` e2e assertion, remain on disk
+outside `origin/main` and outside production.
