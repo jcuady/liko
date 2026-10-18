@@ -95,8 +95,26 @@ export default async function ClassesPage() {
      * parent keep only their own reach. And it cannot fire against a real
      * account: it matches the fixed demo ids, so under `LIKO_DATA_MODE=supabase`
      * this is the ownership test alone, unchanged.
+     *
+     * AND `accountId`, BECAUSE OWNERSHIP ALONE ALSO DENIES A PARENT THEIR CHILD.
+     * The second clause here is the one the matrix calls `linked`: a student or a
+     * guardian account reaches a class through the row their login is attached
+     * to, and that row's `owner_id` is the TEACHER's account id, never their own.
+     * So for exactly the roles the `linked` scope exists to serve, ownership was
+     * false and the page printed "Roster not visible to you" over a roster it
+     * had just been sent. The roster is already in hand by this point, so the
+     * honest test is whether a row on it is attached to the caller.
+     *
+     * Still independent of whether an administrator *should* see children's
+     * records: they own nothing and are attached to nothing, so this stays false
+     * for them exactly as it did before.
      */
-    rosterVisible: classRecord.ownerId === session.userId || isDemoStaff(session.userId),
+    rosterVisible:
+      classRecord.ownerId === session.userId ||
+      isDemoStaff(session.userId) ||
+      (byClass.get(classRecord.id) ?? []).some(
+        (student) => student.accountId === session.userId,
+      ),
   }));
 
   return (
