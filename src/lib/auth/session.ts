@@ -13,6 +13,31 @@ import { isRole, type Role } from './rbac';
 export const SESSION_COOKIE = 'liko_session';
 export const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 7;
 
+/**
+ * Whether an id can name an account under `LIKO_DATA_MODE=supabase`.
+ *
+ * A Supabase `auth.users.id` is a uuid and nothing else in that mode is. The
+ * fixture workspace is built on fixed strings like `usr_demo_noor`, and those
+ * cookies are signed with the same `LIKO_SESSION_SECRET`, so one minted in demo
+ * mode verifies perfectly after a switch to `supabase` while naming an account
+ * that cannot exist.
+ *
+ * WHY IT LIVES HERE AND NOT IN THE GUARD. `src/proxy.ts` and
+ * `src/lib/auth/guards.ts` both have to answer this question, and they have to
+ * answer it the SAME way. When only the guard refused such a cookie, the page
+ * redirected to `/login` while the proxy still read it as signed in, so `/login`
+ * redirected straight back to the landing page and the browser looped between
+ * two routes forever. A stale session turned a crash into an unrecoverable
+ * redirect loop, which is a worse failure than the one it replaced.
+ *
+ * Shape rather than existence, deliberately: checking that the account exists
+ * costs a round trip on every request, and the uuid is a shape the database
+ * guarantees.
+ */
+export function isRealSupabaseUserId(userId: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(userId);
+}
+
 export interface SessionPayload {
   userId: string;
   email: string;

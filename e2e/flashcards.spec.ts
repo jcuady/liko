@@ -165,8 +165,20 @@ test.describe('a teacher and a student on one deck', () => {
 
     // Each button states the interval it will actually schedule, computed from
     // the same scheduler the server writes with.
+    //
+    // THIS ASSERTED "10m" AND THAT WAS THE BUG IT WAS ENCODING. The old ladder
+    // put a first sighting on the same rung for hard, good and easy, so all
+    // three buttons read "10m" and a student choosing between them was choosing
+    // at random. The ladder now separates them (again 1m, hard 10m, good 1d,
+    // easy 3d) and this line was left behind still asking for 10m, which made a
+    // working page fail.
+    //
+    // A test that pins behaviour the product deliberately moved off from is a
+    // specification of the old defect. It is worth noticing that this one is
+    // also the only assertion here that could tell the two rungs apart, so the
+    // fix asserts the GOOD rung specifically rather than loosening it.
     const good = student.getByRole('button', { name: /Good/ });
-    await expect(good).toContainText('10m');
+    await expect(good).toContainText('1d');
     await good.click();
 
     await expect(student.getByText(/You reviewed 1 card/)).toBeVisible();

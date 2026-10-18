@@ -83,7 +83,20 @@ const ACCOUNTS = [
       // The two newest routes, and the two that had never been run against
       // Postgres at all. `/schedule` needs a student before it will draw a week,
       // so the teacher half is covered through `?student=` below instead.
-      ['/flashcards', 'Chemistry'],
+      //
+      // THE WITNESS IS WHAT THE SEED WRITES, NOT WHAT THE FIXTURE NAMES. This
+      // asserted the literal `Chemistry`, which the fixture workspace used for a
+      // class title and which `scripts/seed.mjs` never writes: it names the deck
+      // `Unit 1: Atomic Structure` and gives the week Filipino, Mathematics,
+      // English, Science, History, Technology, Clinic, Physical Education and
+      // Values Education. So the page was serving real seeded rows and the check
+      // failed anyway, reporting a working route as broken.
+      //
+      // Both replacements are live-only on purpose. The fixture workspace
+      // contains no schedule entries at all and no deck by this name, so neither
+      // string can pass against demo data — which is what makes these witnesses
+      // rather than decoration.
+      ['/flashcards', 'Unit 1: Atomic Structure'],
     ],
     forbidden: ['/admin'],
   },
@@ -137,7 +150,12 @@ const ACCOUNTS = [
      */
     routes: [
       ['/overview', null],
-      ['/schedule', 'Chemistry'],
+      /*
+       * `Clinic` is one of the two Wednesday entries that overlap by half an
+       * hour in the seeded week, so it is present exactly when the real rows
+       * were read. It replaced `Chemistry`, which the seed never writes.
+       */
+      ['/schedule', 'Clinic'],
     ],
     forbidden: ['/admin', '/grades/export'],
   },
@@ -158,6 +176,16 @@ let probingRefusal = false;
 function note(line) {
   console.log(`        ${String(line).slice(0, 400)}`);
 }
+
+/**
+ * The copy the app's own error boundary renders.
+ *
+ * Exists so a failed render is reported as a failed render. An error boundary
+ * answers HTTP 200 and simply lacks the expected text, which is the same
+ * observable as an empty state, and the sweep used to call both of them the
+ * same thing.
+ */
+const ERROR_BOUNDARY = /Something went wrong|failed to load|Application error/i;
 
 function check(name, ok, detail) {
   if (ok) {
@@ -307,7 +335,26 @@ async function verifyRoutes(account) {
         const body = await pageText(page);
         if (!body.includes(expect)) {
           ok = false;
-          detail = `HTTP 200 but "${expect}" is not on the page, so this is an empty state rather than real data`;
+          /*
+           * REPORT THE OBSERVATION, NOT A DIAGNOSIS.
+           *
+           * The sentence this replaces ended "so this is an empty state rather
+           * than real data". Nothing on the page had established that. A render
+           * that throws reaches the error boundary, which still answers HTTP 200
+           * and simply does not contain the expected text, so the old wording
+           * reported a crash as an empty state and pointed the investigation at
+           * the data layer. It was not the data layer: the database had the rows
+           * and RLS had admitted them, and the throw was a stale session cookie
+           * handing a fixture id to Postgres.
+           *
+           * So the message now states what is true, the text being absent, and
+           * separates the two cases that are indistinguishable from outside: the
+           * error boundary, and a page that genuinely rendered without the text.
+           */
+          const crashed = ERROR_BOUNDARY.test(body);
+          detail = crashed
+            ? `HTTP 200 but the page rendered the error boundary instead of "${expect}". That is a crash, not an empty state, and the server log holds the throw.`
+            : `HTTP 200 but "${expect}" is not on the page, which renders: ${body.replace(/\s+/g, ' ').slice(0, 160)}`;
         }
       } else if (ok && expect instanceof RegExp) {
         /*
@@ -439,6 +486,21 @@ async function verifyWrite() {
     await page.goto(`${BASE}/attendance?date=${date}&class=${klass.id}`, {
       waitUntil: 'domcontentloaded',
     });
+    /*
+     * THIS WAS THE ONLY `goto` IN THE SCRIPT WITHOUT IT.
+     *
+     * The register renders its "Mark all present" control inside the streamed
+     * tree, so at `domcontentloaded` the document still holds the bare shell and
+     * the count below came back 0 — reported as "the write was never attempted"
+     * when the write was never tried because the page had not finished
+     * arriving. Every other navigation in this file settles for the reason
+     * documented on `settle` itself; this one was missed, and the only symptom
+     * was an intermittent failure that looked like a product fault.
+     *
+     * The product was verified by hand at the same URL and renders the control,
+     * so the check was wrong and not the page.
+     */
+    await settle(page);
 
     const marked = page.getByRole('button', { name: 'Mark all present' });
     if ((await marked.count()) === 0) {

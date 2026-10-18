@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 
 import { PageHeader } from '../components/PageHeader';
 import { requirePagePermission } from '@/lib/auth/guards';
+import { isDemoStaff } from '@/lib/auth/store';
 import { data } from '@/lib/api/client';
 import type { StudentRecord } from '@/lib/api/types';
 
@@ -75,8 +76,27 @@ export default async function ClassesPage() {
      * This is deliberately independent of whether an administrator *should* see
      * children's records. If that policy widens, this can be relaxed; until then
      * the page must not state a number it was not permitted to read.
+     *
+     * AND `isDemoStaff`, BECAUSE OWNERSHIP ALONE DENIES THE DEMO ITS OWN ROSTER.
+     * This was the one seam left without the escape the fixture adapter applies
+     * everywhere else — `rosterOwner`, `ownedClass`, `ownedDeck`, `getStudent`,
+     * `listClasses`, `createFlashcardDeck` all special-case it. The seeded
+     * classes carry the synthetic `demo-owner`, which is nobody's account id, so
+     * comparing it to the caller made every demo teacher read as a stranger to
+     * the classes they run the school on.
+     *
+     * The failure was silent and it was not cosmetic. The page then offered
+     * "Add student" and "Import CSV" on a class whose roster it refused to
+     * render, so a write could succeed and its result could never be seen or
+     * checked — the same dangerous direction noted in `rosterOwner`, where the
+     * fixture is stricter than Postgres and nothing fails loudly.
+     *
+     * `isDemoStaff` rather than `isDemoAccount`, so the demo student and the demo
+     * parent keep only their own reach. And it cannot fire against a real
+     * account: it matches the fixed demo ids, so under `LIKO_DATA_MODE=supabase`
+     * this is the ownership test alone, unchanged.
      */
-    rosterVisible: classRecord.ownerId === session.userId,
+    rosterVisible: classRecord.ownerId === session.userId || isDemoStaff(session.userId),
   }));
 
   return (

@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from 'next/server';
 
 import {
   SESSION_COOKIE,
+  isRealSupabaseUserId,
   verifySession,
 } from '@/lib/auth/session';
 import {
@@ -12,6 +13,7 @@ import {
   permissionForPath,
 } from '@/lib/auth/rbac';
 import { isSameOrigin } from '@/lib/security/rate-limit';
+import { isSupabaseMode } from '@/lib/data-mode';
 import { safeNextPath } from '@/lib/security/redirect';
 
 /**
@@ -42,11 +44,48 @@ export async function proxy(request: NextRequest) {
     return new NextResponse('Forbidden', { status: 403 });
   }
 
-  const session = await verifySession(request.cookies.get(SESSION_COOKIE)?.value);
+  const verified = await verifySession(request.cookies.get(SESSION_COOKIE)?.value);
   const needsSession = isProtectedPath(pathname);
   const isAuthPage = AUTH_PATHS.some(
     (path) => pathname === path || pathname.startsWith(`${path}/`),
   );
+
+  /*
+   * A COOKIE CAN BE PERFECTLY SIGNED AND STILL NAME NOTHING.
+   *
+   * A session minted while the app ran in `fixtures` mode carries a fixed id like
+   * `usr_demo_noor`, signed with the same `LIKO_SESSION_SECRET`, so it verifies
+   * here after a switch to `supabase` while naming an account that cannot exist.
+   * Carried into Postgres it was rejected for a uuid column and every data page
+   * went to the error boundary with HTTP 200, which reads exactly like a data
+   * problem and is not one.
+   *
+   * WHY THIS IS HERE AND NOT ONLY IN THE GUARD. The guard already refuses such a
+   * session, and doing it there alone was worse than the bug: the page redirected
+   * to `/login`, this proxy still read the cookie as a live session, `/login`
+   * redirected back to the landing page, and the browser looped between the two
+   * forever. A Server Component cannot delete a cookie during a render, so the
+   * layer that CAN drop it has to be the one that decides.
+   *
+   * So the two gates are made to agree, and the stale cookie is deleted here.
+   *
+   * GATED ON THE DATA MODE, and that gate is the whole reason this is not a bug
+   * that shipped. Under `fixtures` the workspace is BUILT on ids like
+   * `usr_demo_noor`, so refusing every non-uuid here would sign the demo out of
+   * the entire product — the marketing mockups and the Playwright suite included
+   * — and it would present as "sign-in does nothing", which is a far worse
+   * failure than the one being fixed. The uuid is only a lie in `supabase` mode.
+   *
+   * The mode is readable here because this runs on the Node.js runtime, as the
+   * module comment above states. Were it ever moved to the Edge runtime,
+   * `process.env.LIKO_DATA_MODE` would be undefined, `isSupabaseMode()` would
+   * fall back to `fixtures`, and the check would go quietly inert rather than
+   * refuse every session.
+   */
+  const impossible = isSupabaseMode()
+    ? Boolean(verified && !isRealSupabaseUserId(verified.userId))
+    : false;
+  const session = impossible ? null : verified;
 
   const headers = new Headers();
   for (const [key, value] of Object.entries(SECURITY_HEADERS)) {
@@ -54,6 +93,24 @@ export async function proxy(request: NextRequest) {
   }
   if (process.env.NODE_ENV === 'production') {
     headers.set('Strict-Transport-Security', 'max-age=63072000; includeSubDomains');
+  }
+
+  /*
+   * Handled AFTER the security headers are built, because the response that
+   * drops the cookie is still a response and must carry them like every other.
+   */
+  if (impossible) {
+    if (!needsSession) {
+      const response = NextResponse.next({ headers });
+      response.cookies.delete(SESSION_COOKIE);
+      return response;
+    }
+
+    const url = new URL('/login', request.url);
+    url.searchParams.set('next', safeNextPath(pathname + search, { fallback: '/overview' }));
+    const response = NextResponse.redirect(url, { headers });
+    response.cookies.delete(SESSION_COOKIE);
+    return response;
   }
 
   // Signed in and heading for a login page: send them to their workspace.

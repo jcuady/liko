@@ -27,6 +27,38 @@ Project: `https://ulrjitekiylgepdyijsw.supabase.co`
 | Git history | 31 commits on `main`, pushed, remote verified identical |
 | Deployment | **Live** at `https://liko-jcuadys-projects.vercel.app`, project `jcuadys-projects/liko`. Production build, `LIKO_DATA_MODE=supabase`, verified by signing in against live Supabase |
 
+### The deployment does not contain the 2026-10-17 work
+
+Recorded 2026-10-17, and it is the single most misleading thing in this document:
+**everything below is on this machine only.** `origin/main` and local `HEAD` are both
+`a101b53` at the time of writing, and 16 files are uncommitted, so the live
+deployment is running a build that predates all of it.
+
+**One of the two fixes is a production exposure; the other is not, and conflating
+them would send the next person to the wrong system.**
+
+- **A stale demo-mode session cookie crashes data pages. This one IS live.** Under
+  `supabase`, a cookie signed in `fixtures` mode verifies, carries an id that cannot
+  name an account, and is rejected by Postgres for a uuid column — every data page
+  reaching the error boundary while answering HTTP 200. Production runs
+  `supabase`, so this applies to the deployed site.
+- **The roster fix is fixtures-mode only. Production was never affected.** The
+  change adds `isDemoStaff`, which matches the fixed demo ids `usr_demo_*`. A
+  production session carries a Supabase uuid, so the predicate is false and the
+  page behaves exactly as it did. This matters because the live site reads
+  `Roster not visible to you` for `CHEM-2` and `PHYS-1` while showing `SCI-4` —
+  and that output is **correct**. The administrator genuinely does not own the
+  other two classes and RLS genuinely refuses those names; that is the fix from
+  `d75a38a` working as designed, not the defect this round repaired. The roster
+  bug was confined to the fixture workspace and the Playwright suite, where the
+  synthetic `demo-owner` matches no account id at all.
+
+Both are fixed and verified locally; neither is deployed. This closes only when the
+work is committed and `main` is deployed, which has not been done because the
+branch also carries a concurrent agent's rewrite to `src/lib/srs/scheduler.ts` and
+its test, and committing those under one message would misattribute that work.
+**Whoever picks this up should resolve that first.**
+
 The honest summary: every read and write through the seam has now run against the
 real database, not just the fixture adapter. `pnpm db:check`, `pnpm db:settle` and
 `pnpm verify:app` are the commands that prove it, and all three are green. The
@@ -378,6 +410,21 @@ Stated plainly so nobody is surprised later.
     Putting institutional questions into a first-run wizard that most users cannot
     honestly answer would produce mostly nulls in the field meant to carry the
     verification. The form is fully optional so a school can fill it in whenever.
+12. **The Playwright suite is not reliably green, at any worker count.** Recorded
+    2026-10-17. Four full runs: `workers: 4` gave **231/0** then **213/7**;
+    `workers: 1` gave **231/0 (9.6 min)** then **230/1 (11.6 min)**. Every failing
+    spec passes repeatedly in isolation, and **two explanations have been tried and
+    discarded**: credential rate limiting (the suite disables it by design via the
+    two-key override) and parallelism (runs 3 and 4 differ at a *single* worker).
+    One genuine defect came out of the hunt — `getByRole('link', { name: 'Schedule' })`
+    matched both the sidebar link and the mobile tab-bar link, and is now scoped to
+    the workspace navigation. What survives is an intermittent fault where a Radix
+    select stays mounted after its option is clicked: `chooseOption` in
+    `e2e/helpers/select.ts` clicks a visible option and then asserts the listbox
+    closed, and that assertion times out. **The cause is not established.** Do not
+    read a green run as evidence of stability, and do not trust a single passing
+    run after a red one — run 3 was green and run 4, identical in configuration,
+    was not.
 
 ---
 

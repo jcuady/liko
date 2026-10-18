@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   MIN_SESSION_SECRET_BYTES,
+  isRealSupabaseUserId,
   sessionSecretByteLength,
   signSession,
   type SessionPayload,
@@ -135,5 +136,43 @@ describe('signSession outside production', () => {
     );
 
     if (error) expect(error.message).not.toContain('LIKO_SESSION_SECRET');
+  });
+});
+/**
+ * Which ids can name an account under `supabase` mode.
+ *
+ * The rule exists because a demo cookie is signed with the same secret as a real
+ * one. `verifySession` therefore cannot tell them apart, and a `usr_demo_*` id
+ * carried into Postgres is rejected for a uuid column — which took every data
+ * page to the error boundary while HTTP said 200, so it read as a data fault.
+ *
+ * The cases that matter are the ones a laxer check would wave through: an id that
+ * merely CONTAINS a uuid, and the demo ids themselves.
+ */
+describe('isRealSupabaseUserId', () => {
+  it('accepts a uuid, which is what auth.users.id always is', () => {
+    expect(isRealSupabaseUserId('9984dc37-232f-4bbb-a985-2d1fab05ca38')).toBe(true);
+    expect(isRealSupabaseUserId('00000000-0000-4000-8000-000000000001')).toBe(true);
+  });
+
+  it('accepts uppercase, because uuid is case-insensitive and some rows store it that way', () => {
+    expect(isRealSupabaseUserId('9984DC37-232F-4BBB-A985-2D1FAB05CA38')).toBe(true);
+  });
+
+  it('refuses every demo id, since those are the cookies this rule exists for', () => {
+    for (const id of ['usr_demo_noor', 'usr_demo_maya', 'usr_demo_dev', 'usr_demo_ingrid', 'usr_demo_priya']) {
+      expect(isRealSupabaseUserId(id)).toBe(false);
+    }
+  });
+
+  it('refuses a string that merely embeds a uuid, which a substring check would pass', () => {
+    expect(isRealSupabaseUserId('usr_9984dc37-232f-4bbb-a985-2d1fab05ca38')).toBe(false);
+    expect(isRealSupabaseUserId(' 9984dc37-232f-4bbb-a985-2d1fab05ca38')).toBe(false);
+    expect(isRealSupabaseUserId('9984dc37-232f-4bbb-a985-2d1fab05ca38 ')).toBe(false);
+  });
+
+  it('refuses the empty string and a truncated uuid', () => {
+    expect(isRealSupabaseUserId('')).toBe(false);
+    expect(isRealSupabaseUserId('9984dc37-232f-4bbb')).toBe(false);
   });
 });

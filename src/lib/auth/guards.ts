@@ -1,7 +1,7 @@
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 
-import { SESSION_COOKIE, verifySession, type SessionPayload } from './session';
+import { SESSION_COOKIE, isRealSupabaseUserId, verifySession, type SessionPayload } from './session';
 import { findUserById } from './store';
 import { isSupabaseMode } from '@/lib/data-mode';
 import { can, type Permission } from './rbac';
@@ -14,6 +14,8 @@ import { can, type Permission } from './rbac';
  * revalidation) still has to check permission itself. These helpers are the
  * inner gate.
  */
+
+/** A Supabase `auth.users.id` is a uuid, and nothing else in `supabase` mode is. */
 
 export async function getSession(): Promise<SessionPayload | null> {
   const store = await cookies();
@@ -30,8 +32,25 @@ export async function getSession(): Promise<SessionPayload | null> {
    * the Auth admin API, which would turn this into an extra network round trip
    * on every page load. In production the same effect comes from Supabase
    * refreshing the token, which is the correct place for it.
+   *
+   * WHICH IS WHY THE SUPABASE BRANCH REFUSES AN ID THAT CANNOT BE REAL. It is
+   * the one place a cookie is read without a second source to check it against.
+   * A `fixtures` session carries a fixed string like `usr_demo_noor`, signed with
+   * the same `LIKO_SESSION_SECRET`, so a cookie minted while the app ran in demo
+   * mode stays cryptographically valid after a switch to `supabase` — and it was
+   * then carried into Postgres, which rejected `usr_demo_noor` for a uuid column
+   * and took every data page to the error boundary with HTTP 200. Not one row was
+   * missing and RLS admitted them all; the identity was fiction.
+   *
+   * Shape rather than existence, on purpose: existence would cost a round trip
+   * on every page load, which is exactly what the comment above rules out. A
+   * Supabase user id is a uuid, so a non-uuid id cannot name an account in this
+   * deployment, and sending the person to `/login` is both correct and cheaper
+   * than rendering a page that is about to throw.
    */
-  if (isSupabaseMode()) return session;
+  if (isSupabaseMode()) {
+    return isRealSupabaseUserId(session.userId) ? session : null;
+  }
 
   const account = await findUserById(session.userId);
   if (!account || account.role === session.role) return session;

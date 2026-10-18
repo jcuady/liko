@@ -66,7 +66,7 @@ Students cannot self-register. That was already structurally true; it is now exp
 
 ### Testing
 - Vitest 5 for unit, Playwright 1.63 for E2E
-- 24 unit files, 15 E2E specs
+- 39 unit files, 20 E2E specs (counted 2026-10-17; both counts move as modules land, so the gate table below is the one to trust)
 - `pnpm check:responsive` and `pnpm check:behaviour` as static gates
 - E2E runs against a production build on port 3311
 - `pnpm db:apply`, `pnpm db:check`, `pnpm db:settle` and `pnpm verify:app` are the
@@ -263,28 +263,32 @@ pricing file.
 - Both adapters are exercised. `pnpm verify:app` drives the built application in a real browser against the live Supabase project: it signs in as all five demo accounts, renders every workspace route, checks that seeded data is actually on the page rather than an empty state, confirms the routes an account is not entitled to are refused, and performs a real attendance write that is read back out of Postgres with the service key.
 
 ### E2E
-- 15 specs. Each test uses a unique email address and nothing pins a shared count, because the fixture workspace is one shared mutable store and the specs run in parallel against a single server.
+- 20 specs (counted 2026-10-17). Each test uses a unique email address and nothing pins a shared count, because the fixture workspace is one shared mutable store and the specs run in parallel against a single server.
 
 ## Latest Test Results
 
-All run on 2026-10-09 against this working tree, after the quiz maker and the sheet reader. The four live-database gates are the ones that were impossible before credentials existed.
+Most of this table was last measured on **2026-10-17**, against the working tree after the session and roster-visibility work. Rows carrying a different date were **not** re-measured this round and say so. The four live-database gates are the ones that were impossible before credentials existed.
+
+A row that was not re-run says so and carries the date it was last measured. It does not inherit PASS from an older run, because a summary that disagrees with the body is the one failure this document exists to prevent.
 
 | Gate | Command | Result |
 |---|---|---|
-| Typecheck | `pnpm typecheck` | **0 errors** |
-| Lint | `pnpm lint` | **0 errors, 0 warnings** |
-| Unit | `pnpm vitest run` | **469 passed, 2 skipped** in 33 files |
-| Migration | `pnpm check:sql` | **254 statements parse; 170 cross-references resolve; RLS on 28/28 tables; 32/32 policies re-runnable** |
-| Production build | `pnpm build` | **exit 0, no warnings.** The one standing warning was `unpdf` reaching for `import.meta`, which webpack cannot analyse. It is silenced by exact module path in `next.config.ts` rather than tolerated, because a warning that fires on every build is one the team learns to skip. The e2e upload suite is what keeps that honest: it parses a real PDF through the built server |
-| End to end | `pnpm e2e` | **189 passed** across 15 specs. Run twice, because the fault described below was intermittent and one green run would not have meant much |
-| Live provider | `pnpm probe:ai` | **2 passed**: the real model returns a deck, and the answer is replayed through the real validator. Run on demand, never in the suite |
-| Static layout | `pnpm check:responsive` | **PASS at 375, 768, 1024, 1440 and 1920px**, no horizontal overflow |
-| Static behaviour | `pnpm check:behaviour` | **all passed**: anchors clear the nav, reduced motion, no-JS fallback |
-| Live schema | `pnpm db:apply` then `pnpm db:check` | **NOT RE-RUN since the flashcards tables were added.** The migration file now defines 28 tables and 32 policies; the live database still holds the last applied revision. `db:check` and `db:settle` have not been run against it, so nothing here claims those three tables exist in Supabase |
-| Live RLS behaviour | `pnpm db:settle` | **6 passed, 0 failed**: self-promotion refused, cross-tenant read refused, server-owned link cannot be moved |
-| Live application | `pnpm verify:app` | **54 passed, 0 failed**: every workspace route renders with real seeded data, refusals hold, an attendance write is read back out of Postgres and replays without duplicating, a write into another teacher's class is refused, the at-risk sweep authenticates and stays idempotent, the push route refuses six SSRF payloads and enforces per-teacher ownership, an outbound dispatch reaches the push service and prunes a dead endpoint, and registration is reported as blocked by the email quota |
-| Storage and AI write paths | `pnpm probe:files` | **all confirmed**: the bucket is private with no delete policy, and the usage row is written through the service client, read back, and removed |
-| Deck maker on the deployed site | `node scripts/verify-deck-maker-prod.mjs` | **18 passed, 0 failed**: signs in against the live database, opens a deck, changes a weight and reads the rendered result, sees the autosave land, reloads and finds it still there, and fits a phone |
+| Typecheck | `pnpm typecheck` | **0 errors** (re-run 2026-10-17) |
+| Lint | `pnpm lint` | **0 errors, 0 warnings**, exit 0 (re-run 2026-10-17) |
+| Unit | `pnpm vitest run` | **520 passed, 2 skipped** in 39 files (re-run 2026-10-17) |
+| Migration | `pnpm check:sql` | **254 statements parse; 170 cross-references resolve; RLS on 28/28 tables; 32/32 policies re-runnable.** Not re-run 2026-10-17 |
+| Production build | `pnpm build` | **exit 0, compiled successfully.** Re-run 2026-10-17. The one standing warning was `unpdf` reaching for `import.meta`, which webpack cannot analyse. It is silenced by exact module path in `next.config.ts` rather than tolerated, because a warning that fires on every build is one the team learns to skip. The e2e upload suite is what keeps that honest: it parses a real PDF through the built server |
+| End to end | `pnpm e2e` | **Flaky at every worker count**, so no single figure is a gate. Four full runs on 2026-10-17: `workers: 4` → 231/0 then 213/7; `workers: 1` → 231/0 then 230/1. Every failing spec passes in isolation. Rate limiting and parallelism are both **ruled out**; what survives is an intermittent Radix-select fault whose cause is not established. **A green run here is not evidence of anything** — see the 2026-10-17 entry |
+| Live provider | `pnpm probe:ai` | **2 passed**: the real model returns a deck, and the answer is replayed through the real validator. Run on demand, never in the suite. Not re-run 2026-10-17 |
+| Static layout | `pnpm check:responsive` | **PASS at 375, 768, 1024, 1440 and 1920px**, no horizontal overflow. Not re-run 2026-10-17 |
+| Static behaviour | `pnpm check:behaviour` | **all passed**: anchors clear the nav, reduced motion, no-JS fallback. Not re-run 2026-10-17 |
+| Live schema | `pnpm db:apply` then `pnpm db:check` | **APPLIED AND CONFIRMED 2026-10-17**, superseding the earlier "not re-run" note on this row. The migration file defines 28 tables and 32 policies; `db:check` reports all 28 tables present against the live project |
+| Live RLS behaviour | `pnpm db:settle` | **14 passed, 0 failed** (re-run 2026-10-17), superseding the earlier 6. Includes six flashcard assertions: a student cannot write a review against another student, cannot read another student's study record, and cannot add a card to a deck they do not own |
+| Live application | `pnpm verify:app` | **56 passed, 0 failed** (re-run 2026-10-17): every workspace route renders with real seeded data, refusals hold, an attendance write is read back out of Postgres and replays without duplicating, a write into another teacher's class is refused, the at-risk sweep authenticates and stays idempotent, the push route refuses six SSRF payloads and enforces per-teacher ownership, an outbound dispatch reaches the push service and prunes a dead endpoint, and registration is reported as blocked by the email quota |
+| Storage and AI write paths | `pnpm probe:files` | **all confirmed**: the bucket is private with no delete policy, and the usage row is written through the service client, read back, and removed. Not re-run 2026-10-17 |
+| Deck maker on the deployed site | `node scripts/verify-deck-maker-prod.mjs` | **18 passed, 0 failed**: signs in against the live database, opens a deck, changes a weight and reads the rendered result, sees the autosave land, reloads and finds it still there, and fits a phone. Not re-run 2026-10-17 |
+
+**The live database is seeded.** `scripts/seed.mjs` was run against the live project on 2026-10-17 and reported every section already present, because a prior run had created it; the state was then confirmed independently rather than taken from the seed's own log: 3 classes, 24 students, 360 timetable rows, 3 flashcard decks of 6 cards each, 24 questions, 1 organisation and 5 memberships. Two failures this round were **not** a data gap. One was an oracle asserting the literal `Chemistry`, which the seed has never written; the other was a render that threw and reached the error boundary, which answers HTTP 200 and is indistinguishable from an empty state from outside.
 
 A real generation was run through the deployed site end to end, not simulated:
 a prompt went to the provider, six slides came back, the first rendered as
@@ -419,6 +423,7 @@ Three of the five blockers listed here were resolved on 2026-10-09 and are kept 
 6. **OPEN: the legal text has not been read by a lawyer.** It describes this implementation accurately, which is the most it can do, but accuracy about the system is not legal sufficiency.
 7. **OPEN: Supabase's built-in email quota is exhausted, so nobody can register.** The project sends `over_email_send_rate_limit` for every signup and every password reset. It is not a code fault: the seed created its accounts through the admin API, which sends no email, which is why this only appeared when a real person filled in the register form. Fixing it needs a custom SMTP provider or a plan with a higher limit, both of which are dashboard decisions.
 8. **OPEN, AND IT IS A PROVIDER NOT A BUG: the deck generator runs on the AI free tier, and that tier refuses.** A real call during this work returned `503 This model is currently experiencing high demand`, and `gemini-2.5-flash` returned `404` for a new key even though the model list reported it as available. LIKO handles all of it: the panel says the model is out of capacity, it distinguishes a refusal from an outage, and each teacher gets eight generations an hour so one person cannot exhaust the shared allowance. **What it cannot do is make the free tier reliable.** That needs a paid key, and the panel never claims otherwise.
+9. **OPEN: this round's fixes are not deployed.** `origin/main` and local `HEAD` are both `a101b53` and 16 files are uncommitted, so the live deployment predates all of the 2026-10-17 work. One of the two High fixes is a **production** exposure — the stale demo-cookie crash, since production runs `supabase`. The other, the roster-visibility fix, is **fixtures-mode only** and never affected production: `isDemoStaff` matches the fixed demo ids, so a production session carrying a Supabase uuid is unaffected. The live site reading `Roster not visible to you` for `CHEM-2` and `PHYS-1` while showing `SCI-4` is the `d75a38a` fix behaving correctly, not a defect. It closes when the work is committed and `main` is deployed. **Not done here on purpose:** the working tree also carries a concurrent agent's rewrite to `src/lib/srs/scheduler.ts` and its test, and committing those under one message would misattribute that work. That attribution question belongs to the user, not to the agent that found it.
 
 ### The RLS settling test
 
@@ -459,6 +464,42 @@ into `pnpm test` or CI.
 4. Rotate the service role key and the database password before this project carries anything real. Both have been handled in chat and written to a local `.env.local`, which is gitignored, but they were shared in a conversation.
 
 ## Recent Work
+
+### 2026-10-17
+
+The live database was empty of demo rows, which made two routes render honest empty states and the sweep report them as failures. Seeding it turned out to be a **no-op** — a prior run had already created everything — so the state was confirmed independently through the service role rather than taken from the seed's own log: 3 classes, 24 students, 360 timetable rows, 3 decks of 6 cards, 24 questions, 1 organisation, 5 memberships. The two failures were not a data gap at all.
+
+Fixed:
+- **High: a demo-mode session cookie stayed valid in `supabase` mode and crashed every data page.** `getSession()` reads the signed cookie and, under `supabase`, deliberately skips the account lookup that `fixtures` does — so it is the one place a cookie is read with nothing to check it against. Demo ids like `usr_demo_noor` are signed with the same `LIKO_SESSION_SECRET`, verified perfectly, and were then rejected by Postgres for a uuid column: `invalid input syntax for type uuid: "usr_demo_noor"`. Every data page hit the error boundary while answering HTTP 200, with the database holding every row and RLS admitting them. An id that cannot be a Supabase user id is now refused, by a single predicate shared by the guard and the proxy
+- **High: the roster was invisible to every demo teacher, including the one standing in front of it.** `classes/page.tsx` derived `rosterVisible` from class ownership alone, which is correct against Postgres and wrong in the fixture workspace, whose seeded classes carry the synthetic owner `demo-owner` — nobody's account id. The fixture adapter has escaped this in six other places (`rosterOwner`, `ownedClass`, `ownedDeck`, `getStudent`, `listClasses`, `createFlashcardDeck`); this was the one call site left out. The page then still offered "Add student" and "Import CSV" on a class whose roster it refused to render, so a write could succeed and its result could never be seen — the silent direction described beside `rosterOwner`
+
+Instrument:
+- The live sweep asserted the literal `Chemistry`, which `seed.mjs` has never written; the deck is `Unit 1: Atomic Structure` and the week is Filipino/Math/English/Science/History/Technology/Clinic/PE/Values. Both witnesses are now strings the seed writes **and** the fixtures cannot produce
+- Its failure message asserted a cause it had not observed ("this is an empty state"). `/schedule` was not empty — its render had thrown, and the error boundary answers HTTP 200, which from outside is identical to an empty state. That misdiagnosis sent the investigation at the database first. It now reports what was observed and names the error boundary separately
+- One `goto` in twenty omitted the `settle()` every other navigation calls, so a streamed control was counted before it existed and the register write reported "the write was never attempted" for a page that renders it
+- `e2e/flashcards.spec.ts` still asserted the Good button reads `10m` — the ladder where hard, good and easy all landed on the same rung, which is the defect that ladder was rewritten to remove. A test pinning behaviour the product deliberately moved off from is a specification of the old bug
+
+**Open, and recorded because it is diagnosed rather than merely observed.** The e2e suite alternates between green and red full runs, with a different failing set each time. Two full runs captured: one **231 passed / 0 failed**, one **213 passed / 7 failed** across `responsive`, `schedule` (×4), `slides` and others — all of which pass in isolation. The failures were **not** the same defect:
+
+- Five were "element not found / not visible" inside a 20 s assertion, spread across three unrelated files. That is the signature of a **server that cannot keep up**, not of three separate bugs.
+- Two were `strict mode violation`: `getByRole('link', { name: 'Schedule' })` matched **both** the desktop sidebar link and the mobile tab-bar link at once. Both renderings are briefly present together while a slow re-render is in flight, and a locator that can match two elements is a latent failure even when it passes today.
+
+**What is ruled out.** Not credential rate limiting — `playwright.config.ts` sets both `LIKO_RATE_LIMIT_DISABLED` and `LIKO_E2E`, the deliberate two-key override the limiter documents, precisely so this suite is never throttled. Not machine contention from other gates — a deliberate reproduction attempt under concurrent CPU load stayed green. Not any individual spec — each passes repeatedly in isolation.
+
+**What remains, and what is now ruled out.** The suite is flaky at **both** worker counts, so "too much parallelism" is **not** the explanation:
+
+| Run | Workers | Result |
+|---|---|---|
+| 1 | 4 | 231 passed, 0 failed |
+| 2 | 4 | 213 passed, 7 failed |
+| 3 | 1 | 231 passed, 0 failed (9.6 min) |
+| 4 | 1 | 230 passed, **1 failed** (11.6 min) |
+
+Run 4 failed in `interactions.spec.ts:43` inside the shared `chooseOption` helper: `select stayed open after choosing an option`. The click landed on a visible option and the Radix listbox stayed mounted, so the helper's own close assertion timed out.
+
+**Do not believe either of the two explanations that were tried and discarded.** Rate limiting is excluded — `playwright.config.ts` sets both `LIKO_RATE_LIMIT_DISABLED` and `LIKO_E2E` deliberately. CPU contention was excluded by a reproduction attempt that stayed green. Parallelism is now excluded by runs 3 and 4 differing **at one worker**. What remains is an intermittent UI-interaction timing fault around a Radix select, whose cause is **not established**. That exact test, run six times in isolation, passed **6/6**, so the fault needs the full-suite context and is not a per-test defect. The next step is a trace captured on a failing *full* run, since that is the only way it has ever been reproduced.
+
+**And note what a tempting "fix" would actually be.** The timeout at `select.ts:97` is the helper's own assertion, so deleting or relaxing it would turn the gate green while changing nothing about the product — which is indistinguishable, from the output, from having fixed it. That is precisely the shape of change that makes a suite worse, because it removes the only evidence the fault exists.
 
 ### 2026-10-10
 

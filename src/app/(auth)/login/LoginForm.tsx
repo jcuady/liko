@@ -2,7 +2,6 @@
 
 import * as React from 'react';
 import Link from 'next/link';
-import { useFormState } from 'react-dom';
 
 import {
   AuthFooter,
@@ -16,7 +15,15 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { loginAction, type ActionResult } from '../actions';
 
 export function LoginForm({ next, passwordReset }: { next: string; passwordReset: boolean }) {
-  const [result, formAction] = useFormState<ActionResult | null, FormData>(
+  /*
+   * `useActionState`, not the deprecated `useFormState` from `react-dom`.
+   *
+   * The old name logs a console error on every render of this component, which
+   * is not cosmetic: a suite that asserts "no console errors on any route"
+   * passes only while this is quiet, and a team that sees red on every build
+   * learns to ignore the gate that was meant to catch a real one.
+   */
+  const [result, formAction] = React.useActionState<ActionResult | null, FormData>(
     loginAction,
     null,
   );

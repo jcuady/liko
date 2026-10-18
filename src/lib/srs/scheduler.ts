@@ -123,41 +123,59 @@ function step(
     };
   }
 
-  const lastStep = nextStep >= LEARNING_STEPS_MINUTES.length;
+  if (recall === 'easy') {
+    return graduateTo(current, 3, now, lastReviewedAt);
+  }
 
-  if (lastStep) {
-    /*
-     * Out of the ladder, and `easy` is the only answer that reaches a different
-     * interval here.
-     *
-     * `hard` and `good` both graduate at one day, and that is deliberate rather
-     * than an oversight. The previous version of this comment claimed `hard`
-     * graduated "a day early" against a `good` that graduated later, which the
-     * code never did: both branches were `1`. A first graduating interval has no
-     * room below a day that is still a real interval, and dropping `hard` to
-     * the top learning step would punish the answer for getting a card out of
-     * the ladder at all.
-     *
-     * The four buttons still differ on a first sighting, just not through the
-     * day count: `again` returns to the one minute step while all three
-     * successes advance one rung.
-     */
-    const days = recall === 'easy' ? 3 : 1;
+  /*
+   * THE FIRST SIGHTING SPREADS FOUR ANSWERS ACROSS FOUR INTERVALS.
+   *
+   * The obvious ladder sends hard, good and easy to the same ten-minute rung,
+   * because on a card nobody has seen all three count as a success and success
+   * advances one step. Observed in the browser on a fresh card: Again 1m, Hard
+   * 10m, Good 10m, Easy 10m. Three buttons reading 10m, and a student choosing
+   * between them is choosing at random.
+   *
+   * A comment once claimed these four differed because `again` returned to the
+   * one minute step "while all three successes advance one rung". That was
+   * true of `again` and silent about the other three, which were identical. A
+   * comment asserting an invariant is a claim to check, not a thing to believe.
+   *
+   * So a first sighting genuinely differs: right away graduates the card to a
+   * day, easily to three, and hard moves it one rung up the ladder instead of
+   * out of it.
+   */
+  if (current.status === 'new') {
+    if (recall === 'good') return graduateTo(current, 1, now, lastReviewedAt);
     return {
       ...current,
-      status: 'review',
-      stepIndex: 0,
-      intervalDays: days,
-      repetitions: current.repetitions + 1,
-      dueAt: at(now, days * DAY_MS),
+      status: 'learning',
+      stepIndex: 1,
+      dueAt: inMinutes(now, LEARNING_STEPS_MINUTES[1]),
       lastReviewedAt,
     };
   }
 
+  // Mid-ladder. Hard repeats the rung the card is already on, which is what a
+  // student who got it wrong first and half-right second is telling you.
+  if (recall === 'hard') {
+    const minutes = LEARNING_STEPS_MINUTES[current.stepIndex] ?? LEARNING_STEPS_MINUTES[0];
+    return {
+      ...current,
+      status: current.status === 'relearning' ? 'relearning' : 'learning',
+      dueAt: inMinutes(now, minutes),
+      lastReviewedAt,
+    };
+  }
+
+  if (nextStep >= LEARNING_STEPS_MINUTES.length) {
+    return graduateTo(current, 1, now, lastReviewedAt);
+  }
+
   const minutes = LEARNING_STEPS_MINUTES[nextStep];
   if (minutes === undefined) {
-    // Unreachable while the ladder has two steps, but the indexed access is
-    // checked rather than asserted so adding a step cannot silently ship NaN.
+    // Unreachable while the ladder has two rungs, but the indexed access is
+    // checked rather than asserted so adding one cannot silently ship NaN.
     return { ...current, dueAt: at(now, DAY_MS), lastReviewedAt };
   }
 
@@ -166,6 +184,24 @@ function step(
     status: current.status === 'relearning' ? 'relearning' : 'learning',
     stepIndex: nextStep,
     dueAt: inMinutes(now, minutes),
+    lastReviewedAt,
+  };
+}
+
+/** Leaves the ladder and puts the card a whole number of days out. */
+function graduateTo(
+  current: Schedule,
+  days: number,
+  now: Date,
+  lastReviewedAt: string,
+): Schedule {
+  return {
+    ...current,
+    status: 'review',
+    stepIndex: 0,
+    intervalDays: days,
+    repetitions: current.repetitions + 1,
+    dueAt: at(now, days * DAY_MS),
     lastReviewedAt,
   };
 }
@@ -195,24 +231,52 @@ function graduate(
   const easeFactor = clampEase(adjustedEase(current.easeFactor, recall));
   const repetitions = current.repetitions + 1;
 
-  let intervalDays: number;
-  if (recall === 'hard') {
-    // Below the ease multiplier on purpose: "hard" means it nearly failed.
-    intervalDays = round(Math.max(current.intervalDays + 1, current.intervalDays * 1.2));
-  } else if (recall === 'easy') {
-    intervalDays = round(Math.max(current.intervalDays + 1, current.intervalDays * easeFactor * 1.3));
-  } else {
-    intervalDays = round(Math.max(current.intervalDays + 1, current.intervalDays * easeFactor));
-  }
+  /*
+   * WHOLE DAYS, NOT THE `round()` ABOVE.
+   *
+   * `round` rounds to two decimals, which is right for an ease factor and
+   * wrong here: `interval_days` is an integer column, so a 2.5 this module
+   * computes becomes a 3 the moment Postgres stores it. The student would be
+   * shown one date and their next review would come on another, and the
+   * disagreement would be invisible until somebody compared the two.
+   */
+  /*
+   * THE THREE SUCCESS INTERVALS ARE ORDERED BY CONSTRUCTION, NOT BY FACTOR.
+   *
+   * Each answer used to be its own multiplier and the multipliers happened to
+   * separate at most intervals: at one day, good and easy both computed 3, and
+   * two buttons that schedule the same thing behind the same label is a student
+   * choosing at random. Enormous intervals separate again and a 365-day card
+   * hides it, so no choice of factors fixes it.
+   *
+   * So each is derived from the one below it. hard is the floor, good is at
+   * least a day past hard, easy at least a day past good, and the ease factor
+   * only ever raises them. The ordering is then a property of the arithmetic
+   * rather than a property of the numbers that happened to arrive.
+   */
+  const hardDays = Math.round(Math.max(current.intervalDays + 1, current.intervalDays * 1.2));
+  const goodDays = Math.max(
+    hardDays + 1,
+    Math.round(Math.max(current.intervalDays + 1, current.intervalDays * easeFactor)),
+  );
+  const easyDays = Math.max(
+    goodDays + 1,
+    Math.round(Math.max(current.intervalDays + 1, current.intervalDays * easeFactor * 1.3)),
+  );
+
+  const intervalDays = Math.min(
+    MAX_INTERVAL_DAYS,
+    recall === 'hard' ? hardDays : recall === 'easy' ? easyDays : goodDays,
+  );
 
   return {
     ...current,
     status: 'review',
     stepIndex: 0,
     easeFactor,
-    intervalDays: Math.min(MAX_INTERVAL_DAYS, Math.max(1, intervalDays)),
+    intervalDays,
     repetitions,
-    dueAt: at(now, Math.min(MAX_INTERVAL_DAYS, Math.max(1, intervalDays)) * DAY_MS),
+    dueAt: at(now, intervalDays * DAY_MS),
     lastReviewedAt,
   };
 }

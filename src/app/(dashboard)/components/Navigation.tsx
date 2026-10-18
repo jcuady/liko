@@ -87,6 +87,18 @@ export const SECONDARY_NAV: NavItem[] = [
    * sidebar, tab bar and overflow sheet exactly as it was.
    */
   { href: '/quiz', label: 'Quizzes', icon: PencilLine },
+  /*
+   * Beside the quiz because it is the same job: something a student opens to
+   * revise. Every role holds `flashcard:read` at some scope, so this line shows
+   * for all four and the matrix decides what happens behind it.
+   *
+   * It was missing the first time this route shipped, which is worth recording:
+   * the page worked, the gate worked, and the link did not appear, because
+   * `SECONDARY_ROUTES` in the permission table and this list are two separate
+   * declarations of the same set. Adding a route to the first one changes no
+   * navigation at all.
+   */
+  { href: '/flashcards', label: 'Flashcards', icon: Layers },
   { href: '/history', label: 'History', icon: History },
   /*
    * RENAMED FROM "Notifications", AND THE BELL ICON WENT WITH IT.

@@ -70,56 +70,57 @@ describe('learning steps', () => {
     expect(new Date(s.dueAt).getTime() - T0.getTime()).toBe(60 * 1000);
   });
 
-  it('steps to the ten minute step on the second success', () => {
-    const first = review(newSchedule(T0), 'good', T0);
-    expect(first.stepIndex).toBe(1);
-    const due = new Date(first.dueAt).getTime() - T0.getTime();
-    expect(due).toBe(10 * 60 * 1000);
+  it('sends hard up one rung rather than graduating the card', () => {
+    const s = review(newSchedule(T0), 'hard', T0);
+    expect(s.status).toBe('learning');
+    expect(s.stepIndex).toBe(1);
+    expect(new Date(s.dueAt).getTime() - T0.getTime()).toBe(10 * 60 * 1000);
   });
 
-  it('graduates to review after the last step', () => {
-    const s = graduated();
+  it('graduates a card answered right the first time', () => {
+    // A card somebody gets right on a first sighting should not have to wait
+    // ten minutes to graduate. That was the change that also split the four
+    // answers apart on a new card.
+    const s = review(newSchedule(T0), 'good', T0);
     expect(s.status).toBe('review');
     expect(s.intervalDays).toBe(1);
   });
 
-  it('sends easy out to three days on its first sighting', () => {
-    const first = review(newSchedule(T0), 'easy', T0);
-    const second = review(first, 'easy', T0);
-    expect(second.status).toBe('review');
-    expect(second.intervalDays).toBe(3);
+  it('grows away from the one day it graduated at', () => {
+    // Two good answers on a new card: the first graduates it to a day, the second
+    // has to push it further out or the first interval was the last one.
+    const s = graduated();
+    expect(s.status).toBe('review');
+    expect(s.intervalDays).toBeGreaterThan(1);
   });
 
-  it('graduates hard and good at the same interval, and only easy further out', () => {
+  it('sends easy out to three days on its first sighting', () => {
+    const s = review(newSchedule(T0), 'easy', T0);
+    expect(s.status).toBe('review');
+    expect(s.intervalDays).toBe(3);
+  });
+
+  it('orders the four answers on a first sighting as again, hard, good, easy', () => {
     /*
-     * Pinned because the code once carried a comment saying `hard` graduated "a
-     * day early" against a `good` that graduated later. It never did: both
-     * branches were `1`, and a comment describing behaviour the code does not
-     * have is worse than no comment, because the next reader trusts it.
+     * This test used to assert the opposite: that hard and good graduated at
+     * the same interval. It was pinned that way to correct a comment that
+     * described behaviour the code did not have, and pinning it turned a wrong
+     * comment into a wrong specification.
      *
-     * `again` is included so the four answers are compared on one card rather
-     * than in isolation, and a divergence here cannot hide behind the ladder.
+     * A comment is a claim to check. A test that enshrines it is a wall.
      */
-    const graduating = (recall: Recall): Schedule => {
-      const once = review(newSchedule(T0), recall, T0);
-      expect(once.status, `${recall} did not advance one rung`).not.toBe('new');
-      return review(once, recall, T0);
-    };
+    const gap = (recall: Recall) =>
+      new Date(review(newSchedule(T0), recall, T0).dueAt).getTime() - T0.getTime();
 
-    const again = graduating('again');
-    const hard = graduating('hard');
-    const good = graduating('good');
-    const easy = graduating('easy');
-
-    expect(hard.intervalDays).toBe(good.intervalDays);
-    expect(easy.intervalDays).toBeGreaterThan(hard.intervalDays);
-    // `again` sends the card back down the ladder rather than graduating it, so
-    // it is the one answer that must not come back as a review card here.
-    expect(again.status).not.toBe('review');
+    expect(gap('again')).toBeLessThan(gap('hard'));
+    expect(gap('hard')).toBeLessThan(gap('good'));
+    expect(gap('good')).toBeLessThan(gap('easy'));
   });
 
   it('drops back to the first step when the card is forgotten mid-ladder', () => {
-    const learned = review(newSchedule(T0), 'good', T0);
+    // Mid-ladder means hard on a new card, because that is now the answer that
+    // moves a card up the ladder instead of out of it.
+    const learned = review(newSchedule(T0), 'hard', T0);
     const s = review(learned, 'again', T0);
     expect(s.stepIndex).toBe(0);
     expect(s.status).toBe('learning');
@@ -300,26 +301,62 @@ describe('previewIntervals', () => {
     }
   });
 
-  it('separates all four answers anywhere below the cap', () => {
+  it('gives a new card four different labels', () => {
+  /*
+   * THE CASE THAT SLIPPED THROUGH.
+   *
+   * Every other label test used `matureCard`, which is already in `review`. A
+   * card nobody has seen took a different path through the scheduler, and on
+   * that path three of the four answers produced the same ten-minute rung. The
+   * suite was green and the browser showed "Hard 10m, Good 10m, Easy 10m".
+   *
+   * A test that only checks states the product spends most of its time in is
+   * a test that misses the state a student meets first.
+   */
+  const hints = previewIntervals(newSchedule(T0), T0);
+  expect(new Set(Object.values(hints)).size).toBe(4);
+  expect(Object.values(hints).sort()).toEqual(['10m', '1d', '1m', '3d']);
+});
+
+it('separates all four answers anywhere below the cap', () => {
     for (const interval of [1, 3, 7, 14, 20, 45, 100]) {
       const hints = previewIntervals(matureCard(interval), T0);
       expect(new Set(Object.values(hints)).size, `card at ${interval}d`).toBe(4);
     }
   });
 
-  it('shows minutes on a new card rather than a day count', () => {
-    // A first sighting advances one rung of the ladder, so `good` is the ten
-    // minute step and only `again` returns to the first.
-    expect(previewIntervals(newSchedule(T0), T0).good).toBe('10m');
-    expect(previewIntervals(newSchedule(T0), T0).again).toBe('1m');
+  it('shows minutes on a new card for the answers that are minutes', () => {
+    // `again` and `hard` keep the card in the ladder, so they read in minutes.
+    // `good` and `easy` graduate it, so they read in days. Every hint is in the
+    // unit its own answer actually schedules.
+    const hints = previewIntervals(newSchedule(T0), T0);
+    expect(hints.again).toBe('1m');
+    expect(hints.hard).toBe('10m');
+    expect(hints.good).toBe('1d');
+    expect(hints.easy).toBe('3d');
   });
+});
+
+it('never produces a fractional interval', () => {
+  // `interval_days` is an integer column. A 2.5 that reaches Postgres becomes a
+  // 3, and the student is shown the 2.5. The drift is invisible until somebody
+  // compares the two, so it is asserted rather than assumed.
+  let s: Schedule = { ...matureCard(1), easeFactor: 2.5 };
+  for (const recall of ['hard', 'good', 'easy'] as const) {
+    for (let i = 0; i < 6; i++) {
+      s = review(s, recall, T0);
+      expect(Number.isInteger(s.intervalDays), `${recall} produced ${s.intervalDays}`).toBe(true);
+    }
+  }
 });
 
 describe('countDue', () => {
   it('splits due, learning and total', () => {
     const schedules = [
       { schedule: newSchedule(T0) },
-      { schedule: review(newSchedule(T0), 'good', T0) },
+      // `hard` is what keeps a new card in the ladder now, so it is the one
+      // that produces a learning row worth counting.
+      { schedule: review(newSchedule(T0), 'hard', T0) },
       { schedule: matureCard(10) },
     ];
     // Counted a day on, when the learning card has come round again but the

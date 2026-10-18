@@ -80,7 +80,19 @@ test.describe('a student reads their own week', () => {
     // Offered to a student because they hold `class:read` at scope `own`, and
     // `can()` counts an ownership scope as permitted. If this link disappears the
     // route gate moved, not the navigation.
-    await page.getByRole('link', { name: 'Schedule' }).click();
+    //
+    // SCOPED TO THE SIDEBAR, BECAUSE THE NAME MATCHES TWO ELEMENTS. The app
+    // renders a sidebar link and a mobile tab-bar link to `/schedule`, and a bare
+    // `getByRole('link', { name: 'Schedule' })` is not an exact match: it resolved
+    // to both at once and threw a strict-mode violation, intermittently and only
+    // in full-suite runs, because both are briefly present together while a slow
+    // re-render is in flight. A locator that can match two elements is a latent
+    // failure even on the runs where it happens to pass, so the sidebar is named
+    // rather than assumed.
+    await page
+      .getByRole('navigation', { name: 'Workspace' })
+      .getByRole('link', { name: 'Schedule' })
+      .click();
 
     await expect(page).toHaveURL(/\/schedule$/);
     await expect(page.getByRole('heading', { name: 'Schedule' })).toBeVisible();
