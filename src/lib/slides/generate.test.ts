@@ -33,13 +33,37 @@ function isBullet(el: SlideElement): el is SlideTextElement {
  * the product sends, and a green probe would mean nothing.
  */
 describe('the live probe shares this prompt', () => {
+  /*
+   * LINE ENDINGS ARE NORMALISED, AND THAT IS THE FIX.
+   *
+   * This compared the extracted template literal against the TS constant as raw
+   * bytes, so the two sides differed by `\r\n` versus `\n` whenever git checked
+   * the `.mjs` and the `.ts` out with different endings. `core.autocrlf` is true
+   * here and there is no `.gitattributes`, so which file got converted is not
+   * something the test controls or the reader can see. Observed directly: this
+   * passed in the primary checkout and failed in a freshly created worktree on
+   * byte-identical content.
+   *
+   * A test that passes or fails depending on who checked the repository out is
+   * not measuring the property it names. The property is "the probe sends the
+   * instruction the product sends", and that is a question about text, not about
+   * which line-ending convention a particular checkout applied. Normalising both
+   * sides keeps the assertion honest: it can now only fail because the two
+   * copies of the instruction genuinely differ.
+   *
+   * Normalising would be wrong if whitespace inside the instruction were
+   * significant — and it is not, because the template literal is compared as the
+   * same multi-line string the model receives either way.
+   */
+  const normalise = (text: string) => text.replace(/\r\n/g, '\n');
+
   it('sends exactly the instruction the product sends', async () => {
     const { readFileSync } = await import('node:fs');
     const raw = readFileSync(new URL('../../../scripts/ai-prompt-hint.mjs', import.meta.url), 'utf8');
     const match = /export const OUTLINE_INSTRUCTION = `([\s\S]*?)`;/.exec(raw);
 
     expect(match, 'the probe hint module exists and exports the instruction').not.toBeNull();
-    expect(match![1]).toBe(OUTLINE_INSTRUCTION);
+    expect(normalise(match![1])).toBe(normalise(OUTLINE_INSTRUCTION));
   });
 });
 

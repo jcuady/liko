@@ -30,7 +30,13 @@ The supplied brand design in `Liko new landing design and branding/` has been ap
 
 ## Open: linked accounts can see a class but not the marks on it
 
-**Status: derived from the policies, NOT measured. Do not treat as a confirmed defect until it is measured — see the confounding note at the end.**
+**Status: NOW MEASURED, and confirmed. See `docs/SYSTEM_AUDIT.md` round ten for
+the probe.** This section was first written as a derivation from the policies
+with an explicit refusal to put a number on it, because the demo guardian seat
+had no link and a zero would therefore have had two independent causes at once.
+That caution was correct, and it is now retired rather than deleted: the seat
+has been linked, the confounding has separated, and the numbers below are
+measured with the guardian's own token.
 
 While verifying another agent's in-flight `client.ts` fix I swept every read
 path that still filters `.eq('owner_id', userId)`. Removing that filter is
@@ -60,13 +66,28 @@ recorded; only the policy is missing.** That is a migration, and it is a
 policy decision about a minor's records — the same class of decision as the
 guardian seat itself, so it is not one to take unilaterally.
 
-**The measurement is currently confounded and must not be taken yet.** The
-demo guardian seat is not linked to a student row at all, so probing it today
-returns zero for *two* independent reasons at once. Those have to be
-separated before any number from it means anything: link the seat first, then
-read `grades` and `student_history` as that session, and only then compare
-against a teacher session on the same class. A zero observed before the link
-exists proves nothing about these two policies.
+**The measurement, once unconfounded (round ten).** Linking the seat removed the
+first of the two causes; the second was measured directly and is larger than the
+two tables named above. A guardian's own token reads `classes` 1, `students` 1,
+`weekly_schedule_entries` 15 — and **zero** from `assessments`, `grades`,
+`student_history`, `lesson_plans`, `attendance` and `calendar_events`. That is
+three of nine class-scoped tables admitting a linked account. The service role
+was used only to confirm the seat is genuinely linked, because it bypasses RLS
+and would otherwise answer yes to everything.
+
+So the honest summary of a parent account in this product is that it is a
+**partially built feature**, not a broken one: the matrix grants
+`class:read`, `grade:read`, `history:read` and `flashcard:read` at scope
+`linked`, and the schema implements two of those and not the others. Adding the
+missing policies is a privacy decision about a minor's records and remains
+deliberately open — a mark, an attendance row and a lesson plan are three
+different things to hand to a parent, and `attendance` has no parent-facing
+story in this product at all.
+
+It is also why `/schedule` works and `/grades` does not. That asymmetry is the
+whole map: `weekly_schedule_entries` carries a linked-aware policy, so the
+guardian's week renders fifteen lessons, while `grades` has only the generated
+`own rows` policy and a mark's `owner_id` is the teacher's id.
 
 ## Executive Summary
 
