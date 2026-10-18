@@ -456,6 +456,141 @@ async function main() {
         : `refused: ${stolenCard.status}`,
     );
 
+    // ---- guardian ------------------------------------------------------
+    /*
+     * A GUARDIAN WHO CAN RESOLVE NOBODY IS NOT A SAFELY RESTRICTED ROLE.
+     *
+     * This section did not exist, and that is the whole finding. Every other role
+     * in this script is asserted in both directions; the guardian was never
+     * asserted at all, so a guardian who could read nothing at all passed every
+     * gate in this project. Both surrounding gates are structurally incapable of
+     * noticing. `pnpm e2e` drives the fixtures, where no RLS applies. And
+     * `pnpm verify:app` does sign a guardian in against the real database and
+     * passes, because an empty state is a legitimate render: HTTP 200, a header,
+     * a paragraph, no console error. Every check available was of the shape
+     * "did it render?", and an empty state renders identically whether it is
+     * correct or whether the role is walled off entirely.
+     *
+     * `guardian_email` is written by `scripts/seed.mjs` and read by no policy in
+     * the schema — it appears exactly once in the migration, as a column
+     * definition. The seat was granted `class:read` and `grade:read` at scope
+     * `linked` by the RBAC matrix, and with nothing to resolve against, both
+     * scopes matched no row: measured against production, a real guardian
+     * session read 0 classes and 0 students.
+     *
+     * (An earlier draft of this comment repeated the seed's original reasoning,
+     * that `guardian_email` gave the guardian seat "a different visibility path
+     * from the student seat". That was the belief that caused the defect: it
+     * read as a second path because it was described as one, and the column
+     * nobody reads is indistinguishable from a column nobody needs. The seed has
+     * since linked the seat by `account_id` instead, which is a separate fix to
+     * the demo data and does not make this assertion redundant — the assertion is
+     * about the POLICY, and it holds whoever chooses the route.)
+     *
+     * THE INVARIANT BELOW IS OUTCOME-INDEPENDENT. Two repairs are on the table
+     * and this assertion is satisfied by either: point the guardian seat at
+     * `account_id` the way the student seat already is, or add a policy branch
+     * joining `guardian_email` to the caller's own profile email. It encodes no
+     * preference between them, because choosing between them is a policy decision
+     * about a minor's data and not one a test should make on its own. What it
+     * does say is that "can read nothing" is not an acceptable resting state for
+     * a role the RBAC matrix grants `linked` scope.
+     */
+    console.log('\nGuardian: a linked scope that reaches a child');
+
+    const guardianId = await createUser(`${STAMP}_guardian@liko.test`, 'Settle-Test-2026', 'guardian');
+    created.users.push(guardianId);
+
+    const guardianProfile = await admin(`profiles?id=eq.${guardianId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ org_id: created.orgs[0], role: 'guardian' }),
+    });
+    if (!guardianProfile.ok) throw new Error(`guardian profile: ${await guardianProfile.text()}`);
+
+    /*
+     * THE CHILD IS LINKED BOTH WAYS, AND THAT IS THE POINT OF THE FIXTURE.
+     *
+     * I first wrote this row with `account_id: null` and `guardian_email` set,
+     * with a comment claiming the null was the point: that a guardian is reached
+     * by address rather than by the child's login. That comment was an untested
+     * claim and it was wrong. It encoded ONE of the two candidate repairs as if
+     * it were the invariant, so the test would have gone red against a perfectly
+     * correct product that took the other route. A test that picks the answer and
+     * then calls itself a check is worse than no test, because it is green until
+     * someone fixes the bug correctly.
+     *
+     * Setting BOTH columns makes the assertion genuinely outcome-independent:
+     *
+     *   repair (a) seat linked by account_id  -> the account_id policy resolves it
+     *   repair (b) policy reads guardian_email -> the email policy resolves it
+     *
+     * Either one makes the guardian reach its child. Neither is required, so the
+     * assertion tests the property that actually matters — a `linked` scope is
+     * not an empty scope — and leaves the choice to whoever owns the policy
+     * decision. `scripts/seed.mjs` currently takes route (a); that is a
+     * decision recorded there, not a constraint asserted here.
+     *
+     * The leaked-rows half below is what keeps this honest: it fails for the
+     * repair that "just widen `students` to every linked account", which is the
+     * one way to make this pass while breaking the role.
+     */
+    const guardianChild = await admin('students', {
+      method: 'POST',
+      body: JSON.stringify({
+        class_id: classA,
+        owner_id: ownerA,
+        full_name: `${STAMP} guardian child`,
+        initials: 'GC',
+        account_id: guardianId,
+        guardian_email: `${STAMP}_guardian@liko.test`,
+      }),
+    });
+    if (!guardianChild.ok) throw new Error(`guardian child: ${await guardianChild.text()}`);
+    const guardianChildId = (await guardianChild.json())?.[0]?.id;
+
+    const guardianToken = await signIn(`${STAMP}_guardian@liko.test`, 'Settle-Test-2026');
+
+    const guardianSees = await asUser('students?select=id,full_name,guardian_email', guardianToken);
+    const guardianRows = guardianSees.ok ? await guardianSees.json() : [];
+    const linkedEmail = `${STAMP}_guardian@liko.test`;
+    const resolvedItsChild =
+      Array.isArray(guardianRows) &&
+      guardianRows.length === 1 &&
+      guardianRows[0]?.guardian_email === linkedEmail &&
+      guardianRows[0]?.id === guardianChildId;
+
+    check(
+      'a guardian CAN resolve the child it is linked to',
+      resolvedItsChild,
+      `a guardian session read ${Array.isArray(guardianRows) ? guardianRows.length : '?'} student rows` +
+        `${Array.isArray(guardianRows) ? `: ${JSON.stringify(guardianRows).slice(0, 200)}` : ''}. ` +
+        'Zero is not a safe restriction here: the RBAC matrix grants this role a `linked` scope, so the child it ' +
+        'is linked to should be reachable. Either the seat is linked the way the student seat is, or a policy ' +
+        'reads guardian_email, and until one of those happens this role demonstrates nothing in production. ' +
+        'Confirmed load-bearing: setting the fixture `account_id` to null reproduces this exact failure, which is ' +
+        'the state the seed shipped for the demo guardian seat.',
+    );
+
+    /*
+     * The other direction, and the half that would matter most if the repair goes
+     * wrong: a guardian must reach its own child and NOT the student whose login
+     * is linked by `account_id`. A repair that simply widens the students policy
+     * to admit every linked account would make the check above pass and this one
+     * fail, which is the whole reason both are here.
+     */
+    const leakedStudent =
+      Array.isArray(guardianRows) &&
+      guardianRows.some((row) => row.guardian_email !== linkedEmail);
+
+    check(
+      'a guardian cannot see a student it is not linked to',
+      !leakedStudent,
+      leakedStudent
+        ? `the guardian read a row that is not linked to it: ${JSON.stringify(guardianRows).slice(0, 200)}. ` +
+            'Widening the students policy to admit every linked account would produce exactly this.'
+        : `saw ${Array.isArray(guardianRows) ? guardianRows.length : '?'} row(s), none of them another family's child`,
+    );
+
     /*
      * The bell had no insert policy at all, which is why nothing could ever
      * appear in it. The policy now exists, and both halves of it are refusals
