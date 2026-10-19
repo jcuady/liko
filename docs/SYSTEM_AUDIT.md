@@ -2286,3 +2286,79 @@ A gate whose result can change with no code change is not a defect in the gate.
 It is a fact about what the gate can tell you, and it belongs in the table next
 to the result rather than in a footnote.
 
+It recovered on the next full run at `944f1cc`: **20 pass, 0 blocked, 0 fail,
+0 error**, `probe:ai` green at 2 of 2 again. So the same gate, the same code and
+the same provider gave blocked and then pass inside two hours, which is the
+claim above confirmed rather than argued.
+
+## Round fifteen: three filters the gate would not look at
+
+The twenty-gate run at `944f1cc` reports, among everything green:
+
+    ok    every filter under src is wired to something (131 filters in 144 files)
+          0 unwired, 3 unexamined, 0 disabled
+
+The three are `Input`, `Textarea` and `Checkbox`, the shared primitives. They
+are behind a spread, and a spread in a primitive is the design rather than a
+risk: a primitive exists to forward.
+
+That is a reasonable position and it is also, precisely, an *unexamined* claim
+wearing a better hat. If `Checkbox` began pulling `onChange` out of its props and
+dropping it, every consent box in the product would silently stop recording
+consent, the registration evidence would stop matching the schema, and this gate
+would keep reporting the three as merely unexamined.
+
+So they are examined, by a test that asserts the property rather than the
+shape:
+
+> **A primitive may consume presentation. It may not consume a handler.**
+
+A handler name in the destructured list is a swallowed event. A presentation
+name is the primitive doing its job. `className`, `type`, `rows`, `invalid`,
+`name`, `id` are allowed; `onChange`, `onCheckedChange`, `onClick` are not.
+
+### The test was worthless for its first three runs
+
+It passed fourteen of fourteen on arrival and proved nothing, and the only
+reason it was found out is that I broke the subject on purpose rather than
+re-reading the assertions.
+
+**One.** It collected only rest-element names, so `consumed` was `['props']` for
+all three primitives no matter what else they pulled out. Deleting `onChange`
+from `Checkbox`'s destructuring left all fourteen green. The assertion was
+tautological: it compared a constant against a list built from the same
+constant.
+
+**Two.** Fixed, it reported `props` twice for `input.tsx`, because `Input` and
+`Textarea` live in the same file and the walk read both while asking about one.
+Functions are now collected with their ranges and the one that actually renders
+the element is selected.
+
+**Three.** `element.name.getText()` does not include the `...`: the dots are a
+separate `dotDotDotToken` on the `BindingElement`. Testing the text for a
+leading `...` therefore never matched, and the rest element was being counted
+as a consumed prop named `props` in all three primitives.
+
+With all three fixed, deleting `onChange` from `Checkbox` produces
+
+    AssertionError: expected [ 'onChange' ] to deeply equal []
+
+and a non-zero exit. Restored, fourteen pass.
+
+**A test written in the same hour as its subject, green on arrival, is worth
+nothing until the subject is broken.** Three bugs in a file whose entire job
+was to be right about a three-line pattern, and not one of them would ever have
+surfaced by running it again.
+
+### What the primitives actually do
+
+All three are correct. `Input` takes `className` and `type`, `Textarea` takes
+`className` and `rows`, `Checkbox` takes `className` and `invalid`, and each
+spreads the remainder onto its native element. Consent, which is the reason the
+checkbox is a real `<input name>` at all, keeps working.
+
+### Still open
+
+The two decisions remain the owner's: whether an administrator may read a
+child's roster, and whether to ship store buttons with no app behind them.
+
