@@ -130,6 +130,55 @@ const GATES = [
  */
 const BLOCKED = new Set(['probe:ai']);
 
+/**
+ * Every gate-shaped script in package.json is either in GATES or listed here.
+ *
+ * WHY THIS EXISTS. The recorder reported "11 pass" while six further scripts
+ * named `check:*`, `probe:*`, `verify:*` and `db:*` sat outside it. Two of them
+ * are layout and no-JS behaviour gates that pass, and because nothing ran them
+ * automatically their rows in PROJECT_STATUS.md sat at "not re-run 2026-10-17"
+ * while everything beside them was re-verified. A recorder that says "11 pass"
+ * reads as "everything passed", and it is not saying that.
+ *
+ * So the omissions are declared rather than left implicit, and a script that is
+ * neither registered nor listed here FAILS the recorder. That is the part that
+ * matters: it is not enough to write down today's omissions, because the next
+ * person to add a gate would otherwise widen the gap silently.
+ *
+ * Each reason below was read out of the script it names, not assumed.
+ */
+const EXCLUDED = {
+  'check:responsive':
+    'needs a server on 3311 serving this checkout: pnpm build && pnpm start --port 3311',
+  'check:behaviour': 'needs the same server on 3311 as check:responsive',
+  'probe:seats':
+    'writes to the live project: it calls the security definer redeem_org_invite and cleans up after itself',
+  'probe:shape':
+    'needs the live database, and proves something check:sql cannot: that the constraint still on the server is the one written',
+  'probe:gemini': 'a pre-flight provider diagnostic that overlaps probe:ai, which the recorder does run',
+  'probe:ai:check': 'not a measurement: it replays the cache probe:ai has just written, and probe:ai already reports the result',
+  'verify:saas': 'live HTTP against the deployed site, which needs a deployment rather than a checkout',
+  'verify:app': 'needs a running server; this is the gap probe:guardian was written to cover for guardians',
+  'probe:guardian': 'needs a running server or a live host; set LIKO_VERIFY_BASE_URL to choose one',
+  'db:apply': 'an operation, not a measurement: it writes the migration',
+};
+
+/**
+ * A script name the recorder treats as gate-shaped. Deliberately narrow: a bare
+ * `test` or `build` is covered by GATES already, and anything not matching is
+ * not obliged to justify itself.
+ */
+const GATE_SHAPED = /^(check|probe|verify|db):/;
+
+function unaccountedGates() {
+  const pkg = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'));
+  const registered = new Set(GATES.map((g) => g.script));
+  return Object.keys(pkg.scripts ?? {})
+    .filter((name) => GATE_SHAPED.test(name))
+    .filter((name) => !registered.has(name) && !EXCLUDED[name])
+    .sort();
+}
+
 const IS_WIN = process.platform === 'win32';
 
 /** A shell is used only where a batch shim makes one unavoidable. */
@@ -200,8 +249,6 @@ const commit = execFileSync('git', ['rev-parse', '--short', 'HEAD'], {
   encoding: 'utf8',
 }).trim();
 
-process.stdout.write(`running ${gates.length} gate(s) at ${commit}\n\n`);
-
 /**
  * Read the previous evidence, tolerating a byte order mark.
  *
@@ -230,6 +277,27 @@ function readEvidence() {
 }
 
 const previous = readEvidence();
+
+/*
+ * Accounted for before anything runs. A gate script that is neither registered
+ * nor excluded makes the whole record misleading, and finding that out only
+ * after eight minutes of gates would be the worst possible moment.
+ */
+const unaccounted = unaccountedGates();
+if (unaccounted.length > 0) {
+  process.stderr.write(
+    `FAIL  unaccounted gate scripts\n` +
+      unaccounted.map((n) => `        ${n}\n`).join('') +
+      `      These are named check:/probe:/verify:/db: so they read as gates, but they\n` +
+      '      are in neither GATES nor EXCLUDED in scripts/run-gates.mjs. Register one, or\n' +
+      '      exclude it with the reason it cannot be recorded. Silence is not a reason.\n',
+  );
+  process.exit(1);
+}
+
+process.stdout.write(
+  `running ${gates.length} gate(s) at ${commit} — ${Object.keys(EXCLUDED).length} further gate-shaped script(s) excluded, each with a stated reason\n\n`,
+);
 
 const results = {};
 for (const gate of gates) {

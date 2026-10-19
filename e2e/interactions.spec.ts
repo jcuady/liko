@@ -314,10 +314,19 @@ test.describe('gradebook', () => {
     await create.click();
 
     await expect(page.getByText('created.')).toBeVisible();
-    // The new scale is authored into the same list, so it has to appear there as
-    // a selectable entry rather than only as a success toast.
-    const scales = await optionLabels(page, page.getByLabel('Show as'));
-    expect(scales).toContain('Distinction Pass Refer');
+    // The new scale is authored into the same list, so it has to appear there as a
+    // selectable entry rather than only as a success toast. Polled rather than read
+    // once: the "created." toast above is optimistic and can land before the list
+    // has refetched, so a single synchronous read measures the machine rather than
+    // the product. Reading until the option is there still fails loudly if the
+    // scale never arrives, which is the case actually worth catching — mutation
+    // proved that by naming a scale that cannot exist.
+    await expect
+      .poll(async () => optionLabels(page, page.getByLabel('Show as')), {
+        message: 'the authored scale never appeared in the "Show as" list',
+        timeout: 15_000,
+      })
+      .toContain('Distinction Pass Refer');
   });
 
   test('the class filter is present and selectable', async ({ page }) => {

@@ -448,6 +448,18 @@ Stated plainly so nobody is surprised later.
     unrelated flake in `landing.spec.ts` that had been invisible for exactly that
     reason.
 
+    **ON MEASUREMENT, because it produced a run that looked red and was worth
+    nothing.** Playwright's `webServer` sets `reuseExistingServer` to true
+    outside CI, so anything already listening on port 3311 is adopted in place of
+    a fresh build. If that server dies mid-run the suite is **cut short rather
+    than failing assertions**, and the signature is a *large* number of tests that
+    never ran, not a small number that failed: a run reading `153 passed, 20 did
+    not run` is a harness problem until proven otherwise. **Before believing a
+    red e2e run, check that nothing else in this directory is holding port 3311** —
+    including a `pnpm start` left over from running `check:responsive` or
+    `check:behaviour`. Those two gates need exactly that port, and the natural way
+    to run them is to leave the server up afterwards, which is what happened here.
+
 ---
 
 ## Things that were wrong and are now fixed
