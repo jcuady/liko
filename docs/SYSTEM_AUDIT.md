@@ -20,11 +20,11 @@ inheriting a word from an earlier round.
 
 | Check | Result | Evidence | Last run |
 |---|---|---|---|
-| Build | **PASS** | `pnpm build`, exit 0, 49 of 49 static pages | `fe01de2` |
-| Typecheck | **PASS** | `pnpm typecheck`, exit 0 | `fe01de2` |
-| Lint | **PASS** | `pnpm lint`, exit 0 | `fe01de2` |
-| Unit tests | **PASS** | `518 passed, 10 skipped, 40 files` | `fe01de2` |
-| e2e | **PASS** | `232 passed` | `fe01de2` |
+| Build | **PASS** | `pnpm build`, exit 0, in a detached worktree at `312da33` and again after the dialog fix | round twelve |
+| Typecheck | **PASS** | `pnpm typecheck`, exit 0 | round twelve |
+| Lint | **PASS** | `pnpm lint`, exit 0 | round twelve |
+| Unit tests | **PASS** | `537 passed, 2 skipped`, measured in a detached worktree at `312da33` so the figure is that commit's and not the shared tree's. The commit after it changed only a client component with no unit test. | round twelve |
+| e2e | **PASS, partially re-measured** | The full suite last ran green at `fe01de2` (`232 passed`). At `843c9a9` only `e2e/attendance-note.spec.ts` has run, `8 passed`. **The full suite has not been run at `843c9a9`** and this row must not be read as saying it has. | round twelve |
 | **Full gate** | **11 pass, 0 blocked, 0 fail, 0 error** | `pnpm gates` at `fe01de2`, recorded in `docs/evidence/gates.json`. `probe:ai` is green after hours of `503`. A blocked gate is not a pass, and there is nothing left blocked to excuse. | round eleven |
 | **Live app against Postgres** | **PASS** | `verify:app`, **57 passed, 0 failed**, run against the **deployed production site**, not only a local build. All five accounts, every entitled route, refusals, a real attendance write, cron, push, gradebook export scope, and no page errors. Run at `09ebf10`; the only commit deployed afterwards is `20819c0`, documentation only, so the measurement still describes the running system. That second half is a claim about the diff, not a second run. | round eleven |
 | **Deployed to production** | **PASS** | Production serves the tip of `main`, deployed by the Vercel Git integration, so **a push to `main` is a production deploy**. Read from the deployment's own build log twice this round: `09ebf10` at 06:15 UTC and `20819c0` at 06:42 UTC. Recording both rather than the latest, because a pinned sha goes stale on the next push by anyone. | round eleven |
@@ -1981,4 +1981,113 @@ starts costing credibility until somebody deletes it.
 The two open decisions are unchanged and are the owner's: whether an
 administrator may read a child's roster at all, and whether to ship store
 buttons with no app behind them. Neither is an audit's to decide.
+
+## Round twelve: a capability with no button, and a test that caught its own bug
+
+Round eleven ended with a note, recorded by another pass, that five exported
+server actions have no caller. Verified by name across `src`, `e2e` and
+`scripts` rather than taken on trust, because a number like that is cheap to
+state and expensive to act on wrongly.
+
+`removeDeckAsset` turned out to be already wired, in uncommitted work by the
+other process. Four remained. One of those was a real hole in the product.
+
+### A teacher could mark a student absent and nowhere to say why
+
+`addAttendanceNote` has been on the server since the register was built, with
+the behaviour log behind it, correct permissions, and nothing in front of it.
+The mark is the half of the workflow; the reason is the other half, and there
+was nowhere to put it.
+
+The control is one dialog beside "Mark all present", not a button on every row.
+`AttendanceGrid` is shared with the overview dashboard, and a 44px target in a
+grid tuned for tapping a status is worse than choosing the student once, on a
+screen that has to work at 375px.
+
+The vocabulary and the 500 character limit were a literal in the action and a
+second literal in the control. They now live in `note-craft`, which both read,
+with eleven tests including the boundary at exactly the limit and one character
+over. Two copies of one rule is how a field offers something the server quietly
+refuses.
+
+### The test caught a defect in the code it was written for
+
+The e2e spec failed on its first run. A teacher typed a sentence, pressed
+Cancel, reopened the dialog, and found the sentence still there.
+
+The reset lived in Radix's `onOpenChange`, and the Cancel button and the success
+path both called `setOpen(false)` directly. **Radix raises `onOpenChange` when
+the trigger drives the state, not when the controlled prop changes**, so neither
+of those two routes cleared anything. Every exit now goes through one `close()`
+that sets the state and resets together.
+
+Worth stating plainly: this was found by the test written for the feature, on
+its first execution, against code that had already passed typecheck, lint and a
+537-test unit suite. None of those three can see a stale field.
+
+### Two checks I wrote that were wrong about correct code
+
+Twice in one session, both the same shape, which is why it is written down.
+
+The e2e refusal asserted that a student is "kept off the register" by asserting
+the URL changed. It failed. The application renders the refusal copy at the
+address that was asked for, which is this codebase's convention, and the check
+was judging the mechanism rather than the refusal. It now asserts the copy.
+
+That is the identical mistake to the stale `/grades/export` assertion fixed
+earlier today: **a check that encodes how something should be expressed fails
+the moment it is expressed differently, and the tempting response is to delete
+it.** Assert the property. A refusal is a refusal whether it is a redirect, a
+403, or a sentence at the same address.
+
+### The harness lied, and it looked exactly like a product defect
+
+The note reached the UI as a success, and Postgres held nothing. The dialog
+closed, the action answered `ok`, and `behaviour_logs` was empty, including
+every row written by anything.
+
+`.env.local` sets `LIKO_DATA_MODE=fixtures`. The command that started the
+server set the mode to `supabase` first and then loaded that file, so the file
+overwrote the override and the server ran against the in-memory store for the
+whole run. Every write succeeded and none of them existed.
+
+This is the failure already recorded once in this repository, from the other
+direction: a gate that touches data must run in the mode production runs in.
+Here the gate was correct and the *harness* was in the wrong mode, which is
+harder to see, because a green assertion is exactly what a wrongly configured
+harness produces.
+
+The fix was ordering, not configuration: load the env file, then set the mode.
+Re-run against real Postgres, the note lands in `behaviour_logs` with the
+severity chosen in the dialog, and the probe row is removed afterwards.
+
+### What was measured, and where
+
+The verification ran in a detached worktree at the commit, not in the shared
+checkout. That was forced rather than chosen: `next start` in the shared tree
+died with `ENOENT .next/server/preview-props.json` because another process
+rebuilt `.next` underneath it, which is the same reason a deploy is made from a
+clean worktree.
+
+- `pnpm typecheck` exit 0, `pnpm lint` exit 0.
+- `pnpm vitest run` **537 passed, 2 skipped**, measured in the worktree at this
+  commit, so the figure is this commit's and not the shared tree's.
+- `playwright e2e/attendance-note.spec.ts` **8 passed**, including the reset that
+  caught the defect.
+- Persistence proved separately against real Postgres: one row, severity
+  `concern`, then removed.
+
+One caveat kept rather than smoothed over: the commit message for the first of
+these two commits says the unit count included the other process's uncommitted
+work. The isolated worktree returned the same 537, so that caveat was wrong,
+though harmlessly so since it warned the number was not this commit's alone.
+
+### What this round did not close
+
+The two decisions are unchanged and still the owner's. One more is now visible
+and worth the same question: the timetable photo import reads a photograph
+through the most expensive AI call in the product and, until this round, showed
+no quota. It now shows the same meter the deck panel shows and disables itself
+when the hour is spent, which is why `timetableAiStatusAction` was wired rather
+than deleted alongside the other two.
 
