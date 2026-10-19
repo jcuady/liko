@@ -506,6 +506,24 @@ Audited 2026-10-19: **all 45 routes in `src/app` were enumerated and every user-
 
 **So this audit is recorded here rather than promoted to a gate, and the reason is the whole point of writing it down.** A reachability check that matches prose and comments cannot tell a link from a sentence, so it would report orphans that are not there and pass routes that are. Green route coverage is the gate most likely to *reward* an orphan page, because adding a page makes the enumeration more complete while the product stays unreachable. A correct version has to parse `<Link href>`, `<a href>` and `router.push` targets, exclude comments, and treat `/api/*` as scheduler territory — that is real work, and until it exists the honest statement is the one above: **verified by inspection, not by an automated gate.**
 
+## Five server actions that exist and are wired to nothing
+
+Audited 2026-10-19 with the TypeScript parser rather than a regex, because a regex scan of source is narrower than the source. Five exported server actions have **no caller anywhere in `src`, `e2e` or `scripts`** — verified by name across the whole repository, where each appears only on its own declaration line:
+
+| Action | Where | What it does | Why it is unreachable |
+|---|---|---|---|
+| `addAttendanceNote` | `attendance/actions.ts:56` | Writes a note against an attendance mark | No control on the attendance register offers one |
+| `loadPolicies` | `grades/actions.ts:92` | Loads the grading policies for a class | The gradebook loads grades but never policies |
+| `logoutAction` | `(auth)/actions.ts:400` | Signs the user out through a server action | `UserMenu` signs out through `/api/auth/sign-out` instead — two ways to do one thing, one of them unused |
+| `removeDeckAsset` | `slides/upload/actions.ts:193` | Removes an uploaded file from a deck | No control on the upload panel or the deck offers removal |
+| `timetableAiStatusAction` | `schedule/actions.ts:298` | Reports the AI allowance on the timetable | Nothing calls it |
+
+**These are not failures, and they are not abandoned work — they are capabilities with no button.** `removeDeckAsset` in particular is complete and correct: it deletes through the service key, which is consistent with `probe:files` asserting there is *no delete policy on storage objects*, because that assertion is about what a browser token may do while the server acts with the service role. So a teacher can upload a file to a deck and cannot take it back out.
+
+**Why this was found by parsing rather than by grep, and the false positives along the way.** A first pass reported eight dead actions and three were wrong: `loadGrades`, `loadAssessments` and `loadQuestions` are all called through `const { loadGrades } = await import('./actions')`, and a scanner that reads `ImportDeclaration` nodes does not see a dynamic `import()`. A second pass over the raw name list also produced 218 "dead" exports overall, almost all of them Next.js default exports such as `export default function AdminPage` and `Props` interfaces a file declares for its own use. **Neither version was usable as evidence**, and the useful number — five — was only trustworthy after checking every candidate by name across the whole repository.
+
+No automated gate was added. The same reasoning as the reachability audit applies: a dead-export check that cannot see dynamic imports reports working code as dead, and one that ignores default exports reports most of `app/` as dead. Both are worse than no check, because a red gate gets disabled.
+
 ## Security Review
 
 Full pass over every server action, route handler, RLS policy, and service-worker rule. Findings and fixes are tabulated in `docs/SECURITY.md`. The two that mattered:
