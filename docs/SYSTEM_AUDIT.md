@@ -2104,55 +2104,100 @@ The question was narrow and answerable: **does any control in the dashboard do
 nothing?** It is the frontend half of round nine and round twelve, which found
 capabilities on the server that no button called.
 
-### Three passes, two of them confidently wrong
+### Three passes, and only the last two were honest
 
-| pass | method | reported |
-| --- | --- | --- |
-| one | regex over `<button` | 19 buttons, in a codebase with 144 `.tsx` files |
-| two | TypeScript AST | 1 |
-| three | AST, with `asChild` read from the parent | **0** |
+| pass | method | reported | verdict |
+| --- | --- | --- | --- |
+| one | regex over `<button` | 19 buttons, in 144 `.tsx` files | not reading anything |
+| two | TypeScript AST, lowercase `button` | 1 | wrong: `asChild` read from the wrong element |
+| three | AST, `<Button>` too, `asChild` read from the parent | **0 of 162** | correct, and proved below |
 
 Pass one was a shell scan that also failed structurally: the `Get-Content` it
 depended on was throwing `A parameter cannot be found that matches parameter
 name 'Raw'`, so it was reading nothing and counting its own noise. Nineteen was
 never a measurement.
 
-Pass two parsed properly and was still wrong. It reported the schedule's "Add a
-class" control, which is the child of `<DialogTrigger asChild>` and receives its
-`onClick` from Radix through `cloneElement`. The check looked for `asChild` on
-the button; it lives on the **parent**. So the one finding in the whole
-repository was working code.
+Pass two parsed properly and was still wrong, twice over.
+
+It named the schedule's "Add a class" control, which is the child of
+`<DialogTrigger asChild>` and receives its `onClick` from Radix through
+`cloneElement`. The check looked for `asChild` on the button; it lives on the
+**parent**.
+
+And, once that was fixed, the corpus was **24 controls in 144 files**. That is
+not credible for a dashboard. Almost every control in this product is the shadcn
+`<Button>` wrapper, which is a capital-B component a lowercase match cannot see.
+A gate that quietly examines a twentieth of the surface and reports zero is
+worse than no gate, because it reads as coverage. The tag set is now both
+`button` and `Button`, and the corpus is **162**.
+
+Extending it surfaced three more candidates, and **all three were false
+positives**, which is what made the parent list worth measuring rather than
+guessing. Every `<X asChild>` in `src` was counted:
+
+    DialogTrigger 13   DropdownMenuItem 3   DropdownMenuTrigger 2
+    SheetTrigger 1     DialogClose 1        Button 11
+
+`Button` is excluded on purpose: Radix's triggers and closes merge props into
+their child, shadcn's `Button asChild` only swaps which element is rendered, so
+a button wrapped in one really is unwired. The three candidates were a
+`DialogClose`, a `SheetTrigger`, and a bare `disabled` button on the theme
+toggle.
 
 ### The lesson is the false positive, not the zero
 
 A sweep that finds real problems is still a sweep that can find fake ones, and
-this is the third time in this repository that a consistency-style sweep has
-been the thing that breaks code or lies about it. The generalisation:
+this is the fourth time in this repository that a consistency-style sweep has
+been the thing that breaks code or lies about it.
 
 **Measure a new check's false-positive rate before you believe its zero.** A
 clean report from an instrument that has never been wrong is indistinguishable
 from a clean report from an instrument that cannot see.
 
+### A zero has to prove it looked at something
+
+The gate printed "0 unwired" without saying how many controls it had examined,
+so a run that read nothing at all would have printed the same line. It now
+reports the corpus, and **an empty corpus is a failure rather than a pass**:
+
+    ok    every control under src has something attached to it (162 controls in 144 files)
+
+This was raised by a second, independent pass over the script rather than by me,
+which is the correct kind of review and the reason the floor exists.
+
 ### Then prove it can fail at all
 
-`verify:controls` is registered as `pnpm verify:controls`. Before recording it,
-a dead button and a permanently disabled button were planted in `src`, and both
-were reported, named, with their file and line. Then they were removed and the
-gate returned to zero. A gate that has only ever passed has demonstrated
-nothing about itself.
+Before recording the zero, a dead `<Button>` and a dead `<button>` were planted
+in `src`. Both were reported with file and line, the run exited 1, and they were
+then removed. The capital-B plant matters: the first version of this gate would
+have missed it entirely.
 
-What it does **not** cover is written into the script rather than left for a
-reader to assume: controls that are not `<button>`, links to routes that do not
-exist, inputs whose filter never fires, and handlers that are attached but wrong.
+### Inert is reported and does not fail
+
+The theme toggle reads "Following system" and explains that storing a choice
+needs storage the teacher declined. That button is disabled on purpose and it is
+correct. A gate that went red for it would be a gate failing on correct code,
+which is the failure mode this audit keeps meeting, so it is printed and left
+for a reader:
+
+    note  1 deliberately disabled control(s):
+          src/app/(dashboard)/settings/appearance/ThemeToggle.tsx:37  disabled=true
+    ok    every control under src has something attached to it (162 controls in 144 files)
+          0 unwired, 0 unexamined, 1 inert
+
+### What it does not cover, and registered where
+
+It says nothing about controls that are not buttons, links to routes that do not
+exist, inputs whose filter never fires, or handlers that are attached but wrong.
 It answers "is anything behind this", not "does this work".
 
-### Registered, and deliberately not yet in the gate runner
-
-It is in `package.json` as `verify:controls`. It is **not** in
-`scripts/run-gates.mjs`, because that file has uncommitted work from another
-process in the working tree right now, and editing it would be editing their
-work. A gate nobody runs is the debt this audit has already paid once, so it is
-named here as the thing to wire when that file is clear.
+Registered as `pnpm verify:controls` and wired into `scripts/run-gates.mjs` at
+`d69957a`, so it runs with the suite rather than being something a reader has to
+remember. That happened while this round was being written, which is why the
+first version of this paragraph claimed it was not registered: it was written
+against a tree where `run-gates.mjs` still had another process's uncommitted
+work in it. A caveat can be true when written and false an hour later, so this
+one is dated rather than phrased as a standing truth.
 
 ### What this round did not close
 
