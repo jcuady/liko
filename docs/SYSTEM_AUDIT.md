@@ -14,38 +14,36 @@ by a command that was run, or is marked **NOT VERIFIED** with the reason.
 ## Verification summary
 
 Measured against the working tree at the time each row was last run. Rows are
-**not** all current, and the two that are stale say so rather than being left to
-look green.
+**not** all current. Each row carries the commit or the round it was last measured
+on, and every row that was not re-measured says so in its own text rather than
+inheriting a word from an earlier round.
 
 | Check | Result | Evidence | Last run |
 |---|---|---|---|
-| Build | **PASS** | `pnpm build`, exit 0 | round eight |
-| Typecheck | **PASS** | `pnpm typecheck`, exit 0 | round eight |
-| Lint | **PASS** | `pnpm lint`, exit 0 | round eight |
-| Unit tests | **PASS** | **522 passed, 2 skipped, 39 files** | round eight |
-| e2e | **PASS** | 20 specs, exit 0 in 265.5s. The `flashcards.spec.ts:169` failure recorded below is resolved. | round eight |
-| **Full gate** | **10 pass, 1 blocked, 0 fail, 0 error** | `pnpm gates` at `058002b`. The single non-pass is `probe:ai`, blocked on the provider. A blocked gate is not a pass. | round eight |
-| **Live app against Postgres** | **PASS** | `verify:app`, 56 passed, 0 failed. All five accounts, every entitled route, refusals, a real attendance write, cron, push, and no page errors. The one check that is not the fixtures. | round eight |
-| **Deployed to production** | **PASS** | `a101b53` live at 14:35→18:33. `/classes` re-read on production and the false count is gone; `/forbidden` with no session lands on `/login`. | round eight |
-| **Per-role sweep of the deployed site** | **PASS, and it found round nine** | 27 of 28 route visits across all five accounts rendered or refused as expected. The 28th was my expectation being wrong, not the app. | round nine |
-| **Guardian read path in production** | **FAIL** | `guardian@liko.test` reads 0 classes and 0 students through RLS. The matrix grants `class:read` and `grade:read` at `linked`, and no policy can satisfy either. | round nine |
-| SQL parse + cross-refs | **PASS, not re-measured this round** | 228 statements, 25 tables, RLS on all 25, 27 policies re-runnable | earlier round |
-| **Migration applied to production** | **PASS** | 25 of 25 tables present, measured before and after | earlier round |
+| Build | **PASS** | `pnpm build`, exit 0, 49 of 49 static pages | `fe01de2` |
+| Typecheck | **PASS** | `pnpm typecheck`, exit 0 | `fe01de2` |
+| Lint | **PASS** | `pnpm lint`, exit 0 | `fe01de2` |
+| Unit tests | **PASS** | `518 passed, 10 skipped, 40 files` | `fe01de2` |
+| e2e | **PASS** | `232 passed` | `fe01de2` |
+| **Full gate** | **11 pass, 0 blocked, 0 fail, 0 error** | `pnpm gates` at `fe01de2`, recorded in `docs/evidence/gates.json`. `probe:ai` is green after hours of `503`. A blocked gate is not a pass, and there is nothing left blocked to excuse. | round eleven |
+| **Live app against Postgres** | **PASS** | `verify:app`, **57 passed, 0 failed**, run against the **deployed production site** and not only a local build. All five accounts, every entitled route, refusals, a real attendance write, cron, push, gradebook export scope, and no page errors. | round eleven |
+| **Deployed to production** | **PASS** | Production serves `fe01de2`, named by the deployment's own build log. `main` is auto-deployed by the Vercel Git integration, so **a push to `main` is a production deploy**. | round eleven |
+| **Per-role sweep of the deployed site** | **PASS** | Guardian probe against production, 5 of 5. `/grades` and `/history` each name the child the seat is linked to. | round eleven |
+| **Guardian read path in production** | **PASS** | Closed. The linked-read policies are applied and the code no longer discards what they admit. Round nine's FAIL is not carried forward. | round eleven |
+| SQL parse + cross-refs | **PASS** | 273 statements, 28 tables, RLS on all 28, 41 policies re-runnable | `fe01de2` |
+| **Migration applied to production** | **PASS** | All 28 tables present, measured before and after | `fe01de2` |
 | Dead handlers / `href="#"` / TODO / `console.*` | **PASS, not re-measured this round** | ripgrep, no matches | earlier round |
 | Raw hex outside exemptions | **PASS, not re-measured this round** | 7 hits, all legitimately exempt | earlier round |
 | `transition: all`, `h-screen`, `localStorage.setItem`, `text-white` | **PASS, not re-measured this round** | zero hits | earlier round |
 | Responsive | **PASS, not re-measured this round** | 5 viewports 375-1920, no overflow | earlier round |
 | Behaviour (anchors, reduced motion, no-JS) | **PASS, not re-measured this round** | all checks pass | earlier round |
-| Student sign-up end to end | **BLOCKED externally** | Supabase answers `429 over_email_send_rate_limit`. Registration cannot be exercised until a custom SMTP provider is configured. This is a dashboard setting, not an application defect. | round five |
+| Student sign-up end to end | **BLOCKED externally** | Supabase refuses the probe: `400 email_address_invalid` for a `.test` address, and `429 over_email_send_rate_limit` on other runs. Registration, the `handle_new_user` trigger and the `consent_events` write are unverified until a real SMTP provider is configured. A dashboard setting, not an application defect. | round eleven |
 | Crafted `role: "admin"` | **REFUSED** | schema rejects it; no account created, and the test asserts that rather than a silent fallback | earlier round |
 
-**`probe:ai` is the only row that is not green**, and it is not the
-application's to fix: the provider answers `HTTP 503 This model is currently
-experiencing high demand`, which is being listed and unable to answer — two
-different things. It is recorded as **BLOCKED** rather than PASS because a gate
-that could not run has proved nothing. Everything else in this table was measured
-on this round, and the rows above it that were not re-measured say so rather than
-inheriting the word.
+Rows that were **not** re-measured say so in their own text rather than
+inheriting a word from an earlier round. The single BLOCKED row is blocked by
+Supabase rather than by this repository. Everything marked `fe01de2` or round
+eleven was measured on the state it describes.
 
 ---
 
@@ -1844,3 +1842,118 @@ byte-identical content, because `core.autocrlf` is true and the two files that
 test compares were checked out with different endings. A test asserting two files
 hold the same prompt should normalise line endings before comparing, or it passes
 or fails depending on who checked the file out.
+
+## Round eleven: a gate that failed against correct code
+
+Round ten ended with a claim about production that this round falsified, and the
+correction led to a defect in the audit's own instrumentation.
+
+### What I believed about production, and why it was wrong
+
+I carried forward the statement that production was still serving `42ad1b7`,
+that `listGrades` there still filtered on `owner_id`, and that a guardian's
+`/grades` was therefore incomplete on the live site. That claim was the entire
+justification for a second deploy, and I was about to ask for approval to make
+it.
+
+`vercel inspect <production alias> --logs` says:
+
+```
+Cloning github.com/jcuady/liko (Branch: main, Commit: fe01de2)
+```
+
+**`main` is connected to Vercel's Git integration.** Production is deployed by
+pushing to `main`, not by a CLI command, and the second deploy had already
+happened without me running anything. The guardian probe run against production
+confirms it rather than inferring it: 5 of 5, including `/grades` and `/history`
+each naming the child the seat is linked to.
+
+The wrong belief was not a careless guess. I had deployed `42ad1b7` myself and
+remembered doing it, and every later fact was consistent with it, including a
+deployment list showing several recent production builds. Nothing in my own
+history could have told me a newer commit had since been pushed.
+
+**Never infer what is live from what you deployed. Read the deployment's own
+build log.** It is one command, it names the commit, and it is the only source
+that knows about deploys you did not make.
+
+There is a governance consequence worth stating plainly: **on this project a
+push to `main` is a production deploy.** That is not a property of the code and
+nothing in the repository warns about it.
+
+### A failing gate that was not a failing application
+
+`verify:app` against the live site answered **55 passed, 1 failed**:
+
+```
+FAIL  /grades/export is refused
+      answered 200 as text/csv; charset=utf-8 from .../grades/export
+```
+
+The same check passes against a local build of the same commit, which is what
+made it worth chasing rather than filing.
+
+The check's own comment explains what it expected: `/grades/export` "answers 404
+'No such class' because a student resolves no class at all". That was true while
+`listClasses` filtered on `owner_id`. Round nine's linked-read policies landed
+and `e7217b9` removed that filter, so the student seat now resolves its own
+class. **The assertion encoded a world that a fix had already ended.**
+
+Measuring it with the seat's own JWT rather than reasoning about it:
+
+| table | rows the student seat can read |
+|---|---|
+| `classes` | 1 (its linked class) |
+| `students` | 1 (its own row) |
+| `grades` | 2 (its own marks) |
+| `assessments` | 2 |
+
+And the CSV the student actually receives, fetched from production:
+
+```
+Student,Bonding Quiz (out of 11),Unit 1: Atomic Structure (out of 100),Weighted total (Percentage)
+Ana Ferreira,1,48,48
+```
+
+Header, one row, its own marks. The class holds eight students and the service
+key sees twenty-four across tenants. **Nothing leaked; the application was right
+and the gate was wrong.**
+
+### What replaced it
+
+A blanket refusal was the wrong property, not merely a stale one. The student is
+entitled to its own marks, and a CSV holding one row is the same data `/grades`
+already renders. So the check now asserts scope:
+
+- **the rows served equal the rows RLS admits the seat**, matched by name and
+  read through that seat's own JWT, so it stays true if the seed is repointed;
+- **and a class the seat cannot resolve is refused**, which is the negative the
+  old forbidden-list never covered at all. An id from elsewhere must 404.
+
+The second check is the one that actually protects anything. It had no test
+anywhere in the repo.
+
+Mutation-proved rather than assumed: reading the same roster through the service
+key instead of the seat's JWT turns the first check red at
+`1 data row(s) for a seat that can read 24`, and reverting turns it green again.
+The assertion reads two live sources and compares them, so it cannot pass
+without looking at both.
+
+### The rule this round earned
+
+**A gate that fails against correct code is worse than no gate, because it
+trains its reader to ignore it.** The tempting fix here was to delete the check,
+which would have made the suite green in one edit and removed the only assertion
+ever written about who may receive a gradebook. The fix was to change the
+assertion to the property actually worth holding.
+
+The same shape as the census's `el.value` and the `?? "\0"` locator: a check
+whose expectation has drifted from reality does not announce itself, it just
+starts costing credibility until somebody deletes it.
+
+### What this round did not close
+
+The two open decisions are unchanged and are the owner's: whether an
+administrator may read a child's roster at all, and whether to ship store
+buttons with no app behind them. Neither is an audit's to decide.
+

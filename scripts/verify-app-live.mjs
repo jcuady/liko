@@ -53,6 +53,8 @@ import { chromium } from '@playwright/test';
 const BASE = (process.env.LIKO_VERIFY_BASE_URL || 'http://127.0.0.1:3321').replace(/\/$/, '');
 const PASSWORD = process.env.LIKO_SEED_PASSWORD || 'LikoDemo!2026';
 const REST = `${(process.env.NEXT_PUBLIC_SUPABASE_URL || '').replace(/\/$/, '')}/rest/v1`;
+const AUTH = `${(process.env.NEXT_PUBLIC_SUPABASE_URL || '').replace(/\/$/, '')}/auth/v1`;
+const ANON = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 const SERVICE = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 /**
@@ -157,7 +159,19 @@ const ACCOUNTS = [
        */
       ['/schedule', 'Clinic'],
     ],
-    forbidden: ['/admin', '/grades/export'],
+    /*
+     * `/grades/export` used to be here, asserting that a student resolves no
+     * class and therefore 404s. That was true while `listClasses` filtered on
+     * `owner_id`, and it stopped being true the moment the linked-read
+     * policies landed: the seat now resolves its own class and the endpoint
+     * answers 200 with a CSV holding exactly one row, its own.
+     *
+     * A blanket refusal was the wrong assertion, not merely a stale one. The
+     * property worth protecting is scope, and it is now asserted directly in
+     * "Gradebook export scope" below: a student may hold their own marks and
+     * nothing else, and is refused any class they are not linked to.
+     */
+    forbidden: ['/admin'],
   },
   {
     email: 'guardian@liko.test',
@@ -395,12 +409,12 @@ async function verifyRoutes(account) {
 
       /*
        * A page and an endpoint refuse differently and both are correct. A page
-       * redirects or renders the refusal copy; `/grades/export` answers 404
-       * "No such class" because a student resolves no class at all, which is
-       * the same protection expressed as a missing row rather than a sentence.
-       * Judging an endpoint by its rendered copy would call that a pass only by
-       * accident, and judging it by its status code alone would miss a CSV that
-       * was served to an account with no right to it.
+       * redirects or renders the refusal copy; an endpoint answers 4xx, or
+       * bounces to the sign-in page, which is the same protection expressed as
+       * a missing row rather than a sentence. Judging an endpoint by its
+       * rendered copy would call that a pass only by accident, and judging it
+       * by its status code alone would miss a CSV that was served to an
+       * account with no right to it.
        */
       const response = await page.request.get(`${BASE}${route}`);
       const type = response.headers()['content-type'] ?? '';
@@ -414,6 +428,13 @@ async function verifyRoutes(account) {
       const bounced = !response.url().endsWith(route);
 
       if (route.includes('/export')) {
+        /*
+         * No account lists an export route at the moment: the student seat is
+         * entitled to its own marks, so its export is asserted by scope in
+         * `verifyGradebookExportScope` instead. The branch stays because an
+         * endpoint listed as forbidden needs an endpoint's rules, and reaching
+         * for the page branch would quietly judge a status code by its copy.
+         */
         check(
           `${route} is refused`,
           !served && (response.status() >= 400 || bounced),
@@ -534,6 +555,112 @@ async function verifyWrite() {
   } finally {
     await browser.close();
   }
+}
+
+/**
+ * The gradebook export, asserted by scope rather than by refusal.
+ *
+ * WHY THIS REPLACED A CHECK THAT USED TO PASS. `/grades/export` was listed as
+ * forbidden for the student seat, on the reasoning that a student resolves no
+ * class and so 404s. That was true while `listClasses` filtered on `owner_id`.
+ * The linked-read policies landed, `listClasses` stopped filtering, and the
+ * student seat now resolves its own class: production answers `200 text/csv`.
+ * The old assertion then failed against a correct application, which is the
+ * worst failure mode a gate has, because it trains the reader to ignore it.
+ *
+ * A blanket refusal was also the wrong property. The student is entitled to
+ * their own marks, and a CSV of one row is the same data `/grades` already
+ * renders. What must never happen is a student receiving a classmate's row, so
+ * that is what is asserted, and rows are counted against the roster RLS really
+ * admits the seat rather than pattern-matched on a name.
+ *
+ * The second check is the one the old list never covered at all: asking for a
+ * class the caller cannot resolve. An id from elsewhere must 404 rather than
+ * export, and that behaviour had no test anywhere.
+ */
+async function verifyGradebookExportScope() {
+  console.log('Gradebook export scope');
+
+  const browser = await chromium.launch();
+
+  try {
+    const context = await browser.newContext();
+    await seedConsent(context);
+    const page = await context.newPage();
+    await signIn(page, 'student@liko.test');
+
+    /*
+     * The roster RLS admits the seat, read with that seat's own JWT. Comparing
+     * against this rather than a hard-coded name means the check still asserts
+     * the invariant if the seed is ever re-pointed at different data.
+     */
+    const seat = await fetch(`${AUTH}/token?grant_type=password`, {
+      method: 'POST',
+      headers: { apikey: ANON, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: 'student@liko.test', password: PASSWORD }),
+    });
+    const seatJwt = (await seat.json()).access_token;
+    const roster = await fetch(`${REST}/students?select=full_name`, {
+      headers: { apikey: ANON, Authorization: `Bearer ${seatJwt}` },
+    });
+    const visible = roster.ok ? (await roster.json()).map((row) => row.full_name) : [];
+
+    const own = await page.request.get(`${BASE}/grades/export`);
+    const type = own.headers()['content-type'] ?? '';
+
+    if (!type.includes('text/csv')) {
+      check(
+        'a student seat is refused the export outright',
+        own.status() >= 400,
+        `answered ${own.status()} as ${type}`,
+      );
+    } else {
+      const dataRows = (await own.text())
+        .split(/\r?\n/)
+        .filter((line) => line.trim() !== '')
+        .slice(1);
+
+      check(
+        'a student export holds only the rows RLS admits the seat',
+        dataRows.length === visible.length &&
+          dataRows.every((row, index) => row.startsWith(`${visible[index]},`)),
+        `${dataRows.length} data row(s) for a seat that can read ${visible.length}: ${JSON.stringify(dataRows).slice(0, 200)}`,
+      );
+    }
+
+    /*
+     * A class taken through the service key, which bypasses RLS precisely so
+     * the id here is one the student must not resolve rather than one that
+     * happens to be absent. The first class the seat CAN see is excluded, so
+     * this cannot accidentally ask for the seat's own class and pass for the
+     * wrong reason.
+     */
+    const [mine] = visible.length ? await seatClasses(seatJwt) : [];
+    const everyone = await read('classes?select=id&limit=50');
+    const stranger = everyone.find((row) => !mine || row.id !== mine.id);
+
+    if (stranger) {
+      const refused = await page.request.get(`${BASE}/grades/export?class=${stranger.id}`);
+      const refusedType = refused.headers()['content-type'] ?? '';
+      check(
+        'a student export for a class it cannot resolve is refused',
+        !refusedType.includes('text/csv') && refused.status() >= 400,
+        `answered ${refused.status()} as ${refusedType}`,
+      );
+    } else {
+      note('only one class exists, so there is no stranger to ask for');
+    }
+  } finally {
+    await browser.close();
+  }
+}
+
+/** The classes one seat's own token can read, which is its linked scope. */
+async function seatClasses(jwt) {
+  const response = await fetch(`${REST}/classes?select=id`, {
+    headers: { apikey: ANON, Authorization: `Bearer ${jwt}` },
+  });
+  return response.ok ? response.json() : [];
 }
 
 /**
@@ -1018,6 +1145,13 @@ async function main() {
   } catch (error) {
     failures += 1;
     console.log(`  FAIL  the write check could not run: ${error.message}`);
+  }
+
+  try {
+    await verifyGradebookExportScope();
+  } catch (error) {
+    failures += 1;
+    console.log(`  FAIL  the gradebook export scope could not be checked: ${error.message}`);
   }
 
   try {
