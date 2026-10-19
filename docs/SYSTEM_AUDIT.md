@@ -24,7 +24,7 @@ inheriting a word from an earlier round.
 | Typecheck | **PASS** | `pnpm typecheck`, exit 0 | round twelve |
 | Lint | **PASS** | `pnpm lint`, exit 0 | round twelve |
 | Unit tests | **PASS** | `537 passed, 2 skipped`, measured in a detached worktree at `312da33` so the figure is that commit's and not the shared tree's. The commit after it changed only a client component with no unit test. | round twelve |
-| e2e | **PASS, partially re-measured** | The full suite last ran green at `fe01de2` (`232 passed`). At `843c9a9` only `e2e/attendance-note.spec.ts` has run, `8 passed`. **The full suite has not been run at `843c9a9`** and this row must not be read as saying it has. | round twelve |
+| e2e | **PASS** | `241 passed (4.8m)` at `9604440`, the whole suite, exit 0. Up from `232` at `fe01de2`: eight of these are the new attendance note spec. | round twelve |
 | **Full gate** | **11 pass, 0 blocked, 0 fail, 0 error** | `pnpm gates` at `fe01de2`, recorded in `docs/evidence/gates.json`. `probe:ai` is green after hours of `503`. A blocked gate is not a pass, and there is nothing left blocked to excuse. | round eleven |
 | **Live app against Postgres** | **PASS** | `verify:app`, **57 passed, 0 failed**, run against the **deployed production site**, not only a local build. All five accounts, every entitled route, refusals, a real attendance write, cron, push, gradebook export scope, and no page errors. Run at `09ebf10`; the only commit deployed afterwards is `20819c0`, documentation only, so the measurement still describes the running system. That second half is a claim about the diff, not a second run. | round eleven |
 | **Deployed to production** | **PASS** | Production serves the tip of `main`, deployed by the Vercel Git integration, so **a push to `main` is a production deploy**. Read from the deployment's own build log twice this round: `09ebf10` at 06:15 UTC and `20819c0` at 06:42 UTC. Recording both rather than the latest, because a pinned sha goes stale on the next push by anyone. | round eleven |
@@ -2074,6 +2074,9 @@ clean worktree.
   commit, so the figure is this commit's and not the shared tree's.
 - `playwright e2e/attendance-note.spec.ts` **8 passed**, including the reset that
   caught the defect.
+- The **whole** e2e suite at `9604440`: **241 passed, 4.8m, exit 0.** The
+  earlier caveat on this row, that only the new spec had been run, is now
+  retired rather than left standing.
 - Persistence proved separately against real Postgres: one row, severity
   `concern`, then removed.
 
