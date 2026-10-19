@@ -535,6 +535,16 @@ Full pass over every server action, route handler, RLS policy, and service-worke
 
 Also closed: blind SSRF through the push endpoint, a rate-limit kill switch one env var from production, an unenforced session secret length, an open redirect via the backslash form of a protocol-relative URL, and a service worker that cached one teacher's dashboard for the next user of the same device.
 
+### Checked on 2026-10-19 and found sound: every session-gated page is behind the proxy
+
+`rbac.test.ts` walks `src/app/(dashboard)` **from disk** — it does not restate the protected list, because a test that repeats a list can only prove the list agrees with itself — and asserts that no page in that group falls outside `PROTECTED_PREFIXES`. It also carries a vacuity guard, so a walk that matched nothing after a group rename cannot read as a pass. That is the right design and it is in place.
+
+**One page sits outside what that walk covers.** `/join` is the only session-gated page that is not in the `(dashboard)` group, and it is in `PROTECTED_PREFIXES` with a documented reason: redeeming an invitation needs a session and no permission, so every signed-in role reaches it. **Nothing enforces that entry.** If it were removed, `/join` would still render for an anonymous visitor — `page.tsx` uses `getSession` rather than `requireSession` and shows a sign-in prompt — because the page degrades on purpose.
+
+**This is not a hole, and the reason is worth writing down.** The mutation is not the page: `redeemInviteAction` calls `requirePermission('class:read')` before it touches anything. An anonymous visitor could render `/join` and could not redeem a code with it, because the only thing that changes state is gated at the action rather than at the route. The unenforced list entry is **defence in depth with one missing check**, not a vulnerability.
+
+No test was added, deliberately. The only assertion available here would restate `PROTECTED_PREFIXES` for the pages outside the group — the exact thing the existing test is written not to do — and a check that repeats a list is a check that rots quietly.
+
 ## Documentation Status
 
 - `docs/ARCHITECTURE.md`, `docs/DESIGN.md`, `docs/PRODUCT.md`, `docs/ROADMAP.md`, `docs/HANDOVER.md`, `docs/SECURITY.md` all current. The GSAP references in DESIGN and ARCHITECTURE were removed this pass, since GSAP is gone.
