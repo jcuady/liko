@@ -30,7 +30,7 @@ inheriting a word from an earlier round.
 | **Deployed to production** | **PASS** | Production serves the tip of `main`, deployed by the Vercel Git integration, so **a push to `main` is a production deploy**. Read from the deployment's own build log twice this round: `09ebf10` at 06:15 UTC and `20819c0` at 06:42 UTC. Recording both rather than the latest, because a pinned sha goes stale on the next push by anyone. | round eleven |
 | **Per-role sweep of the deployed site** | **PASS** | Guardian probe against production, 5 of 5. `/grades` and `/history` each name the child the seat is linked to. | round eleven |
 | **Guardian read path in production** | **PASS** | Closed. The linked-read policies are applied and the code no longer discards what they admit. Round nine's FAIL is not carried forward. | round eleven |
-| SQL parse + cross-refs | **PASS** | 273 statements, 28 tables, RLS on all 28, 41 policies re-runnable | `fe01de2` |
+| SQL parse + cross-refs | **PASS** | 273 statements, 28 tables, RLS on all 28, **52 policies** re-runnable (49 in public, 3 on storage). Statements and policies are not the same count: one `foreach` statement creates twelve policies | `dc6d752` |
 | **Migration applied to production** | **PASS** | All 28 tables present, measured before and after | `fe01de2` |
 | Dead handlers / `href="#"` / TODO / `console.*` | **PASS, not re-measured this round** | ripgrep, no matches | earlier round |
 | Raw hex outside exemptions | **PASS, not re-measured this round** | 7 hits, all legitimately exempt | earlier round |
@@ -859,8 +859,12 @@ says the producer is missing.
 now carries `teachers may notify their own students`, whose `with check` states
 two conditions: the recipient is not the writer, and the recipient is an active
 student on a class the writer owns. Applied to the live project: 28 tables, RLS
-on all 28, **41 policies**. `check:sql` is green at 33 re-runnable policies.
-`scripts/rls-settling-test.mjs` gained two denial checks and reports **14 passed,
+on all 28, **52 policies** — 49 in `public` and 3 on `storage.objects`, which is
+what `pg_policies` returns for the live project. `check:sql` is green at 52
+re-runnable policies, and it counts policies rather than statements: 41
+`create policy` statements produce 52 policies, because one of them is a loop
+over twelve tables.
+`scripts/rls-settling-test.mjs` gained two denial checks and now reports **25 passed,
 0 failed**, because a policy that is sound on paper and unexercised against a
 real signed-in account is not a policy anybody has proved.
 
@@ -2093,4 +2097,65 @@ through the most expensive AI call in the product and, until this round, showed
 no quota. It now shows the same meter the deck panel shows and disables itself
 when the hour is spent, which is why `timetableAiStatusAction` was wired rather
 than deleted alongside the other two.
+
+## Round thirteen: a sweep that reported three wrong answers in a row
+
+The question was narrow and answerable: **does any control in the dashboard do
+nothing?** It is the frontend half of round nine and round twelve, which found
+capabilities on the server that no button called.
+
+### Three passes, two of them confidently wrong
+
+| pass | method | reported |
+| --- | --- | --- |
+| one | regex over `<button` | 19 buttons, in a codebase with 144 `.tsx` files |
+| two | TypeScript AST | 1 |
+| three | AST, with `asChild` read from the parent | **0** |
+
+Pass one was a shell scan that also failed structurally: the `Get-Content` it
+depended on was throwing `A parameter cannot be found that matches parameter
+name 'Raw'`, so it was reading nothing and counting its own noise. Nineteen was
+never a measurement.
+
+Pass two parsed properly and was still wrong. It reported the schedule's "Add a
+class" control, which is the child of `<DialogTrigger asChild>` and receives its
+`onClick` from Radix through `cloneElement`. The check looked for `asChild` on
+the button; it lives on the **parent**. So the one finding in the whole
+repository was working code.
+
+### The lesson is the false positive, not the zero
+
+A sweep that finds real problems is still a sweep that can find fake ones, and
+this is the third time in this repository that a consistency-style sweep has
+been the thing that breaks code or lies about it. The generalisation:
+
+**Measure a new check's false-positive rate before you believe its zero.** A
+clean report from an instrument that has never been wrong is indistinguishable
+from a clean report from an instrument that cannot see.
+
+### Then prove it can fail at all
+
+`verify:controls` is registered as `pnpm verify:controls`. Before recording it,
+a dead button and a permanently disabled button were planted in `src`, and both
+were reported, named, with their file and line. Then they were removed and the
+gate returned to zero. A gate that has only ever passed has demonstrated
+nothing about itself.
+
+What it does **not** cover is written into the script rather than left for a
+reader to assume: controls that are not `<button>`, links to routes that do not
+exist, inputs whose filter never fires, and handlers that are attached but wrong.
+It answers "is anything behind this", not "does this work".
+
+### Registered, and deliberately not yet in the gate runner
+
+It is in `package.json` as `verify:controls`. It is **not** in
+`scripts/run-gates.mjs`, because that file has uncommitted work from another
+process in the working tree right now, and editing it would be editing their
+work. A gate nobody runs is the debt this audit has already paid once, so it is
+named here as the thing to wire when that file is clear.
+
+### What this round did not close
+
+The two decisions remain the owner's: whether an administrator may read a
+child's roster, and whether to ship store buttons with no app behind them.
 
