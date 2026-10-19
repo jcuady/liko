@@ -121,6 +121,7 @@ const GATES = [
   { id: 'check:behaviour', script: 'check:behaviour', server: true },
   { id: 'probe:shape', script: 'probe:shape' },
   { id: 'probe:guardian', script: 'probe:guardian', server: true, env: { LIKO_VERIFY_BASE_URL: () => `http://127.0.0.1:${SERVER_PORT}` } },
+  { id: 'verify:app', script: 'verify:app', server: true, env: { LIKO_VERIFY_BASE_URL: () => `http://127.0.0.1:${SERVER_PORT}` } },
   { id: 'db:check', script: 'db:check' },
   { id: 'db:settle', script: 'db:settle' },
   { id: 'probe:files', script: 'probe:files' },
@@ -141,12 +142,18 @@ const BLOCKED = new Set(['probe:ai']);
  * named `check:*`, `probe:*`, `verify:*` and `db:*` sat outside it. A recorder
  * that says "N pass" reads as "everything passed", and it is not saying that.
  *
- * Declaring the omissions was the first half. The second half was to remove two
- * of them: `check:responsive` and `check:behaviour` need a server, and nothing
- * was wrong with serving one — see `ensureServer`. They were documented rather
- * than registered only because starting a server here was the job nobody had
- * done. The rest genuinely cannot run here: they need a live project, a
- * deployed site, or they write to one.
+ * Declaring the omissions was the first half. The second half was to remove
+ * three of them. `check:responsive` and `check:behaviour` need a server, and
+ * nothing was wrong with serving one — see `ensureServer`. They were documented
+ * rather than registered only because starting a server here was the job nobody
+ * had done. `verify:app` was excluded while two of its assertions were red, and
+ * the stated reason named a cause that turned out to be wrong: the export was
+ * not being refused by `proxy.ts` at all. The session
+ * cookie is `Secure`, so the check's own request was leaving anonymous and the
+ * sign-in page was being read as a refusal. An exclusion is not a decision, it is
+ * a debt, and a debt whose stated reason is wrong is worse than the red gate it
+ * was hiding. Fixed, mutation-proved, and registered. The rest genuinely cannot
+ * run here: they need a deployed site, or they write to one.
  *
  * So the remaining omissions are declared with a reason, and a script that is
  * neither registered nor listed here FAILS the recorder. That is the part that
@@ -159,13 +166,6 @@ const EXCLUDED = {
   'probe:seats':
     'writes to the live project: it calls the security definer redeem_org_invite and cleans up after itself',
   'probe:gemini': 'a pre-flight provider diagnostic that overlaps probe:ai, which the recorder does run',
-  'verify:app':
-    'RED on two assertions and not mine to decide: a student asking for /grades/export is ' +
-    'answered 200 text/html, because proxy.ts rewrites a refused role to the /forbidden ' +
-    'page rather than returning 403, so the "refused outright" expectation does not fit a ' +
-    'rewrite-based refusal. No grade data leaks -- the route can only answer text/csv -- but ' +
-    'whether the route or the assertion is wrong is an open call. Registering a known-red ' +
-    'gate would make every run red, so it stays out until that is settled.',
   'probe:ai:check': 'not a measurement: it replays the cache probe:ai has just written, and probe:ai already reports the result',
   'verify:saas': 'live HTTP against the deployed site, which needs a deployment rather than a checkout',
   'db:apply': 'an operation, not a measurement: it writes the migration',

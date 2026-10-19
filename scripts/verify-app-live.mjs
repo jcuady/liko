@@ -416,16 +416,22 @@ async function verifyRoutes(account) {
        * by its status code alone would miss a CSV that was served to an
        * account with no right to it.
        */
-      const response = await page.request.get(`${BASE}${route}`);
-      const type = response.headers()['content-type'] ?? '';
+      const response = await fetchAs(page, `${BASE}${route}`);
+      const type = response.type;
       const served = type.includes('text/csv');
       /*
-       * `response.url()` is the URL after redirects, so a request bounced to the
-       * sign-in page no longer ends in the route that was asked for. Both of
-       * those are refusals. What is not a refusal is a CSV arriving intact,
-       * which is the one outcome this check exists to catch.
+       * `url` is the URL after redirects, so a request bounced to the sign-in
+       * page no longer ends in the route that was asked for. Both of those are
+       * refusals. What is not a refusal is a CSV arriving intact, which is the
+       * one outcome this check exists to catch.
+       *
+       * The request is issued from inside the page on purpose. This branch is
+       * dormant today -- no account lists an export route -- and an anonymous
+       * request would be bounced to sign-in for ANY route, which would make this
+       * assertion pass without RBAC ever being consulted. It has to carry the
+       * real session or it reports protection it never tested.
        */
-      const bounced = !response.url().endsWith(route);
+      const bounced = !response.url.endsWith(route);
 
       if (route.includes('/export')) {
         /*
@@ -437,8 +443,8 @@ async function verifyRoutes(account) {
          */
         check(
           `${route} is refused`,
-          !served && (response.status() >= 400 || bounced),
-          `answered ${response.status()} as ${type} from ${response.url()}`,
+          !served && (response.status >= 400 || bounced),
+          `answered ${response.status} as ${type} from ${response.url}`,
         );
       } else {
         await page.goto(`${BASE}${route}`, { waitUntil: 'domcontentloaded' });
@@ -564,9 +570,29 @@ async function verifyWrite() {
  * forbidden for the student seat, on the reasoning that a student resolves no
  * class and so 404s. That was true while `listClasses` filtered on `owner_id`.
  * The linked-read policies landed, `listClasses` stopped filtering, and the
- * student seat now resolves its own class: production answers `200 text/csv`.
+ * student seat now resolves its own class: the product answers `200 text/csv`.
  * The old assertion then failed against a correct application, which is the
  * worst failure mode a gate has, because it trains the reader to ignore it.
+ *
+ * WHY IT STILL FAILED, AND IT WAS NOT THE PRODUCT. For a long time this check
+ * read `200 text/html` and two explanations were written down for it, both
+ * wrong. It was not `proxy.ts` rewriting a refused role to `/forbidden`, and it
+ * was not the export refusing anybody. The session cookie is `Secure`, and
+ * Playwright's `page.request` jar withholds `Secure` cookies over plain
+ * `http://127.0.0.1` while the browser itself sends them, because loopback is a
+ * trustworthy origin. So the request left anonymous, `307` went to `/login`, and
+ * the followed redirect rendered the sign-in page as `200 text/html`.
+ *
+ * Two consequences, and both are load-bearing:
+ *
+ *   - A refusal that is actually a sign-in page is the worst thing a gate can
+ *     print. "answered 200 as text/html" reads like an RBAC failure, and the
+ *     instinct to open `proxy.ts` is exactly the wrong place to look.
+ *   - The three request shapes disagree. `page.request` answers 307; the same
+ *     call with `liko_session` set by hand answers 404, because the session
+ *     verifies without `sb-*-auth-token` and RLS then denies; a real browser
+ *     answers 200 with the CSV. Only the third is what a user gets, so it is the
+ *     only one this check is allowed to make an assertion from.
  *
  * A blanket refusal was also the wrong property. The student is entitled to
  * their own marks, and a CSV of one row is the same data `/grades` already
@@ -605,17 +631,27 @@ async function verifyGradebookExportScope() {
     });
     const visible = roster.ok ? (await roster.json()).map((row) => row.full_name) : [];
 
-    const own = await page.request.get(`${BASE}/grades/export`);
-    const type = own.headers()['content-type'] ?? '';
+    const own = await fetchAs(page, `${BASE}/grades/export`);
+    const isCsv = own.type.includes('text/csv');
 
-    if (!type.includes('text/csv')) {
-      check(
-        'a student seat is refused the export outright',
-        own.status() >= 400,
-        `answered ${own.status()} as ${type}`,
-      );
-    } else {
-      const dataRows = (await own.text())
+    /*
+     * The student seat is NOT refused here. It holds `grade:read` at `own`
+     * scope, so `can()` is true, the proxy does not rewrite it, and it is
+     * entitled to a CSV of its own marks -- the same data `/grades` renders.
+     * Asserting the CSV is therefore asserting the real invariant, and unlike a
+     * refusal it can actually fail.
+     */
+    check(
+      'a student seat is answered its own gradebook CSV',
+      isCsv,
+      `answered ${own.status} as ${own.type}` +
+        (own.type.includes('text/html')
+          ? ' -- an HTML body here is the sign-in page, meaning the request was not authenticated'
+          : ''),
+    );
+
+    if (isCsv) {
+      const dataRows = own.body
         .split(/\r?\n/)
         .filter((line) => line.trim() !== '')
         .slice(1);
@@ -626,6 +662,8 @@ async function verifyGradebookExportScope() {
           dataRows.every((row, index) => row.startsWith(`${visible[index]},`)),
         `${dataRows.length} data row(s) for a seat that can read ${visible.length}: ${JSON.stringify(dataRows).slice(0, 200)}`,
       );
+    } else {
+      note('row scope not checked, because no CSV came back');
     }
 
     /*
@@ -640,12 +678,15 @@ async function verifyGradebookExportScope() {
     const stranger = everyone.find((row) => !mine || row.id !== mine.id);
 
     if (stranger) {
-      const refused = await page.request.get(`${BASE}/grades/export?class=${stranger.id}`);
-      const refusedType = refused.headers()['content-type'] ?? '';
+      const refused = await fetchAs(page, `${BASE}/grades/export?class=${stranger.id}`);
+      const refusedCsv = refused.type.includes('text/csv');
       check(
         'a student export for a class it cannot resolve is refused',
-        !refusedType.includes('text/csv') && refused.status() >= 400,
-        `answered ${refused.status()} as ${refusedType}`,
+        !refusedCsv && refused.status >= 400,
+        `answered ${refused.status} as ${refused.type}` +
+          (refusedCsv
+            ? ' -- a CSV came back for a class this seat cannot resolve, which is the leak'
+            : ''),
       );
     } else {
       note('only one class exists, so there is no stranger to ask for');
@@ -653,6 +694,36 @@ async function verifyGradebookExportScope() {
   } finally {
     await browser.close();
   }
+}
+
+/**
+ * A GET issued from inside the signed-in page, so the browser sends the cookies.
+ *
+ * THIS REPLACES `page.request`, AND THE REPLACEMENT IS THE POINT. The session
+ * cookie is `Secure`. Over plain `http://127.0.0.1` a browser still sends it,
+ * because loopback counts as a trustworthy origin, but Playwright's API request
+ * jar withholds it -- so `page.request` reached the app as an anonymous caller,
+ * was redirected to `/login`, and came back as `200 text/html`. Three different
+ * answers came out of three request shapes for one URL, and only this one is what
+ * a user actually receives.
+ *
+ * Not `redirect: 'manual'` either: a refusal the app expresses as a redirect is
+ * exactly what these checks exist to catch, and swallowing the redirect would
+ * hide it. The status is asserted as it comes back.
+ */
+async function fetchAs(page, url) {
+  const answer = await page.evaluate(async (target) => {
+    const res = await fetch(target, { credentials: 'include' });
+    return {
+      status: res.status,
+      type: res.headers.get('content-type') ?? '',
+      /* After redirects, so a request bounced to sign-in no longer ends in the
+         route that was asked for. */
+      url: res.url,
+      body: await res.text(),
+    };
+  }, url);
+  return answer;
 }
 
 /** The classes one seat's own token can read, which is its linked scope. */
