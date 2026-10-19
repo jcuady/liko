@@ -115,3 +115,16 @@ Liko new landing/
 # put a stale "25 strings missing from the live page" report into the history of
 # a repo whose landing page no longer has that problem.
 .audit.txt
+
+# Leftover from the detached verification worktree at `312da33`. Its tracked
+# files and its source directories have been removed; what is left is a pnpm
+# `node_modules`, which is a farm of directory JUNCTIONS pointing back into
+# itself.
+#
+# It is listed here so it cannot be committed or mistaken for part of the
+# project, and it is still waiting to be deleted by hand. The recoverable
+# delete cannot do it: the Windows Recycle Bin copies a tree before recycling
+# it, and copying a junction that points into the same tree recurses, and the
+# launcher separately refuses to recycle a reparse point at all. Both are
+# deliberate refusals, and neither is worth routing around.
+.stale-verify-312da33/

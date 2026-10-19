@@ -25,7 +25,8 @@ inheriting a word from an earlier round.
 | Lint | **PASS** | `pnpm lint`, exit 0 | round twelve |
 | Unit tests | **PASS** | `537 passed, 2 skipped`, measured in a detached worktree at `312da33` so the figure is that commit's and not the shared tree's. The commit after it changed only a client component with no unit test. | round twelve |
 | e2e | **PASS** | `241 passed (4.8m)` at `9604440`, the whole suite, exit 0. Up from `232` at `fe01de2`: eight of these are the new attendance note spec. | round twelve |
-| **Full gate** | **21 pass, 0 blocked, 0 fail, 0 error** | `pnpm gates` at `371eeca`, recorded in `docs/evidence/gates.json`, with the build recorded as served and unchanged across the run. Twenty-one registered gates. **The e2e gate flaked on the previous run of this same commit**, nine timeouts across eight specs, and the cause is established in round sixteen: eleven concurrent Playwright sessions on one machine. Not a product defect. | round sixteen |
+| **Full gate** | **22 pass, 0 blocked, 0 fail, 0 error** | `pnpm gates` at `a109da8`, recorded in `docs/evidence/gates.json`, with the build recorded as served and unchanged across the run, the tree clean, and the run not contaminated. Twenty-two registered gates, every one green, including `probe:ai`, which was BLOCKED on the previous full run for a third-party 503 and is green here with no code change. The e2e gate passed in 279.5s with no flake. | round seventeen |
+| **Static gates (controls, links, filters, actions)** | **PASS** | `verify:controls`: 162 controls in 144 files, 0 unwired, 1 inert. `verify:links`: 62 links over 44 routes, 0 broken. `verify:filters`: 131 filters, and the 3 it refuses to look at are examined by a test. `verify:actions`: 79 exported server actions, 0 dead. Each is mutation-proved, a planted defect turns it red, and each prints the corpus it read, so a zero cannot be confused with an empty scan. | round seventeen |
 | **Live app against Postgres** | **PASS** | `verify:app`, **57 passed, 0 failed**, run against the **deployed production site**, not only a local build. All five accounts, every entitled route, refusals, a real attendance write, cron, push, gradebook export scope, and no page errors. Run at `09ebf10`; the only commit deployed afterwards is `20819c0`, documentation only, so the measurement still describes the running system. That second half is a claim about the diff, not a second run. | round eleven |
 | **Deployed to production** | **PASS** | Production serves the tip of `main`, deployed by the Vercel Git integration, so **a push to `main` is a production deploy**. Read from the deployment's own build log twice this round: `09ebf10` at 06:15 UTC and `20819c0` at 06:42 UTC. Recording both rather than the latest, because a pinned sha goes stale on the next push by anyone. | round eleven |
 | **Per-role sweep of the deployed site** | **PASS** | Guardian probe against production, 5 of 5. `/grades` and `/history` each name the child the seat is linked to. | round eleven |
@@ -2441,8 +2442,163 @@ turn "the machine was busy" from an argument into a fact. That is the one change
 this round would make to `run-gates.mjs`, which belongs to the other process and
 is not mine to edit today.
 
+### Round seventeen: the other end of the same thread
+
+The gate family had a hole in it, and nobody noticed for months.
+
+`verify:controls` starts at a control and asks whether a handler reaches it.
+It covers 162 controls across 144 files and it has never reported an unwired
+one. But it cannot notice an action that no control ever calls, because from
+the button's side there is nothing to look at: the button is not there.
+
+Four exported server actions were dead when this round started:
+
+    logoutAction              exported, imported by nothing, removed
+    loadPolicies              exported, imported by nothing, removed
+    addAttendanceNote         existed since the register was built, no control
+    timetableAiStatusAction   existed since the importer was built, no control
+
+All four were found by hand, one at a time, over several rounds. **A
+hand-found defect is a defect that recurs**: nothing in the suite would have
+found the fifth, and the reason the fifth did not appear is that it has not
+been written yet.
+
+So the other half: `verify:actions`.
+
+**What it measures.** Every exported server action in a file carrying a real
+`'use server'` directive, and whether anything imports it.
+
+The directive matters, and the first version of the scanner got it wrong. It
+counted files that merely CONTAINED the string, which caught `options.ts` in
+two folders where the words appear in a comment, and it reported them as
+action modules. A real directive is a prologue statement at the top of the
+file, or the first statement of a function body.
+
+**The instrument.** TypeScript's compiler, which is already a dependency
+because `tsc` runs in every gate run, so real import bindings resolve instead
+of name occurrences being counted. `createDeck` exists in two modules and a
+substring search cannot tell an import of one from a mention of the other.
+
+**Four categories, because one of them would have been a lie.**
+
+    wired       imported by another module, or reached transitively through
+                one that is
+    namespace   imported via `import * as ns`, but `ns.name` did not resolve.
+                A namespace import can be indexed dynamically, so this is
+                UNEXAMINED, not dead. The same discipline `verify:controls`
+                uses for a JSX spread: an unresolvable reference is not
+                evidence of absence.
+    unexamined  the name occurs in the tree but not in a form attributable to
+                an import
+    dead        nothing. The only category that fails.
+
+### The four bugs, and what each would have cost
+
+This is the part worth reading, because every one of these made the gate
+either unable to fail or wrong about the code, and three of them produced a
+clean report while doing it.
+
+**1. A declaration counted as a reference.** `export async function
+deadAction()` contains the identifier `deadAction`, so scanning the file for
+the name made every action appear to call every other one.
+
+**2. The per-action edge was not per action.** It asked "is this name
+referenced anywhere in this module" and then copied that same set onto every
+action. Since the classifier promotes by fixed point, ONE imported export
+made every sibling in the file `wired`. A module of seven actions with one
+dead export reported as seven healthy ones, and the gate printed PASS.
+
+This is not a false positive to be tuned away. **It is the whole gate switched
+off while still reporting success.** It was caught only because the self-test
+asserts that a deliberately dead export comes back dead, and the assertion
+failed for a reason that looked like a test bug.
+
+**3. A Map iterated for its values instead of its keys, twice, in two
+different places.** `for (const consumer of consumers)` over a Map yields
+`[key, value]` PAIRS, so every namespace lookup was against a malformed key
+and silently resolved to nothing. Nothing threw. The namespace branch simply
+never fired.
+
+**4. Dynamic imports were invisible.** The four loaders this gate first
+reported as unexamined, `loadGrades`, `loadAssessments`, `loadQuestions` and
+`listDeckAssets`, are consumed like this:
+
+    const { loadGrades } = await import('./actions');
+
+which is a CallExpression, not an ImportDeclaration. **They were wired all
+along. The instrument was the thing that could not see.** The binding is on
+the ASSIGNMENT, not an argument to the call, which is why the first attempt
+at this branch looked for a second argument to `import()` and found nothing.
+
+### The self-test, and what it is for
+
+Four scenarios, and it earned its place on the first run.
+
+    A  no namespace import       proves the dead branch is REACHABLE. Without
+                                  it the gate's headline claim is untested,
+                                  and a gate whose dead branch cannot fire
+                                  is a gate that reports nothing.
+    B  namespace import present  proves a namespace import is never read as
+                                  dead. This is the false positive that would
+                                  get a gate switched off.
+    C  dynamic import, destructured  proves the C branch
+    D  dynamic import, aliased       proves the alias resolves
+
+The first version of this test asserted that an action with no importer is
+`dead` while the fixture containing it also had an `import * as ns` of the
+same module. It came back `namespace`. **The test was wrong and the gate was
+right**, and the split into two scenarios is what proves both claims at once.
+
+### The mutation proof, on the real tree
+
+A planted `plantedDeadAction` in `history/actions.ts` turns the gate red:
+
+    dead       plantedDeadAction
+    79 wired, 0 namespace-unresolved, 0 unexamined, 1 dead
+    FAIL  1 exported server action(s) that nothing imports:
+      plantedDeadAction  (src/app/(dashboard)/history/actions.ts)
+
+exit 1, naming the file and the export, and the file is restored
+byte-for-byte afterwards.
+
+### The result
+
+234 source files scanned, 20 server-action modules, 79 exported actions:
+
+    79 wired, 0 namespace-unresolved, 0 unexamined, 0 dead
+
+**A zero must prove it looked at something**, and this one does: the corpus is
+printed, a zero corpus is a failure, and the dead branch is proved reachable
+by a fixture and by a plant on the real tree.
+
+### The limit, stated plainly
+
+This gate proves an action has a consumer. It does **not** prove the
+consuming component renders a control. That is `verify:controls`. The two are
+the two ends of the same thread, and neither substitutes for the other: a
+component that imports an action and renders nothing is invisible to this
+gate, and an action nobody imports is invisible to that one. Together they
+close the path from a data mutation to the control that triggers it.
+
 ### Still open
 
 The two decisions remain the owner's: whether an administrator may read a
 child's roster, and whether to ship store buttons with no app behind them.
+
+One thing is blocked on the tooling rather than on a decision. The detached
+verification worktree at `312da33` has been reduced to what the recoverable
+delete is allowed to touch, and what is left is a pnpm `node_modules`: a farm
+of directory junctions pointing back into the tree it sits in. It is listed in
+`.gitignore` as `.stale-verify-312da33/` so it cannot be committed, and it
+needs deleting by hand. The reason is worth writing down so nobody spends the
+same afternoon on it:
+
+- The Windows Recycle Bin **copies** a tree before recycling it, and copying a
+  junction whose target is inside the same tree recurses. The API reports
+  "The system call level is not correct" and the whole directory fails.
+- The launcher **refuses to recycle a reparse point at all**, by design, and
+  says so: "refuses link-like paths and did not recycle this link object".
+
+Both refusals are deliberate. The remedy is not to route around them, so the
+directory stays until somebody removes it by hand.
 
