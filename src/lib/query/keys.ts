@@ -64,6 +64,12 @@ export const queryKeys = {
    * the same five built-ins.
    */
   policies: () => ['workspace', 'policies'] as const,
+
+  /*
+   * Files brought into a deck. Keyed by deck, because the upload panel and the
+   * image picker both read the same deck's assets and must not each keep a copy.
+   */
+  deckAssets: (deckId: string) => ['workspace', 'decks', deckId, 'assets'] as const,
   /** The weekly timetable. Keyed by student so two open weeks do not collide. */
   schedule: (studentId?: string) => ['workspace', 'schedule', studentId ?? 'own'] as const,
 } as const;

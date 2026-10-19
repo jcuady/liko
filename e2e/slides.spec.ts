@@ -159,7 +159,20 @@ test.describe('editing a slide', () => {
     await page.getByLabel('Points', { exact: true }).fill('');
     await page.getByRole('button', { name: 'Save details' }).click();
 
-    await expect(page.getByText('Give the slide a title or some points.')).toBeVisible();
+    /*
+     * Scoped through the toast helper, and a preserved trace from the 2026-10-19
+     * gate run is what proved it rather than a guess. The refusal is delivered as
+     * a toast, so the sentence is in the DOM twice: once in the visible toast,
+     * whose `data-title` element sits inside the Notifications region, and once in
+     * the `#liko-assertive-toasts` mirror that tells a screen reader about it
+     * immediately. A bare `getByText` resolves both and fails with a strict mode
+     * violation that reads like a product fault and is not one.
+     *
+     * It passed for weeks because the mirror is transient and the two are not
+     * always on screen together — which is the same reason the earlier fix in this
+     * file was safe to make narrowly. A trace, not a sweep, is what decides.
+     */
+    await expectToast(page, 'Give the slide a title or some points.');
   });
 
   test('reordering puts a slide where it was asked to go', async ({ page }) => {

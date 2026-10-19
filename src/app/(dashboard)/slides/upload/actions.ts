@@ -23,7 +23,7 @@
 
 import { revalidatePath } from 'next/cache';
 
-import { data } from '@/lib/api/client';
+import { data, type DeckAssetKind } from '@/lib/api/client';
 import { DataError } from '@/lib/api/errors';
 import { requirePermission } from '@/lib/auth/guards';
 import {
@@ -181,6 +181,46 @@ export async function importDocument(form: FormData): Promise<ImportResult> {
         : 'That file could not be added to this deck. Try again in a moment.',
     );
   }
+}
+
+/**
+ * What the panel needs to draw one row of the file list.
+ *
+ * DELIBERATELY NARROWER THAN `DeckAssetRecord`. That record carries
+ * `extractedText`, which is the whole body of a document, and this list exists to
+ * render a filename and a size. Sending the text to the browser to do that would
+ * put an entire uploaded document into the client payload and the RSC cache for
+ * no reason a teacher could see.
+ */
+export interface DeckAssetSummary {
+  id: string;
+  filename: string;
+  kind: DeckAssetKind;
+  byteSize: number;
+  createdAt: string;
+}
+
+/**
+ * The files already brought into this deck.
+ *
+ * Without this the upload panel could add a file and no teacher could take one
+ * back out, because `removeDeckAsset` below had no control to hang on.
+ */
+export async function listDeckAssets(deckId: string): Promise<DeckAssetSummary[]> {
+  const session = await requirePermission('plan:write');
+  const trimmed = deckId.trim();
+  if (!trimmed) return [];
+
+  const store = await data();
+  const assets = await store.listDeckAssets(session.userId, trimmed);
+
+  return assets.map(({ id, filename, kind, byteSize, createdAt }) => ({
+    id,
+    filename,
+    kind,
+    byteSize,
+    createdAt,
+  }));
 }
 
 /**

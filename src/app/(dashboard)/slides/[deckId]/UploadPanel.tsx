@@ -1,15 +1,22 @@
 'use client';
 
 import * as React from 'react';
-import { useMutation } from '@tanstack/react-query';
-import { ArrowUp, CircleAlert, Paperclip } from 'lucide-react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { ArrowUp, CircleAlert, FileText, ImageIcon, Paperclip, Trash2 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { FormField, FormSuccess } from '@/components/ui/form-field';
 import { Input } from '@/components/ui/input';
+import { queryKeys } from '@/lib/query/keys';
+import { toast } from '@/lib/toast';
 
-import { importDocument, type ImportResult } from '../upload/actions';
+import {
+  importDocument,
+  removeDeckAsset,
+  type DeckAssetSummary,
+  type ImportResult,
+} from '../upload/actions';
 
 /**
  * Bringing a file into this deck.
@@ -62,7 +69,52 @@ export function UploadPanel({
 }: UploadPanelProps) {
   const [file, setFile] = React.useState<File | null>(null);
   const [result, setResult] = React.useState<ImportResult | null>(null);
+  const [removingId, setRemovingId] = React.useState<string | null>(null);
   const inputRef = React.useRef<HTMLInputElement>(null);
+  const queryClient = useQueryClient();
+  const assetKey = queryKeys.deckAssets(deckId);
+
+  /*
+   * WHAT IS ALREADY IN THIS DECK.
+   *
+   * The panel could add a file and nothing could take one back out, because
+   * `removeDeckAsset` existed on the server with no control to hang on. Listing
+   * them here is what makes that action reachable, and it is the same list the
+   * image picker draws from, so one cache entry serves both.
+   *
+   * The action returns a summary rather than the stored record: `extractedText`
+   * is a whole document and has no business crossing to the browser to render a
+   * filename.
+   */
+  const { data: assets = [] } = useQuery({
+    queryKey: assetKey,
+    queryFn: async () => {
+      const { listDeckAssets: load } = await import('../upload/actions');
+      return load(deckId);
+    },
+    staleTime: 30_000,
+  });
+
+  const remove = useMutation({
+    mutationFn: async (assetId: string) => {
+      const outcome = await removeDeckAsset({ deckId, assetId });
+      // A refusal resolves rather than throws, so it is re-thrown here. That is
+      // what routes it to `onError` and leaves the row on screen, instead of
+      // dropping a file the server did not actually remove.
+      if (!outcome.ok) throw new Error(outcome.message);
+      return outcome;
+    },
+    onMutate: (assetId) => {
+      setRemovingId(assetId);
+    },
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : 'That file could not be removed.'),
+    onSuccess: (outcome) => {
+      toast.success(outcome.message);
+      void queryClient.invalidateQueries({ queryKey: assetKey });
+    },
+    onSettled: () => setRemovingId(null),
+  });
 
   const upload = useMutation({
     mutationFn: async (chosen: File) => {
@@ -83,6 +135,8 @@ export function UploadPanel({
       // the teacher is left pressing Import with nothing to send.
       setFile(null);
       if (inputRef.current) inputRef.current.value = '';
+      // The new file belongs in the list below without a reload.
+      void queryClient.invalidateQueries({ queryKey: assetKey });
 
       if (outcome.kind === 'image' && outcome.assetId) onImageReady?.(outcome.assetId);
     },
@@ -198,6 +252,57 @@ export function UploadPanel({
             <span>{result.message}</span>
           </p>
         ) : null}
+
+        {/*
+          WHAT IS ALREADY IN THIS DECK. Added because the server could remove a
+          file and no teacher could ask it to. A row per file, each with its own
+          Remove, and the button names the file rather than saying "Remove" three
+          times, because a screen reader user otherwise cannot tell which of the
+          three buttons they are on.
+        */}
+        <section aria-labelledby="deck-assets-heading" className="flex flex-col gap-2">
+          <h3 id="deck-assets-heading" className="text-h4 text-ink">
+            Files in this deck
+          </h3>
+
+          {assets.length === 0 ? (
+            <p className="text-meta text-ink-muted">
+              Nothing here yet. Anything you bring in will be listed so you can take it out again.
+            </p>
+          ) : (
+            <ul className="flex flex-col divide-y divide-border">
+              {assets.map((asset: DeckAssetSummary) => {
+                const removing = removingId === asset.id;
+                return (
+                  <li key={asset.id} className="flex items-center gap-3 py-2">
+                    {asset.kind === 'image' ? (
+                      <ImageIcon size={16} aria-hidden="true" className="shrink-0 text-ink-muted" />
+                    ) : (
+                      <FileText size={16} aria-hidden="true" className="shrink-0 text-ink-muted" />
+                    )}
+                    <span className="min-w-0 flex-1 truncate text-body text-ink" title={asset.filename}>
+                      {asset.filename}
+                    </span>
+                    <span className="shrink-0 text-meta text-ink-muted">
+                      {readableSize(asset.byteSize)}
+                    </span>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      disabled={removing || remove.isPending}
+                      onClick={() => remove.mutate(asset.id)}
+                    >
+                      <Trash2 size={15} aria-hidden="true" />
+                      {removing ? 'Removing' : 'Remove'}
+                      <span className="sr-only">{` ${asset.filename}`}</span>
+                    </Button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </section>
       </CardContent>
     </Card>
   );

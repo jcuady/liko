@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 
 import { optionEntries, optionLabels } from './helpers/select';
+import { expectToast } from './helpers/toast';
 
 /**
  * Bringing a real file into a real deck.
@@ -154,6 +155,46 @@ test.describe('bringing a file into a deck', () => {
       label.includes('leaf-cell.png'),
     );
     expect(uploaded).toHaveLength(1);
+  });
+
+  test('a file can be taken back out again', async ({ page }) => {
+    /*
+     * THE CAPABILITY HAD NO BUTTON. `removeDeckAsset` existed on the server, and
+     * `listDeckAssets` existed in the data layer, and nothing in the product
+     * reached either — so a teacher could bring a file into a deck and never
+     * remove it. This drives the whole round trip rather than asserting that a
+     * control exists, because the earlier defect was a control that did not.
+     *
+     * A unique filename, because this deck is shared state: the seeded one has
+     * files in it and the assertion is about this file's own row.
+     */
+    const name = `removable-${Date.now()}.pdf`;
+
+    await page.getByLabel('Choose a file').setInputFiles({
+      name,
+      mimeType: 'application/pdf',
+      buffer: pdfWithText('A file that will be taken back out'),
+    });
+    await page.getByRole('button', { name: 'Import' }).click();
+    await expect(page.getByText(new RegExp(`${name} imported`))).toBeVisible();
+
+    // The row the Remove button hangs on.
+    const row = page.getByRole('listitem').filter({ hasText: name });
+    await expect(row).toBeVisible();
+    await expect(row.getByRole('button', { name: /remove/i })).toBeVisible();
+
+    await row.getByRole('button', { name: /remove/i }).click();
+    await expectToast(page, 'That file was removed.');
+
+    /*
+     * Polled, and not merely "the row is gone". The list is a react-query entry
+     * that the mutation invalidates, so the row leaving the DOM is the claim
+     * under test; a single read taken before the refetch resolved would pass for
+     * a control that did nothing.
+     */
+    await expect
+      .poll(async () => page.getByRole('listitem').filter({ hasText: name }).count())
+      .toBe(0);
   });
 
   test('a scanned PDF is refused in words rather than imported empty', async ({ page }) => {
