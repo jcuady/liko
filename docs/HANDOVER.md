@@ -430,6 +430,24 @@ Stated plainly so nobody is surprised later.
     run after a red one — run 3 was green and run 4, identical in configuration,
     was not.
 
+    **Update 2026-10-19 — the honest position is narrower than "fixed".** The
+    *mechanism* behind the current failure was read out of the installed Radix
+    source rather than guessed: `pointerTypeRef` starts as the string `"touch"`, and
+    an option only selects on `pointerup` while that ref reads `"mouse"`. A lost
+    pointerdown therefore leaves the control mounted on its old value. That
+    mechanism is proved by construction in `e2e/helpers/select.spec.ts` — a bare
+    `pointerup` leaves the control open, and the ordered `pointerdown`→`pointerup`
+    pair selects and closes — so it is a mechanism rather than a coincidence.
+    `chooseOption` now gives the transition a bounded 3s window and falls back to the
+    keyboard only once that window expires, and `playwright.config.ts` stamps
+    `outputDir` per run so a red run keeps its trace instead of having it deleted by
+    the next one. **Whether this caused the four runs above is still not
+    established.** The fallback is a defence against a verified mechanism, not a fix
+    for a confirmed cause. What did change is that a red run now leaves evidence
+    behind, and that once the evidence existed it immediately surfaced a second,
+    unrelated flake in `landing.spec.ts` that had been invisible for exactly that
+    reason.
+
 ---
 
 ## Things that were wrong and are now fixed

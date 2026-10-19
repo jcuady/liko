@@ -234,12 +234,49 @@ async function main() {
     // preceding drop breaks the second run, which is the one that happens when
     // someone has to recover.
     const creates = [...sql.matchAll(/create\s+policy\s+"([^"]+)"\s+on\s+([a-z_.]+)/gi)];
+
+    /*
+     * A `create policy` written once inside a `foreach` becomes N policies, so
+     * counting STATEMENTS under-reports the schema. This gate printed "41
+     * policies across 28 tables" while the database held 49, because one of
+     * those statements was a loop over 12 tables:
+     *
+     *     41 statements - 1 loop template + 12 from the loop = 52 policies
+     *     52 - 3 that live on storage.objects            = 49 in public
+     *
+     * which is exactly what `pg_policies` returned. The number a reader takes
+     * away from this gate is the number of policies the schema ends up with, so
+     * that is what is printed, with the statement count beside it rather than
+     * instead of it. The two are only ever allowed to differ when a loop
+     * explains the difference.
+     *
+     * The loop is only counted as a policy loop when its body really does hold
+     * a `create policy ... %I` template, so adding an unrelated `foreach` later
+     * cannot inflate the count.
+     */
+    const loopBody = sql.match(/foreach\s+\w+\s+in\s+array\s+array\[([\s\S]*?)\]/i);
+    const loopName = loopBody
+      ? sql.match(/create\s+policy\s+"([^"]+)"\s+on\s+[a-z_.]+%I/i)?.[1]
+      : undefined;
+    const loopTables =
+      loopName && loopBody ? [...loopBody[1].matchAll(/'([a-z_]+)'/gi)].map((m) => m[1]) : [];
+
+    // `storage.objects` is a real table with real policies but it is not in the
+    // public schema, so it is counted separately rather than folded in.
+    const isStorage = (m) => m[2].toLowerCase().startsWith('storage');
+    const direct = creates.filter((m) => !(loopName && m[1] === loopName));
+    const storageCount = direct.filter(isStorage).length;
+    const publicCount = direct.length - storageCount + loopTables.length;
+
     const drops = new Set(
       [...sql.matchAll(/drop\s+policy\s+(?:if\s+exists\s+)?"([^"]+)"/gi)].map((m) => m[1].toLowerCase()),
     );
     const notDropped = creates.filter((m) => !drops.has(m[1].toLowerCase()));
     if (notDropped.length === 0) {
-      ok(`re-runnable: all ${creates.length} policies are dropped before creation`);
+      ok(
+        `re-runnable: every policy is dropped before creation (${creates.length} statements -> ` +
+          `${publicCount} in public${storageCount ? `, ${storageCount} on storage` : ''})`,
+      );
     } else {
       for (const match of notDropped) {
         fail(
@@ -301,7 +338,10 @@ async function main() {
     );
     if (empty.length > 0) warn(`${empty.length} policies look empty`);
 
-    console.log(`        ${creates.length} policies across ${tables.size} tables`);
+    console.log(
+      `        ${publicCount + storageCount} policies (${publicCount} in public across ` +
+        `${tables.size} tables${storageCount ? `, ${storageCount} on storage` : ''})`,
+    );
   }
 
   console.log('');
