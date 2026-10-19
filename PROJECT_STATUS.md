@@ -118,9 +118,15 @@ comment is what stopped a fourth phantom today.
 What remains is dead surface: three implementations plus three fixture
 implementations that no caller reaches. That is a maintenance cost, not a
 user-visible fault, and it is left in place rather than removed — deleting a
-public interface member is a change with no failing test to justify it, and the
-one place it could matter (`updateFlashcardDeck`) would need a product decision
-about whether deck editing exists at all.
+public interface member is a change with no failing test to justify it.
+
+**The deck case is now decided, and it is a deliberate omission.**
+`updateFlashcardDeck` stays unwired because **archiving a deck is the intended
+end of its life**: a teacher creates a deck and retires one, and there is no
+step in between. That is a product answer, so the method is kept rather than
+wired up, and this table is where the reasoning lives so the next reader does
+not mistake it for an oversight. `listAttempts` and `deleteFlashcard` are in
+the same category and are recorded the same way.
 
 ## Executive Summary
 
