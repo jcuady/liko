@@ -2016,20 +2016,10 @@ alter table public.calendar_events enable row level security;
 -- student in every school.
 drop policy if exists "events visible to owner and student"
   on public.calendar_events;
-create policy "events visible to owner and student"
+create policy "events readable by owner or linked child"
   on public.calendar_events
-  for all to authenticated
+  for select to authenticated
   using (
-    owner_id = (select auth.uid())
-    or exists (
-      select 1
-      from public.students s
-      where s.id = calendar_events.student_id
-        and s.account_id = (select auth.uid())
-        and s.archived_at is null
-    )
-  )
-  with check (
     owner_id = (select auth.uid())
     or exists (
       select 1
@@ -2040,6 +2030,47 @@ create policy "events visible to owner and student"
     )
   );
 
+-- WRITES ARE OWNER-ONLY NOW, AND THAT IS A NARROWING, NOT A REFACTOR.
+--
+-- This was a single `for all` policy carrying the same predicate in both
+-- `using` and `with check`. Its own comment states the requirement as "the
+-- student needs to SEE it", and `for all` grants update and delete as well as
+-- select. So a parent could edit or delete a calendar entry that their child's
+-- teacher had written, on the strength of a rule written to describe
+-- visibility. Reading a teacher's entry and removing it are different grants,
+-- and only the first was ever described.
+--
+-- Nothing in the application needs the wider grant, which is the part worth
+-- checking before narrowing anything. `saveCalendarEvent` sets `owner_id` to
+-- the caller on every insert, so a linked account always owns whatever it
+-- creates. `deleteCalendarEvent` and the update branch of `saveCalendarEvent`
+-- pass no owner filter at all and delegate entirely to this policy - so before
+-- this split they were leaning on a rule that let a parent remove a teacher's
+-- entry, which is the shape of a bug rather than a design.
+--
+-- A caller still reads its child's calendar in full, and still creates, edits
+-- and deletes its own entries. Only cross-owner writes are refused.
+drop policy if exists "events created by their owner"
+  on public.calendar_events;
+create policy "events created by their owner"
+  on public.calendar_events
+  for insert to authenticated
+  with check (owner_id = (select auth.uid()));
+
+drop policy if exists "events changed by their owner"
+  on public.calendar_events;
+create policy "events changed by their owner"
+  on public.calendar_events
+  for update to authenticated
+  using (owner_id = (select auth.uid()))
+  with check (owner_id = (select auth.uid()));
+
+drop policy if exists "events removed by their owner"
+  on public.calendar_events;
+create policy "events removed by their owner"
+  on public.calendar_events
+  for delete to authenticated
+  using (owner_id = (select auth.uid()));
 -- ---------------------------------------------------------------------------
 -- flashcards: decks, cards, and per-student scheduling
 --
@@ -2278,6 +2309,122 @@ create policy "progress readable and writable by its student"
       select 1
       from public.students s
       where s.id = flashcard_progress.student_id
+        and s.account_id = (select auth.uid())
+        and s.archived_at is null
+    )
+  );
+-- ---------------------------------------------------------------------------
+-- The linked scope, finished: six tables the matrix promised and the schema
+-- had not implemented.
+--
+-- WHAT THIS IS. A guardian or a student reached one class, one roster row and
+-- fifteen timetable entries, and nothing else, because `students` and
+-- `classes` carry linked-aware policies and these six tables do not. The RBAC
+-- matrix grants that account `class:read`, `grade:read` and `history:read` at
+-- scope `linked`, so the database was making a narrower promise than the
+-- matrix made, and `/schedule` rendered a fortnight of lessons while `/grades`
+-- and `/history` rendered empty. Measured with the guardian's own token
+-- against the live project, before and after; see `docs/SYSTEM_AUDIT.md`.
+--
+-- WHY AN INLINE `exists` AND NOT A HELPER. The subquery touches `students`
+-- and nothing else, and `students` already admits the caller's own row through
+-- "linked reads own student row", so the subquery resolves for the caller.
+-- This is the shape the flashcard policies above already use, and the shape
+-- `classes` uses. The `quiz_attempts` policies needed a `security definer`
+-- helper precisely because THEY must join through a table the caller cannot
+-- read, which is not the situation here.
+--
+-- READ ONLY, DELIBERATELY. Every policy below is `for select`, with no `with
+-- check` and no insert/update/delete policy beside it. A parent can be shown a
+-- mark; a parent cannot write one. The write paths keep `own rows`, which is
+-- `owner_id = auth.uid()` and is false for every one of these rows when the
+-- caller is a linked account, so there is no route to write through them.
+--
+-- WHY `assessments` IS HERE AND NOT OPTIONAL. `listGradesForClass` reads
+-- `grades` with an INNER join to `assessments` (`assessments!inner(class_id)`).
+-- RLS applies to the joined table, so a `grades` policy on its own still
+-- returns zero rows for a linked account: the mark cannot be returned without
+-- the assessment it belongs to. Granting the marks without granting the
+-- assessment would look like a fix and measure as no change whatsoever.
+--
+-- WHAT A PARENT CAN NOW SEE, STATED PLAINLY. Their child's mark, its rubric
+-- and the teacher's feedback on it. The child's attendance, including the
+-- teacher's own `note` free text. The child's history entries and payloads.
+-- The assessments and lesson plans of the class the child sits in. That is a
+-- considerably wider surface than the three tables out of nine it had.
+-- `attendance.note` is the one field in this list that is prose the teacher
+-- wrote rather than a record about the child; it is included because the
+-- matrix grants a guardian a read of the child's attendance, and it is named
+-- here so that widening it later is a decision rather than an accident.
+--
+-- NOT `questions`. `questions` carries `answer_key` and still has no select
+-- policy for a linked account. That separation is deliberate and is preserved:
+-- widening these six must never reach the answers.
+-- ---------------------------------------------------------------------------
+
+-- ---------------------------------------------------------------------------
+-- Student-scoped: the row names the child, so the child decides.
+-- ---------------------------------------------------------------------------
+drop policy if exists "linked reads own child's marks" on public.grades;
+create policy "linked reads own child's marks" on public.grades
+  for select using (
+    exists (
+      select 1
+      from public.students s
+      where s.id = grades.student_id
+        and s.account_id = (select auth.uid())
+        and s.archived_at is null
+    )
+  );
+
+drop policy if exists "linked reads own child's attendance" on public.attendance;
+create policy "linked reads own child's attendance" on public.attendance
+  for select using (
+    exists (
+      select 1
+      from public.students s
+      where s.id = attendance.student_id
+        and s.account_id = (select auth.uid())
+        and s.archived_at is null
+    )
+  );
+
+drop policy if exists "linked reads own child's history" on public.student_history;
+create policy "linked reads own child's history" on public.student_history
+  for select using (
+    exists (
+      select 1
+      from public.students s
+      where s.id = student_history.student_id
+        and s.account_id = (select auth.uid())
+        and s.archived_at is null
+    )
+  );
+
+
+
+-- ---------------------------------------------------------------------------
+-- Class-scoped: no `student_id` on the row, so the class is the join.
+-- ---------------------------------------------------------------------------
+drop policy if exists "linked reads own class's assessments" on public.assessments;
+create policy "linked reads own class's assessments" on public.assessments
+  for select using (
+    exists (
+      select 1
+      from public.students s
+      where s.class_id = assessments.class_id
+        and s.account_id = (select auth.uid())
+        and s.archived_at is null
+    )
+  );
+
+drop policy if exists "linked reads own class's lesson plans" on public.lesson_plans;
+create policy "linked reads own class's lesson plans" on public.lesson_plans
+  for select using (
+    exists (
+      select 1
+      from public.students s
+      where s.class_id = lesson_plans.class_id
         and s.account_id = (select auth.uid())
         and s.archived_at is null
     )

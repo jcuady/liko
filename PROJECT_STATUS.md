@@ -30,13 +30,15 @@ The supplied brand design in `Liko new landing design and branding/` has been ap
 
 ## Open: linked accounts can see a class but not the marks on it
 
-**Status: NOW MEASURED, and confirmed. See `docs/SYSTEM_AUDIT.md` round ten for
-the probe.** This section was first written as a derivation from the policies
-with an explicit refusal to put a number on it, because the demo guardian seat
-had no link and a zero would therefore have had two independent causes at once.
-That caution was correct, and it is now retired rather than deleted: the seat
-has been linked, the confounding has separated, and the numbers below are
-measured with the guardian's own token.
+**Status: CLOSED for the pages a parent can reach, measured end to end.** This
+section was first written as a derivation from the policies with an explicit
+refusal to put a number on it, because the demo guardian seat had no link and a
+zero would therefore have had two independent causes at once. That caution was
+correct. The seat is now linked, the numbers below were measured with the
+guardian's own token, five linked-read policies have landed, the four
+owner-filtered reads that were discarding them have been removed, and
+`pnpm probe:guardian` now drives the rendered pages and confirms a parent sees
+its child's mark and history.
 
 While verifying another agent's in-flight `client.ts` fix I swept every read
 path that still filters `.eq('owner_id', userId)`. Removing that filter is
@@ -344,8 +346,9 @@ A row that was not re-run says so and carries the date it was last measured. It 
 | Static layout | `pnpm check:responsive` | **PASS at 375, 768, 1024, 1440 and 1920px**, no horizontal overflow. Not re-run 2026-10-17 |
 | Static behaviour | `pnpm check:behaviour` | **all passed**: anchors clear the nav, reduced motion, no-JS fallback. Not re-run 2026-10-17 |
 | Live schema | `pnpm db:apply` then `pnpm db:check` | **APPLIED AND CONFIRMED 2026-10-17**, superseding the earlier "not re-run" note on this row. The migration file defines 28 tables and 32 policies; `db:check` reports all 28 tables present against the live project |
-| Live RLS behaviour | `pnpm db:settle` | **16 passed, 0 failed** (re-run 2026-10-19), superseding the earlier 14 and the 6 before it. Includes six flashcard assertions (a student cannot write a review against another student, cannot read another student's study record, and cannot add a card to a deck they do not own) and two guardian assertions, both directions: a linked guardian resolves exactly the child it is linked to, and never a row linked to another account. The guardian pair was added because the role had **no** RLS coverage at all, so a guardian who could read nothing passed every gate here. The assertions are load-bearing — unsetting the fixture's `account_id` reproduces the shipped production defect (a guardian session reading 0 student rows) and exits 1 |
-| Live application | `pnpm verify:app` | **56 passed, 0 failed** (re-run 2026-10-17): every workspace route renders with real seeded data, refusals hold, an attendance write is read back out of Postgres and replays without duplicating, a write into another teacher's class is refused, the at-risk sweep authenticates and stays idempotent, the push route refuses six SSRF payloads and enforces per-teacher ownership, an outbound dispatch reaches the push service and prunes a dead endpoint, and registration is reported as blocked by the email quota |
+| Live RLS behaviour | `pnpm db:settle` | **25 passed, 0 failed** (re-run 2026-10-19), superseding the earlier 16 and the 14 before it. Includes six flashcard assertions, six linked-read assertions comparing the EXACT set of row ids a guardian may read (`grades`, `attendance`, `student_history`, `calendar_events`, `assessments`, `lesson_plans`) rather than a count, because a count is satisfied by a guardian who can read everything, and three calendar-write assertions that a parent may not edit or delete an entry its child's teacher wrote while the teacher still may. Confirmed load-bearing: run before the policies were applied it reported **17 passed, 5 failed**, and before the write split it reported **23 passed, 2 failed** — the failures were exactly the newly-guaranteed behaviours |
+| Live application | `pnpm verify:app` | **56 passed, 0 failed** (re-run 2026-10-19), every workspace route rendering with real seeded data, refusals holding, an attendance write read back out of Postgres and replayed without duplicating, a write into another teacher's class refused, the at-risk sweep authenticating and staying idempotent, the push route refusing six SSRF payloads and enforcing per-teacher ownership, an outbound dispatch reaching the push service and pruning a dead endpoint, and registration reported as blocked by the email quota. **Its guardian coverage is thinner than it looks and is recorded as such**: for `guardian@liko.test` it asserts only that `/overview` renders and `/admin` is refused. It never visits `/grades` or `/history` for that role, so 56/0 is satisfied by a guardian whose every page is empty — which is the state this product spent two rounds in |
+| What a parent actually SEES | `pnpm probe:guardian` | **5 passed, 0 failed** (re-run 2026-10-19), the gate that answers the question `verify:app` structurally cannot: signs the guardian in against the live project and asserts that `/grades` names the linked child **and** renders the assessment that child's mark is on, and that `/history` names the child. Seed-written witnesses (`Ben Osei`, `Unit 1: Atomic Structure`) rather than a blacklist of empty-state phrases — the first version of this probe blacklisted "no marks" and reported a working gradebook as empty, because the page always renders the sentence "A student with no marks yet has no total rather than a zero". A check built on absence matches prose |
 | Storage and AI write paths | `pnpm probe:files` | **all confirmed**: the bucket is private with no delete policy, and the usage row is written through the service client, read back, and removed. Not re-run 2026-10-17 |
 | Deck maker on the deployed site | `node scripts/verify-deck-maker-prod.mjs` | **18 passed, 0 failed**: signs in against the live database, opens a deck, changes a weight and reads the rendered result, sees the autosave land, reloads and finds it still there, and fits a phone. Not re-run 2026-10-17 |
 

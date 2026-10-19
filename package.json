@@ -28,7 +28,8 @@
     "probe:gemini": "node --env-file=.env.local scripts/probe-gemini.mjs",
     "probe:files": "node --env-file=.env.local scripts/check-storage-and-ai.mjs",
     "verify:saas": "node scripts/verify-prod-saas.mjs",
-    "verify:app": "node --env-file=.env.local scripts/verify-app-live.mjs"
+    "verify:app": "node --env-file=.env.local scripts/verify-app-live.mjs",
+    "probe:guardian": "node --env-file=.env.local scripts/probe-guardian-views.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "5.9.1",

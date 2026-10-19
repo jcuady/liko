@@ -592,6 +592,230 @@ async function main() {
     );
 
     /*
+     * THE OTHER SIX TABLES THE MATRIX PROMISED, each in both directions.
+     *
+     * Measured before this section existed: a guardian's own token read one
+     * class, one roster row and fifteen timetable entries, and zero from
+     * `assessments`, `grades`, `student_history`, `lesson_plans`, `attendance`
+     * and `calendar_events`. Three tables of nine. The RBAC matrix grants that
+     * account `class:read`, `grade:read` and `history:read` at scope `linked`,
+     * so the database was promising less than the matrix did and `/grades`
+     * rendered empty for a role the product calls working.
+     *
+     * EVERY ASSERTION HERE COMPARES THE EXACT SET OF IDS, never a count. A
+     * count is satisfied by a guardian who can read every row in the table,
+     * which is the failure that would matter, so counting would be the wrong
+     * instrument for exactly the question being asked. Exact-set comparison
+     * fails when the row is absent AND when a row that is not this guardian's
+     * turns up.
+     */
+    const insertRow = async (table, body) => {
+      const res = await admin(table, { method: 'POST', body: JSON.stringify(body) });
+      if (!res.ok) throw new Error(`${table}: ${await res.text()}`);
+      return (await res.json())?.[0]?.id;
+    };
+
+    /*
+     * A second child in the SAME class with no login at all. Every assertion
+     * below is only meaningful because this row exists to be the row that must
+     * not come back: a policy that admitted the whole class would return one
+     * row for this guardian's child and still pass a count of one.
+     */
+    const otherChildId = await insertRow('students', {
+      class_id: classA,
+      owner_id: ownerA,
+      full_name: `${STAMP} other child`,
+      initials: 'OC',
+    });
+
+    const ownAssessmentId = await insertRow('assessments', {
+      class_id: classA,
+      owner_id: ownerA,
+      title: `${STAMP} own assessment`,
+    });
+    await insertRow('assessments', {
+      class_id: classB,
+      owner_id: created.users[1],
+      title: `${STAMP} other school assessment`,
+    });
+
+    const ownGradeId = await insertRow('grades', {
+      assessment_id: ownAssessmentId,
+      student_id: guardianChildId,
+      owner_id: ownerA,
+      score: 7,
+      max_score: 10,
+    });
+    await insertRow('grades', {
+      assessment_id: ownAssessmentId,
+      student_id: otherChildId,
+      owner_id: ownerA,
+      score: 3,
+      max_score: 10,
+    });
+
+    const ownAttendanceId = await insertRow('attendance', {
+      class_id: classA,
+      student_id: guardianChildId,
+      owner_id: ownerA,
+      date: '2026-03-04',
+      status: 'present',
+      note: `${STAMP} teacher note`,
+    });
+    await insertRow('attendance', {
+      class_id: classA,
+      student_id: otherChildId,
+      owner_id: ownerA,
+      date: '2026-03-04',
+      status: 'absent',
+    });
+
+    const ownHistoryId = await insertRow('student_history', {
+      student_id: guardianChildId,
+      owner_id: ownerA,
+      event_type: 'note',
+    });
+    await insertRow('student_history', {
+      student_id: otherChildId,
+      owner_id: ownerA,
+      event_type: 'note',
+    });
+
+    const ownEventId = await insertRow('calendar_events', {
+      owner_id: ownerA,
+      student_id: guardianChildId,
+      title: `${STAMP} own event`,
+      starts_at: '2026-03-04T09:00:00Z',
+      kind: 'event',
+      created_by_role: 'instructor',
+    });
+    await insertRow('calendar_events', {
+      owner_id: ownerA,
+      student_id: otherChildId,
+      title: `${STAMP} other event`,
+      starts_at: '2026-03-04T09:00:00Z',
+      kind: 'event',
+      created_by_role: 'instructor',
+    });
+
+    const ownPlanId = await insertRow('lesson_plans', {
+      class_id: classA,
+      owner_id: ownerA,
+      title: `${STAMP} own plan`,
+    });
+    await insertRow('lesson_plans', {
+      class_id: classB,
+      owner_id: created.users[1],
+      title: `${STAMP} other school plan`,
+    });
+
+    const guardianReadsExactly = async (table, expectedId, label) => {
+      const res = await asUser(`${table}?select=id`, guardianToken);
+      const rows = res.ok ? await res.json() : [];
+      const ids = (Array.isArray(rows) ? rows : []).map((row) => row.id);
+      check(
+        label,
+        ids.length === 1 && ids[0] === expectedId,
+        `a guardian session on ${table} read ${ids.length} row(s)` +
+          `${ids.length ? `: ${JSON.stringify(ids).slice(0, 300)}` : ''}` +
+          `, and should have read exactly [${expectedId}]. ` +
+          'Zero is the state the RBAC matrix promises and the schema did not deliver. More than one means the ' +
+          'policy is admitting rows this guardian has no link to, which is the half of this that would matter.',
+      );
+    };
+
+    await guardianReadsExactly('grades', ownGradeId, 'a linked guardian reads its child\'s mark and nobody else\'s');
+    await guardianReadsExactly('attendance', ownAttendanceId, 'a linked guardian reads its child\'s attendance and nobody else\'s');
+    await guardianReadsExactly('student_history', ownHistoryId, 'a linked guardian reads its child\'s history and nobody else\'s');
+    await guardianReadsExactly('calendar_events', ownEventId, 'a linked guardian reads its child\'s calendar entry and nobody else\'s');
+    await guardianReadsExactly('assessments', ownAssessmentId, 'a linked guardian reads its class\'s assessments and not another school\'s');
+    await guardianReadsExactly('lesson_plans', ownPlanId, 'a linked guardian reads its class\'s lesson plans and not another school\'s');
+
+    /*
+     * READING A CHILD'S CALENDAR IS NOT THE SAME RIGHT AS WRITING TO IT.
+     *
+     * `calendar_events` was the one table in the measured map whose linked
+     * access already worked, and the reason is worth recording: its policy was
+     * written out separately from the `own rows` loop and carried the roster
+     * join already. The audit reported it as a zero because the seeded rows had
+     * no `student_id`, so the map recorded a data fact as if it were a policy
+     * fact. Which is why the assertion above was written to pass before any
+     * migration was applied - it did, and that is what exposed the error.
+     *
+     * What that policy ALSO did was grant `for all`, carrying the same roster
+     * join in `using` and in `with check`, while its own comment said the
+     * requirement was that the student "needs to see it". So a parent could
+     * edit and delete an entry the teacher had written about their child. That
+     * is now split into a select policy and three owner-only write policies.
+     *
+     * THREE ASSERTIONS, NOT ONE. The two refusals alone would also be satisfied
+     * by a policy that refuses everyone, which is why the counterweight at the
+     * end matters: the teacher who wrote the entry must still be able to remove
+     * it. Refusal that cannot be distinguished from breakage is not a policy.
+     *
+     * NOTE ON HOW A REFUSAL LOOKS OVER POSTGREST. A DELETE or PATCH whose filter
+     * matches nothing RLS-visible returns 200 with an empty body. It is not an
+     * error. So none of these assert on a status code; each one reads the row
+     * back afterwards and asserts on what is still there. Asserting on the
+     * status would pass even if the write had gone through.
+     */
+    const ownerToken = await signIn(`${STAMP}_owner_a@liko.test`, 'Settle-Test-2026');
+
+    const readBackTitle = async (eventId) => {
+      const res = await asUser(`calendar_events?id=eq.${eventId}&select=title`, ownerToken);
+      const rows = res.ok ? await res.json() : [];
+      return rows?.[0]?.title ?? null;
+    };
+
+    const originalTitle = `${STAMP} own event`;
+    const rewrittenTitle = `${STAMP} rewritten by a parent`;
+
+    await asUser(`calendar_events?id=eq.${ownEventId}`, guardianToken, {
+      method: 'PATCH',
+      headers: { Prefer: 'return=representation' },
+      body: JSON.stringify({ title: rewrittenTitle }),
+    });
+    const titleAfterEdit = await readBackTitle(ownEventId);
+    check(
+      'a linked guardian CANNOT edit a calendar entry its child\'s teacher wrote',
+      titleAfterEdit !== rewrittenTitle,
+      `the title after a parent's PATCH is ${JSON.stringify(titleAfterEdit)}. If it reads ` +
+        `${JSON.stringify(rewrittenTitle)} the 'for all' policy is still in force, and a parent can alter a ` +
+        "teacher's own record about their child.",
+    );
+
+    await asUser(`calendar_events?id=eq.${ownEventId}`, guardianToken, { method: 'DELETE' });
+    const titleAfterDelete = await readBackTitle(ownEventId);
+    check(
+      'a linked guardian CANNOT delete a calendar entry its child\'s teacher wrote',
+      titleAfterDelete !== null,
+      `the entry is gone after a parent's DELETE, so a parent can remove a teacher's record about their child. ` +
+        'A 200 from PostgREST here is not evidence that the delete was refused.',
+    );
+
+    // The counterweight. Created after the read assertions above so it cannot
+    // change the row counts they compare against.
+    const ownerOwnEventId = await insertRow('calendar_events', {
+      owner_id: ownerA,
+      student_id: null,
+      title: `${STAMP} teacher's own event`,
+      starts_at: '2026-03-06T09:00:00Z',
+      kind: 'event',
+      created_by_role: 'instructor',
+    });
+    await asUser(`calendar_events?id=eq.${ownerOwnEventId}`, ownerToken, { method: 'DELETE' });
+    const ownerTitleAfterDelete = await readBackTitle(ownerOwnEventId);
+    check(
+      'the teacher who wrote a calendar entry CAN still delete their own',
+      ownerTitleAfterDelete === null,
+      ownerTitleAfterDelete !== null
+        ? `the teacher still holds the entry after their own DELETE (${JSON.stringify(ownerTitleAfterDelete)}), ` +
+          'so the owner-only write policies refuse more than cross-owner writes and the calendar is broken for ' +
+          'the person who actually uses it.'
+        : 'removed by its owner, as it should be',
+    );
+
+    /*
      * The bell had no insert policy at all, which is why nothing could ever
      * appear in it. The policy now exists, and both halves of it are refusals
      * a student can attempt with the token this script already holds, so they

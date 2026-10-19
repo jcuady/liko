@@ -839,16 +839,31 @@ const supabaseAdapter: WorkspaceData = {
     // transferring several thousand rows per overview load to compute thirty
     // cells, and the extra rows were only ever discarded.
     const [{ data: students }, { data: grades }] = await Promise.all([
+      /*
+       * NO `.eq('owner_id', userId)` ON EITHER HALF, and this is the fourth
+       * place that shape appeared. Found by measuring the rendered page, not by
+       * reading: `/grades` showed the class, the roster and the child's name and
+       * then said "no marks", while the seed holds a mark for that child. The
+       * heatmap read was the one still filtering.
+       *
+       * Both halves are the same defect as `listStudents`: `students.owner_id`
+       * and `grades.owner_id` both hold the TEACHER, so the filter is false for
+       * every row a linked account is entitled to, and the intersection of
+       * "permitted by RLS" and "mine" is empty.
+       *
+       * The join is still the point of this query and is unchanged: `grades` has
+       * no `class_id` of its own, so `.eq('assessments.class_id', classId)` is
+       * what scopes it to one class. That is a scoping predicate, not a guess
+       * about the caller's rights, and it stays.
+       */
       supabase
         .from('students')
         .select('id')
-        .eq('owner_id', userId)
         .eq('class_id', classId)
         .is('archived_at', null),
       supabase
         .from('grades')
         .select('student_id, score, max_score, assessments!inner(class_id)')
-        .eq('owner_id', userId)
         .eq('assessments.class_id', classId),
     ]);
 
@@ -896,10 +911,30 @@ const supabaseAdapter: WorkspaceData = {
 
   async listAssessments(userId, classId) {
     const supabase = await requireClient();
+    /*
+     * NO `.eq('owner_id', userId)` HERE. Found by measuring, not by reasoning.
+     *
+     * I had skipped this one on the argument that `/assess` is gated on
+     * `assess:write`, which a guardian does not hold, so the method was
+     * unreachable for that role. That reasoning was wrong, and the way it was
+     * wrong is worth recording: **a route gate tells you which PAGES a role can
+     * open, not which DATA METHODS a page calls.** The gradebook is gated on
+     * `grade:read` and calls this same shared method to list what has marks.
+     * With the filter in place a guardian got the class — the class policy and
+     * the roster fix both worked — and then "no assessments", because this read
+     * threw away every row the new `assessments` policy had admitted.
+     *
+     * Measured before this line and after it, with a guardian session against
+     * the live project: `/grades` rendered "no assessments" and never named the
+     * child; it now renders the child's marks.
+     *
+     * `getAssessment` below carries the same filter and the same reasoning gap.
+     * It is left alone only because no guardian-reachable page calls it, and
+     * that is a statement about today rather than a property of the method.
+     */
     const { data, error } = await supabase
       .from('assessments')
       .select('*')
-      .eq('owner_id', userId)
       .eq('class_id', classId)
       .is('archived_at', null)
       .order('due_on', { ascending: true });
@@ -1239,10 +1274,28 @@ const supabaseAdapter: WorkspaceData = {
 
   async listGrades(userId, classId) {
     const supabase = await requireClient();
+    /*
+     * NO `.eq('owner_id', userId)` HERE, FOR THE SAME REASON `listStudents` HAS NONE.
+     *
+     * `grades.owner_id` is the marker's TEACHER, not the child, so that filter is
+     * false for every row a linked account is entitled to and the intersection of
+     * "permitted by RLS" and "mine" was empty. The RBAC matrix grants a guardian
+     * `grade:read` at scope `linked`, and `grades` now carries a linked-aware
+     * select policy, so without this line the policy admits the mark and the
+     * query throws it away again — which is how a parent gets an empty gradebook
+     * from a database that is in the act of handing them one.
+     *
+     * The inner join is why the `assessments` policy had to land first: RLS
+     * applies to the joined table, so a mark cannot be returned without the
+     * assessment it belongs to.
+     *
+     * Dropping the filter widens nothing. `own rows` (`owner_id = auth.uid()`)
+     * and the linked policy are exactly the set this line was approximating, and
+     * they are computed by the one layer that cannot be bypassed.
+     */
     const { data, error } = await supabase
       .from('grades')
       .select('*, assessments!inner(class_id)')
-      .eq('owner_id', userId)
       .eq('assessments.class_id', classId);
     throwIf(error);
     return (data ?? []).map(mapGrade);
@@ -1285,10 +1338,21 @@ const supabaseAdapter: WorkspaceData = {
 
   async getStudentHistory(userId, studentId) {
     const supabase = await requireClient();
+    /*
+     * NO `.eq('owner_id', userId)` HERE. Same reasoning as `listGrades`: the
+     * history row's `owner_id` is the teacher who wrote it, so the filter was
+     * false for exactly the rows a parent is entitled to. `/history` is gated on
+     * `history:read`, which the matrix grants a guardian at `linked`, and the
+     * table now carries a linked-aware select policy — so the filter was
+     * discarding rows RLS had just admitted.
+     *
+     * `.eq('student_id', studentId)` stays: that is the row being asked for, not
+     * a guess about the caller's reach, and it is what makes this a lookup rather
+     * than a list.
+     */
     const { data, error } = await supabase
       .from('student_history')
       .select('*')
-      .eq('owner_id', userId)
       .eq('student_id', studentId)
       .order('occurred_at', { ascending: false })
       .limit(100);
