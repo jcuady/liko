@@ -559,6 +559,55 @@ Instrument:
 | 3 | 1 | 231 passed, 0 failed (9.6 min) |
 | 4 | 1 | 230 passed, **1 failed** (11.6 min) |
 
+**Why the cause was never established, which is the useful part.** Playwright
+clears `test-results/` at the *start* of every run, so run 2's trace was deleted
+by run 3 and the only directory left standing belonged to a run that passed. The
+instrument was configured (`trace: 'retain-on-failure'`, `screenshot:
+'only-on-failure'`) and produced nothing, because its output was overwritten
+before anyone read it. `outputDir` is now stamped per run, so a failure from
+this morning is still on disk after this evening's run.
+
+**The mechanism, established by construction rather than by luck.** Radix
+`SelectItem` (`@radix-ui/react-select`, `dist/index.mjs`) does:
+
+```js
+const pointerTypeRef = React.useRef("touch");          // note: the string
+onPointerDown: pointerTypeRef.current = event.pointerType;
+onPointerUp:   if (pointerTypeRef.current === "mouse") handleSelect();
+```
+
+A mouse selection is gated on a `pointerdown` that reached **that item
+instance**, and the ref's initial value is `"touch"`, which rejects the
+pointerup. If the item's node is replaced between the two events the pointerup
+lands on a fresh instance, `handleSelect` never runs, `onOpenChange(false)`
+never runs, and the control stays open **indefinitely** rather than briefly.
+`e2e/helpers/select.spec.ts` now proves both halves directly: a bare `pointerup`
+leaves the control open on its old value, and the same pair in order selects and
+closes.
+
+**What is still not established** is that this caused the four runs above. It is
+a defence against a verified mechanism, not a fix for a confirmed cause, and it
+is recorded that way. The assertion is unchanged — the control must close — and
+`chooseOption` now waits a bounded 3s for the close before falling back to the
+keyboard, because the first version of that fallback tested `count()` synchronously
+and made the suite worse (231 passed became 224 passed / 4 failed with
+`locator.focus` timing out): Radix unmounts the listbox asynchronously, so a
+control that *was* closing still answered `count() === 1` in that instant.
+Both halves mutation-proved — with the click replaced by a bare pointerup the
+helper still passes via the fallback, and with the fallback disabled as well it
+fails with the original message.
+
+**A second, unrelated flake surfaced once the evidence survived**, which is the
+argument for having fixed the artefacts first. `landing.spec.ts` pressed Tab
+immediately after `page.goto('/')`, which resolves on `load` while the skip link
+is rendered client-side; on a loaded machine nothing was focused for the full 20s
+and `locator(':focus')` reported "element(s) not found". It now waits for the
+link to be attached before pressing the key that depends on it — a precondition,
+not a substitute for the assertion.
+
+Full suite after both fixes: **232 passed, 0 failed** (5.2 min), which is one
+more than before because the mechanism proof is a new test.
+
 Run 4 failed in `interactions.spec.ts:43` inside the shared `chooseOption` helper: `select stayed open after choosing an option`. The click landed on a visible option and the Radix listbox stayed mounted, so the helper's own close assertion timed out.
 
 **Do not believe either of the two explanations that were tried and discarded.** Rate limiting is excluded — `playwright.config.ts` sets both `LIKO_RATE_LIMIT_DISABLED` and `LIKO_E2E` deliberately. CPU contention was excluded by a reproduction attempt that stayed green. Parallelism is now excluded by runs 3 and 4 differing **at one worker**. What remains is an intermittent UI-interaction timing fault around a Radix select, whose cause is **not established**. That exact test, run six times in isolation, passed **6/6**, so the fault needs the full-suite context and is not a per-test defect. The next step is a trace captured on a failing *full* run, since that is the only way it has ever been reproduced.

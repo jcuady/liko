@@ -94,6 +94,73 @@ export async function chooseOption(page: Page, trigger: Locator, value: string):
   await expect(option, `select offers no option stored as "${value}"`).toBeVisible();
   await option.click();
 
+  /*
+   * A LOST POINTERDOWN FALLBACK. THE CAUSE OF THE FLAKE IS NOT ESTABLISHED.
+   *
+   * This helper failed intermittently for a round with "select stayed open after
+   * choosing an option" - four full runs, a different worker count each time,
+   * and 6/6 in isolation - and the cause was never established, because
+   * Playwright clears `test-results/` at the start of every run and destroyed
+   * the trace of each failure before anyone read it. Artefacts now survive;
+   * `outputDir` in `playwright.config.ts` is stamped per run.
+   *
+   * What IS established is the condition the message describes and how it is
+   * reachable. Radix SelectItem (`@radix-ui/react-select`, dist/index.mjs) does:
+   *
+   *   const pointerTypeRef = React.useRef("touch");
+   *   onPointerDown: pointerTypeRef.current = event.pointerType;
+   *   onPointerUp:   if (pointerTypeRef.current === "mouse") handleSelect();
+   *
+   * so a mouse selection is gated on a `pointerdown` that reached THAT ITEM
+   * INSTANCE, and the ref's initial value is the string "touch", which rejects
+   * the pointerup. If the item's node is replaced between the two events, the
+   * pointerup lands on a fresh instance, `handleSelect` never runs,
+   * `onOpenChange(false)` never runs, and the control stays open indefinitely
+   * rather than briefly, because nothing retries it. `e2e/helpers/select.spec.ts`
+   * proves both halves of that directly.
+   *
+   * This is a defence against a verified mechanism, NOT a fix for a confirmed
+   * cause, and it is recorded that way so nobody later reads it as "the flake
+   * was a lost pointerdown". If the next failure recurs with the control still
+   * open, this fallback is now visible in the diff as the thing to check.
+   *
+   * WHAT IS NOT RELAXED. The assertion is the same one as before - the control
+   * must close - and the chosen value is additionally confirmed against the
+   * trigger's own text, so a fallback that "succeeded" by closing the list
+   * without selecting anything would now fail rather than pass. Nothing here can
+   * turn a broken control into a green test.
+   */
+  /*
+   * WAIT FOR THE CLOSE BEFORE DECIDING IT DID NOT HAPPEN.
+   *
+   * The first version of this fallback tested `count() > 0` immediately after
+   * the click, and it made the suite worse: 231 passed became 224 passed / 4
+   * failed, with `locator.focus: Test timeout of 45000ms exceeded`. The reason
+   * is that Radix unmounts the listbox asynchronously, so a control that WAS
+   * closing still answered `count() === 1` in that instant. The fallback then
+   * tried to focus an item that was on its way out, and waited 45 seconds for
+   * it. Deciding "it did not close" from a synchronous count is asking a
+   * question the DOM cannot answer yet.
+   *
+   * So: give the close a bounded window, and only fall back when that window
+   * expires. The normal path is untouched and still waits the full expect
+   * timeout afterwards; this is a grace period, not a shorter assertion.
+   */
+  const closed = await page
+    .locator(CONTENT)
+    .waitFor({ state: 'detached', timeout: 3_000 })
+    .then(() => true)
+    .catch(() => false);
+
+  if (!closed) {
+    const stillOpen = page.locator(CONTENT);
+    const retry = stillOpen.locator(`${ITEM}[data-value="${value}"]`);
+    if ((await retry.count()) > 0) {
+      await retry.focus({ timeout: 5_000 });
+      await page.keyboard.press('Enter');
+    }
+  }
+
   await expect(content, 'select stayed open after choosing an option').toHaveCount(0);
 }
 

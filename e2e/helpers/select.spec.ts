@@ -72,4 +72,78 @@ test.describe('driving a Radix select', () => {
 
     expect(await chosenValue(page, scale)).toBe('percentage');
   });
+
+  /*
+   * WHY A POINTERUP ALONE CANNOT CHOOSE, PROVEN RATHER THAN ASSUMED.
+   *
+   * `chooseOption` has failed intermittently for a whole round with "select
+   * stayed open after choosing an option", four full runs, and the cause was
+   * never established because Playwright cleared `test-results/` at the start of
+   * every run and destroyed the trace before anyone read it.
+   *
+   * So the cause is established here instead, by construction. Reading the
+   * installed `@radix-ui/react-select` (dist/index.mjs, SelectItem) gives:
+   *
+   *   const pointerTypeRef = React.useRef("touch");
+   *   onPointerDown: pointerTypeRef.current = event.pointerType;
+   *   onPointerUp:   if (pointerTypeRef.current === "mouse") handleSelect();
+   *   onClick:       if (pointerTypeRef.current !== "mouse") handleSelect();
+   *
+   * Two consequences, and this test pins both:
+   *
+   *   1. A MOUSE SELECTION IS PRIMED BY `pointerdown`, ON THAT ITEM INSTANCE.
+   *      `pointerTypeRef` starts as the string "touch", so an item that never saw
+   *      a pointerdown rejects the pointerup and does not select. If the item's
+   *      DOM node is replaced between down and up, the pointerup lands on a
+   *      fresh instance whose ref is still "touch", `handleSelect` is never
+   *      called, `onOpenChange(false)` never runs, and the control stays open
+   *      indefinitely - not briefly, forever, because nothing retries it.
+   *
+   *   2. THE CONTROL SELECTS. Same two events in order, and it closes. So the
+   *      difference between the two halves is the ORDERING of a pair of events
+   *      and nothing else, which is what makes this a mechanism and not a
+   *      coincidence.
+   *
+   * This does NOT claim to be the cause of the four-run flake; that is still not
+   * established, and a plausible mechanism with evidence-shaped support is more
+   * dangerous than a guess because nobody re-derives it. What it establishes is
+   * that the exact condition the failure describes - open, item present, nothing
+   * selected - is reachable, and how it is reached.
+   */
+  test('a pointerup with no pointerdown behind it cannot choose, and the pair can', async ({ page }) => {
+    const scale = page.getByLabel('Show as');
+    const CONTENT = '[data-slot="select-content"]';
+    const TARGET = '[data-slot="select-item"][data-value="gwa"]';
+    const mouse = { pointerType: 'mouse', button: 0, isPrimary: true };
+
+    // ---- half one: the pointerup arrives with nothing to prime it ----------
+    const content = await openSelect(page, scale);
+    const target = content.locator(TARGET);
+    await expect(target).toBeVisible();
+
+    await target.dispatchEvent('pointerup', mouse);
+    await page.waitForTimeout(500);
+
+    await expect(
+      page.locator(CONTENT),
+      'a bare pointerup must not select, because nothing primed pointerTypeRef',
+    ).toHaveCount(1);
+    await expect(scale, 'and the control must still show its old value').toHaveText('Percentage');
+
+    await page.keyboard.press('Escape');
+    await expect(page.locator(CONTENT)).toHaveCount(0);
+
+    // ---- half two: the same pair, in order, does choose --------------------
+    const again = await openSelect(page, scale);
+    const retried = again.locator(TARGET);
+    await retried.dispatchEvent('pointerdown', mouse);
+    await retried.dispatchEvent('pointerup', mouse);
+    await page.waitForTimeout(500);
+
+    await expect(
+      page.locator(CONTENT),
+      'the ordered pair must select and close, or the first half proved nothing',
+    ).toHaveCount(0);
+    await expect(scale).toHaveText('GWA');
+  });
 });

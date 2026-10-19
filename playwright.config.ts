@@ -15,6 +15,23 @@ export default defineConfig({
   retries: process.env.CI ? 2 : 0,
   reporter: [['list']],
   /*
+   * A RUN-UNIQUE OUTPUT DIRECTORY, BECAUSE THE DEFAULT DESTROYS ITS OWN EVIDENCE.
+   *
+   * `trace: 'retain-on-failure'` and `screenshot: 'only-on-failure'` are
+   * configured below, and for four runs they produced nothing at all: Playwright
+   * clears `test-results/` at the START of every run, so the first run's trace
+   * was deleted by the second run and the last one standing was a pass. The
+   * flake therefore went uninvestigated for a whole round not because the
+   * evidence was missing but because it was overwritten before anybody read it.
+   *
+   * An instrument whose output is destroyed before it is read is not an
+   * instrument. Each run now gets its own directory, so a failure from this
+   * afternoon is still on disk after this evening's run. The stamp is taken
+   * once at config load, which is what makes it stable for the whole run rather
+   * than moving between workers.
+   */
+  outputDir: `test-results/run-${new Date().toISOString().replace(/[:.]/g, '-')}`,
+  /*
    * Sign-in costs roughly half a second because the password hash is deliberately
    * memory hard. With one worker per core, a run that signs in for every spec
    * stacks enough of those behind each other to blow the default 10s assertion

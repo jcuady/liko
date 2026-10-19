@@ -265,6 +265,29 @@ test.describe('landing page', () => {
 
   test('the skip link is the first focusable element', async ({ page }) => {
     await page.goto('/');
+
+    /*
+     * WAIT FOR THE LINK BEFORE PRESSING THE KEY THAT DEPENDS ON IT.
+     *
+     * This failed once with `locator(':focus')` reporting "element(s) not found"
+     * for the full 20s, after the artefacts stopped being thrown away. Nothing
+     * was focused at all, which is what a Tab pressed before the page had
+     * anything focusable looks like: `page.goto` resolves on `load`, and the
+     * skip link is rendered client-side, so the key can arrive in the gap.
+     *
+     * Pre-existing, and not introduced by anything else on this branch - no other
+     * change touches the landing page. It is fixed here rather than left to be
+     * rediscovered as an unexplained intermittent.
+     *
+     * WHAT THIS DOES NOT DO. It does not weaken the assertion. The point of the
+     * test is that ONE Tab lands on the skip link, and that is still what is
+     * asserted; waiting for the element to exist first is a precondition, not a
+     * substitute for the check. Waiting for the element to be FOCUSED instead
+     * would make it vacuous, which is why it is `toBeAttached` and not a focus
+     * assertion.
+     */
+    await expect(page.getByRole('link', { name: /skip to content/i })).toBeAttached();
+
     await page.keyboard.press('Tab');
 
     const focused = page.locator(':focus');
