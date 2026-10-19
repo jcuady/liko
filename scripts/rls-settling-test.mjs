@@ -816,6 +816,190 @@ async function main() {
     );
 
     /*
+     * THE ADMINISTRATOR'S BLIND SPOT, ASSERTED.
+     *
+     * The owner was asked, in round seventeen of the audit, whether an
+     * administrator may read a child's school record, and chose to keep the
+     * surface narrow: an administrator manages people, classes, invites, seats
+     * and the organisation's own settings, while a child's guardian contact,
+     * attendance, behaviour notes and grades are the teacher's and the family's
+     * business.
+     *
+     * The database already behaved that way. `classes` carries an "admin reads
+     * classes" policy, `memberships` and `profiles` carry admin policies, and
+     * `students` carries none: it admits the class owner through `owner_id` and
+     * the linked family through `account_id`, and nobody else.
+     *
+     * WHICH MEANS THE BOUNDARY WAS NOT ENFORCED BY ANY CHECK. It was enforced
+     * by the ABSENCE of a policy, and an absence is invisible to every gate in
+     * this repository. The obvious future edit, "admins should be able to see
+     * the roster", would have gone green everywhere, and the comment in the
+     * migration warning against it is a comment, not a gate. A decision about
+     * children's data that is only written down is one edit away from being
+     * undone.
+     *
+     * So it is asserted here.
+     *
+     * THE POSITIVE CONTROL COMES FIRST, AND IT IS NOT OPTIONAL. A seat that can
+     * read nothing at all would also "pass" a refusal assertion, and the
+     * failure would be silent. The administrator below must demonstrably read
+     * the organisation's classes and members, so that the refusal that follows
+     * is known to be about the children and not about a broken token.
+     */
+    console.log('\nAdministrator: manages the school, not the children');
+
+    const adminId = await createUser(`${STAMP}_admin@liko.test`, 'Settle-Test-2026', 'admin');
+    created.users.push(adminId);
+
+    const adminProfile = await admin(`profiles?id=eq.${adminId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ org_id: created.orgs[0], role: 'admin' }),
+    });
+    if (!adminProfile.ok) throw new Error(`admin profile: ${await adminProfile.text()}`);
+
+    /*
+     * The membership row, not just the profile role. `is_org_admin` and
+     * `is_admin_sharing_org_with` both resolve through `memberships`, and the
+     * migration says so in as many words: a tenancy check built on
+     * `profiles.org_id` would match nothing. A fixture that set only the profile
+     * would produce an administrator with no organisation, who reads nothing,
+     * and every refusal assertion below would pass for the wrong reason.
+     */
+    const adminMembership = await admin('memberships', {
+      method: 'POST',
+      body: JSON.stringify({
+        user_id: adminId,
+        org_id: created.orgs[0],
+        role: 'admin',
+        status: 'active',
+      }),
+    });
+    if (!adminMembership.ok) throw new Error(`admin membership: ${await adminMembership.text()}`);
+
+    const adminToken = await signIn(`${STAMP}_admin@liko.test`, 'Settle-Test-2026');
+
+    const adminClasses = await asUser('classes?select=id', adminToken);
+    const adminClassRows = adminClasses.ok ? await adminClasses.json() : [];
+    const adminSawItsClass =
+      Array.isArray(adminClassRows) && adminClassRows.some((row) => row.id === classA);
+
+    check(
+      'an administrator CAN read the classes of its own organisation',
+      adminSawItsClass,
+      adminClasses.ok
+        ? `the administrator read ${adminClassRows.length} class row(s)` +
+            `${adminSawItsClass ? '' : `, and classA (${classA}) was not among them. `}` +
+            'A refusal assertion below means nothing unless this one passes first: a seat that can read nothing at all ' +
+            'would also pass a "cannot read a child" check, and the failure would be silent.'
+        : `the read was refused with ${adminClasses.status}: ${(await adminClasses.text()).slice(0, 160)}`,
+    );
+
+    const adminMembers = await asUser('memberships?select=user_id', adminToken);
+    const adminMemberRows = adminMembers.ok ? await adminMembers.json() : [];
+    check(
+      'an administrator CAN read the members of its own organisation',
+      Array.isArray(adminMemberRows) && adminMemberRows.length > 0,
+      adminMembers.ok
+        ? `the administrator read ${adminMemberRows.length} membership row(s)`
+        : `the read was refused with ${adminMembers.status}: ${(await adminMembers.text()).slice(0, 160)}`,
+    );
+
+    /*
+     * THE DECISIVE ONE. The roster is not empty: this fixture has created
+     * several student rows by now, in classes the administrator can see, so
+     * "the administrator read no rows" is a statement about the policy and not
+     * about an empty table.
+     *
+     * AND IT IS NOT A TAUTOLOGY, BECAUSE THIS VERY RUN PROVES IT. Two sections
+     * above, a guardian whose seat is linked through `account_id` read exactly
+     * one student row from this same table, by this same code, with this same
+     * service. So the query is live, the policies do admit a seat that they
+     * admit, and the difference between that seat and the administrator is the
+     * linkage and nothing else. An assertion that said "the administrator read
+     * no rows" against a table that always returns no rows would be
+     * indistinguishable from this one, so the guardian's single row is what
+     * gives this check its meaning.
+     */
+    const adminRoster = await asUser('students?select=id,full_name', adminToken);
+    const adminRosterRows = adminRoster.ok ? await adminRoster.json() : [];
+    const adminSawAnyChild = Array.isArray(adminRosterRows) && adminRosterRows.length > 0;
+
+    check(
+      'an administrator CANNOT read a child record',
+      !adminSawAnyChild,
+      adminSawAnyChild
+        ? `the administrator read ${adminRosterRows.length} student row(s), including one it should not have: ` +
+            `${JSON.stringify(adminRosterRows).slice(0, 200)}. The students policy admits the class owner through ` +
+            'owner_id and the linked family through account_id, and nobody else. Widening it to an org admin is a ' +
+            'decision that has to be made on purpose, with a migration, a settling test and a new assertion, and the ' +
+            'owner has already answered it: keep the surface narrow.'
+        : `the administrator read ${Array.isArray(adminRosterRows) ? adminRosterRows.length : '?'} student row(s), ` +
+            'none of them a child, while the classes and members above were readable and the linked guardian in ' +
+            'this same run read exactly one. The roster rows it could not reach include the student it created ' +
+            `(${rosterId}) and the other teacher's (${otherRosterId}).`,
+    );
+
+    /*
+     * THE PROOF THAT THE REFUSAL ABOVE MEANS SOMETHING.
+     *
+     * The check above says the administrator read no child record. A check like
+     * that is worth nothing if the read would have been empty anyway, and there
+     * is no way to tell from the output alone. So the fixture proves it, by
+     * moving the one thing that decides the answer.
+     *
+     * The `students` policy admits a seat through `account_id`. This links the
+     * child to the administrator's seat for a moment, reads the same table with
+     * the same token, and then puts the link back. If the administrator can
+     * suddenly see the child, then the refusal was the POLICY and not a broken
+     * query, a stale token or an empty table.
+     *
+     * THE SERVICE KEY IS USED TO MOVE THE LINK, AND THAT IS ALLOWED ON PURPOSE.
+     * The `protect_student_account_link` trigger fires only when `auth.uid()`
+     * is not null, so the service role writes straight through it. The row is
+     * one this script created and is deleted with its class in the cleanup
+     * below, and the link is restored in a `finally` so a failed probe cannot
+     * leave the fixture in a strange state.
+     */
+    const originalLink = await admin(`students?select=account_id&id=eq.${rosterId}`);
+    const originalAccountId = originalLink.ok
+      ? ((await originalLink.json())?.[0]?.account_id ?? null)
+      : undefined;
+    if (originalAccountId === undefined) {
+      throw new Error('could not read back the student link to restore it');
+    }
+
+    let probeSawTheChild = 0;
+    try {
+      const relink = await admin(`students?id=eq.${rosterId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ account_id: adminId }),
+      });
+      if (!relink.ok) throw new Error(`relink: ${await relink.text()}`);
+
+      const probe = await asUser('students?select=id', adminToken);
+      const probeRows = probe.ok ? await probe.json() : [];
+      probeSawTheChild = Array.isArray(probeRows)
+        ? probeRows.filter((row) => row.id === rosterId).length
+        : 0;
+    } finally {
+      await admin(`students?id=eq.${rosterId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ account_id: originalAccountId }),
+      });
+    }
+
+    check(
+      'the administrator refusal is load-bearing: a seat linked to the child CAN read it',
+      probeSawTheChild === 1,
+      probeSawTheChild === 1
+        ? 'the same administrator token, the same query and the same policies read the child the moment the seat was ' +
+            'linked, and lost it again when the link was put back. The refusal above is a policy outcome and not a ' +
+            'broken query, a stale token or an empty table.'
+        : `after linking the child to the administrator, the administrator still read ${probeSawTheChild} row(s) for ` +
+            'it. The check above would then have been insensitive, and its PASS would have meant nothing.',
+    );
+
+    /*
      * The bell had no insert policy at all, which is why nothing could ever
      * appear in it. The policy now exists, and both halves of it are refusals
      * a student can attempt with the token this script already holds, so they

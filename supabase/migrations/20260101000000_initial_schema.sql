@@ -254,6 +254,28 @@ drop policy if exists "linked reads own student row" on public.students;
 create policy "linked reads own student row" on public.students
   for select using (account_id = auth.uid());
 
+--
+-- AND WHO IS DELIBERATELY NOT ON THIS TABLE. An administrator, the
+-- `org:manage` role, does NOT read a child's school record. It is not a
+-- teacher, so the owner policy does not admit it, and it is not the family, so
+-- the policy above does not either.
+--
+-- That is a decision, not an oversight. The owner was asked, in round
+-- seventeen of the audit, and chose to keep the surface narrow: an
+-- administrator manages people, classes, invites, seats and the organisation's
+-- own settings, while a child's guardian contact, attendance, behaviour notes
+-- and grades are the teacher's and the family's business.
+--
+-- The admin console is honest about it. It never asks for a roster, so the
+-- page renders without an error and without a promise it cannot keep.
+--
+-- DO NOT "FIX" THIS BY WIDENING THE POLICY. If a school needs administrator
+-- visibility over a roster, that is a deliberate change with a migration, a
+-- settling test and a new assertion, not a one-line edit here. The reason to
+-- write it down is that this boundary looks like an oversight to anyone who
+-- has not read the decision, and the obvious "fix" would silently widen
+-- access to children's data.
+
 -- The link itself is not self-editable.
 --
 -- WHAT IS ACTUALLY ENFORCING THIS. The primary boundary is the policy above.

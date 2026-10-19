@@ -31,6 +31,7 @@ inheriting a word from an earlier round.
 | **Deployed to production** | **PASS** | Production serves the tip of `main`, deployed by the Vercel Git integration, so **a push to `main` is a production deploy**. Read from the deployment's own build log, not inferred: `4d8dfce` at 13:05 UTC, compiled successfully, 49 of 49 static pages, status Ready. Recording the sha actually read, because a pinned sha goes stale on the next push by anyone. | round seventeen |
 | **Per-role sweep of the deployed site** | **PASS** | Guardian probe against production, 5 of 5. `/grades` and `/history` each name the child the seat is linked to. | round eleven |
 | **Guardian read path in production** | **PASS** | Closed. The linked-read policies are applied and the code no longer discards what they admit. Round nine's FAIL is not carried forward. | round eleven |
+| **RLS settling test against production Postgres** | **PASS** | `pnpm db:settle`, **29 passed, 0 failed**, against the live database: self-promotion to admin, cross-tenant reads, the server-owned student link, the guardian's linked scope in both directions, and the administrator's narrow scope. The administrator's refusal is proved load-bearing rather than argued: the test links the child to the seat, sees it appear, and puts the link back. | round seventeen |
 | SQL parse + cross-refs | **PASS** | 273 statements, 28 tables, RLS on all 28, **52 policies** re-runnable (49 in public, 3 on storage). Statements and policies are not the same count: one `foreach` statement creates twelve policies | `dc6d752` |
 | **Migration applied to production** | **PASS** | All 28 tables present, measured before and after | `fe01de2` |
 | Dead handlers / `href="#"` / TODO / `console.*` | **PASS, not re-measured this round** | ripgrep, no matches | earlier round |
@@ -2580,10 +2581,67 @@ component that imports an action and renders nothing is invisible to this
 gate, and an action nobody imports is invisible to that one. Together they
 close the path from a data mutation to the control that triggers it.
 
-### Still open
+### Two decisions, both now settled
 
-The two decisions remain the owner's: whether an administrator may read a
-child's roster, and whether to ship store buttons with no app behind them.
+**An administrator does not read a child's school record.** The owner was
+asked and chose to keep the surface narrow. An administrator manages people,
+classes, invites, seats and the organisation's own settings; a child's
+guardian contact, attendance, behaviour notes and grades are the teacher's and
+the family's business.
+
+The product already behaved this way, so the decision changed no product code.
+What it changed is the enforcement, and that turned out to be the real gap.
+
+**The boundary was held by the ABSENCE of a policy.** `students` admits the
+class owner through `owner_id` and the linked family through `account_id`, and
+no other seat. `classes`, `memberships` and `profiles` each carry an admin
+policy, so an administrator manages people and classes and nothing else.
+
+An absence is invisible to every gate in this repository. The obvious future
+edit, "admins should be able to see the roster", would have gone green
+everywhere, and the comment in the migration warning against it is a comment,
+not a gate. A decision about children's data that is only written down is one
+edit away from being undone.
+
+So it is now asserted. `pnpm db:settle` reads **29 passed, 0 failed**, four
+of them new:
+
+    PASS  an administrator CAN read the classes of its own organisation
+    PASS  an administrator CAN read the members of its own organisation
+    PASS  an administrator CANNOT read a child record
+    PASS  the administrator refusal is load-bearing: a seat linked to the
+          child CAN read it
+
+**THE POSITIVE CONTROL COMES FIRST, AND IT IS NOT OPTIONAL.** A seat that can
+read nothing at all would also pass a refusal assertion, and the failure
+would be silent. The administrator must demonstrably read the organisation's
+classes and members first, so the refusal that follows is known to be about
+the children and not about a broken token.
+
+**AND THE REFUSAL IS PROVEN LOAD-BEARING, NOT ARGUED.** The check links the
+child to the administrator's seat for a moment, reads the same table with the
+same token, and puts the link back. The administrator can see the child the
+instant the seat is linked and loses it the instant the link is removed. So
+the refusal is a policy outcome and not a broken query, a stale token or an
+empty table. The link is moved with the service key, which the
+`protect_student_account_link` trigger permits on purpose, and the row is one
+the test creates and deletes.
+
+The migration comment now names the decision as well, because to anyone who
+has not read it the boundary looks exactly like an oversight and the obvious
+"fix" would silently widen access to children's data.
+
+**There are no App Store or Google Play buttons.** The brand prototype
+promised two native apps and a caption saying they were coming soon. LIKO has
+neither app and no commitment to either, and a promise like that is the first
+thing a school procurement officer checks. The landing page says what is
+actually true instead: LIKO installs to the home screen and keeps working
+offline, the install button appears only when the browser actually offers
+one, and the fallback is the manual two step. The manifest ships three real
+shortcuts. Zero store URLs exist in the repository, which is the check, not an
+assertion.
+
+### Still open
 
 One thing is blocked on the tooling rather than on a decision. The detached
 verification worktree at `312da33` has been reduced to what the recoverable
