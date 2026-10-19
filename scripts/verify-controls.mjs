@@ -47,6 +47,19 @@ const ROOT = 'src';
 const HANDLERS = ['onClick', 'onPointerDown', 'onMouseDown', 'onDoubleClick', 'onKeyDown'];
 
 /**
+ * The tags that become a pressable thing.
+ *
+ * `<Button>` MATTERS MORE THAN `<button>`. The first version of this gate
+ * matched the lowercase tag only and found 24 controls across 144 files, which
+ * is not credible for a dashboard: almost every control in the product is the
+ * shadcn `<Button>` wrapper, and that wrapper is a capital-B component the
+ * lowercase match could not see. A gate that quietly examines a twentieth of
+ * the surface and reports zero is worse than no gate, because it looks like
+ * coverage.
+ */
+const CONTROL_TAGS = new Set(['button', 'Button']);
+
+/**
  * Parents that hand their child a handler.
  *
  * Radix's `asChild` merges its own props into the child through cloneElement, so
@@ -54,8 +67,26 @@ const HANDLERS = ['onClick', 'onPointerDown', 'onMouseDown', 'onDoubleClick', 'o
  * version of this script checked `asChild` on the button, found exactly one
  * candidate in the whole repository, and it was this pattern on the schedule's
  * "Add a class" control: working code, reported as dead.
+ *
+ * THE LIST IS MEASURED, NOT GUESSED. Every `<X asChild>` in `src` was counted,
+ * and `Button` is deliberately absent from it. Radix's trigger and close
+ * primitives merge props; shadcn's `Button asChild` only swaps which element is
+ * rendered, so a button wrapped in one is genuinely unwired.
+ *
+ *   DialogTrigger 13   DropdownMenuItem 3   DropdownMenuTrigger 2
+ *   SheetTrigger 1     DialogClose 1        Button 11 (excluded, see above)
+ *
+ * A wrapper not on this list that merges props will be reported as dead. That
+ * is the safe direction to be wrong in: a false positive here costs one line
+ * of review, and a false negative ships a control that cannot be pressed.
  */
-const INJECTING_PARENTS = ['DialogTrigger', 'DropdownMenuTrigger', 'TooltipTrigger', 'PopoverTrigger'];
+const INJECTING_PARENTS = [
+  'DialogTrigger',
+  'DialogClose',
+  'SheetTrigger',
+  'DropdownMenuTrigger',
+  'DropdownMenuItem',
+];
 
 function tsxFiles(dir) {
   const found = [];
@@ -68,8 +99,11 @@ function tsxFiles(dir) {
 }
 
 const findings = { unwired: [], inert: [], unexamined: [] };
+let filesVisited = 0;
+let buttonsSeen = 0;
 
 for (const file of tsxFiles(ROOT)) {
+  filesVisited += 1;
   const text = readFileSync(file, 'utf8');
   const source = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
   const where = relative('.', file);
@@ -78,7 +112,8 @@ for (const file of tsxFiles(ROOT)) {
     const opening =
       ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node) ? node : null;
 
-    if (opening && opening.tagName?.getText() === 'button') {
+    if (opening && CONTROL_TAGS.has(opening.tagName?.getText() ?? '')) {
+      buttonsSeen += 1;
       const attrs = new Map();
       opening.attributes.properties.forEach((prop) => {
         if (ts.isJsxAttribute(prop)) attrs.set(prop.name.getText(), prop.initializer?.getText() ?? '');
@@ -95,13 +130,17 @@ for (const file of tsxFiles(ROOT)) {
       );
       const hasHandler = HANDLERS.some((name) => attrs.has(name));
       const asChild = attrs.has('asChild') || injected;
-      const disabled = attrs.get('disabled');
+      /*
+       * A bare `disabled` carries no initializer text, so reading it as a
+       * string gives ''. Both shapes mean the same thing and are recorded the
+       * same way, which is what stopped a deliberately inert button being
+       * reported as a dead one.
+       */
+      const disabled = attrs.has('disabled') ? (attrs.get('disabled') || 'true') : '';
 
       if (spread) findings.unexamined.push(at);
       else if (!hasHandler && attrs.get('type') !== '"submit"' && !asChild) {
-        // A bare `disabled` has no initializer text, and lands here too, which
-        // is deliberate: it is still a button with nothing behind it.
-        if (disabled && disabled !== 'true') findings.inert.push(`${at}  disabled=${disabled.slice(0, 50)}`);
+        if (disabled) findings.inert.push(`${at}  disabled=${String(disabled).slice(0, 46)}`);
         else findings.unwired.push(at);
       }
     }
@@ -121,17 +160,50 @@ for (const file of tsxFiles(ROOT)) {
   visit(source, false);
 }
 
-const all = [...findings.unwired, ...findings.inert, ...findings.unexamined];
+const blocking = [...findings.unwired, ...findings.unexamined];
 
-if (all.length === 0) {
-  console.log(`ok    every button under ${ROOT} has something attached to it`);
-  console.log(`      ${findings.unwired.length} unwired, ${findings.inert.length} inert, ${findings.unexamined.length} unexamined`);
+/*
+ * A SCAN THAT FOUND NOTHING HAS TO PROVE IT FOUND SOMETHING.
+ *
+ * Without this, a gate that read zero files prints the same line as a gate that
+ * read all of them, and the two are indistinguishable to whoever reads the log.
+ * The corpus size is printed on success and an empty corpus is a failure, not a
+ * pass. Raised independently by a second pass over this script, which is the
+ * correct kind of review and is the reason this floor is here at all.
+ */
+if (filesVisited === 0 || buttonsSeen === 0) {
+  console.error(`FAIL  read ${filesVisited} file(s) and found ${buttonsSeen} controls.`);
+  console.error('      A scan that examined nothing has proved nothing. Check the ROOT path');
+  console.error('      and that it still points at a tree with controls in it.');
+  process.exit(1);
+}
+
+/*
+ * INERT IS REPORTED AND DOES NOT FAIL.
+ *
+ * A disabled control is sometimes exactly right: the theme toggle reads
+ * "Following system" and explains that storing a choice needs storage the
+ * teacher declined, and that button is correct. Making the gate red for it
+ * would be a gate that fails on correct code, which is the failure mode this
+ * project keeps meeting. So it is printed, loudly, and left for a reader.
+ */
+if (findings.inert.length > 0) {
+  console.log(`note  ${findings.inert.length} deliberately disabled control(s):`);
+  for (const line of findings.inert) console.log(`        ${line}`);
+}
+
+if (blocking.length === 0) {
+  console.log(
+    `ok    every control under ${ROOT} has something attached to it ` +
+      `(${buttonsSeen} controls in ${filesVisited} files)`,
+  );
+  console.log(`      0 unwired, 0 unexamined, ${findings.inert.length} inert`);
   process.exit(0);
 }
 
-console.error(`FAIL  ${all.length} control(s) with nothing behind them\n`);
+console.error(`FAIL  ${blocking.length} control(s) with nothing behind them`);
+console.error(`      scanned ${buttonsSeen} controls in ${filesVisited} files\n`);
 for (const line of findings.unwired) console.error(`  no handler        ${line}`);
-for (const line of findings.inert) console.error(`  inert             ${line}`);
 for (const line of findings.unexamined) console.error(`  unexamined spread ${line}`);
 console.error('\nA control in this list cannot be pressed into doing anything.');
 process.exit(1);
