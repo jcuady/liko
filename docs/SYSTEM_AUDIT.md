@@ -25,7 +25,7 @@ inheriting a word from an earlier round.
 | Lint | **PASS** | `pnpm lint`, exit 0 | round twelve |
 | Unit tests | **PASS** | `537 passed, 2 skipped`, measured in a detached worktree at `312da33` so the figure is that commit's and not the shared tree's. The commit after it changed only a client component with no unit test. | round twelve |
 | e2e | **PASS** | `241 passed (4.8m)` at `9604440`, the whole suite, exit 0. Up from `232` at `fe01de2`: eight of these are the new attendance note spec. | round twelve |
-| **Full gate** | **19 pass, 1 blocked, 0 fail, 0 error** | `pnpm gates` at `498362b`, recorded in `docs/evidence/gates.json`. Nineteen registered gates; `verify:links` and `verify:filters` are among them. The single non-pass is `probe:ai`, blocked on the provider answering `HTTP 503 ... high demand`. A blocked gate is not a pass. | round fourteen |
+| **Full gate** | **21 pass, 0 blocked, 0 fail, 0 error** | `pnpm gates` at `371eeca`, recorded in `docs/evidence/gates.json`, with the build recorded as served and unchanged across the run. Twenty-one registered gates. One caveat is stated below rather than left out: **the e2e gate flaked on the previous run of the same commit.** | round fifteen |
 | **Live app against Postgres** | **PASS** | `verify:app`, **57 passed, 0 failed**, run against the **deployed production site**, not only a local build. All five accounts, every entitled route, refusals, a real attendance write, cron, push, gradebook export scope, and no page errors. Run at `09ebf10`; the only commit deployed afterwards is `20819c0`, documentation only, so the measurement still describes the running system. That second half is a claim about the diff, not a second run. | round eleven |
 | **Deployed to production** | **PASS** | Production serves the tip of `main`, deployed by the Vercel Git integration, so **a push to `main` is a production deploy**. Read from the deployment's own build log twice this round: `09ebf10` at 06:15 UTC and `20819c0` at 06:42 UTC. Recording both rather than the latest, because a pinned sha goes stale on the next push by anyone. | round eleven |
 | **Per-role sweep of the deployed site** | **PASS** | Guardian probe against production, 5 of 5. `/grades` and `/history` each name the child the seat is linked to. | round eleven |
@@ -2356,6 +2356,34 @@ All three are correct. `Input` takes `className` and `type`, `Textarea` takes
 `className` and `rows`, `Checkbox` takes `className` and `invalid`, and each
 spreads the remainder onto its native element. Consent, which is the reason the
 checkbox is a real `<input name>` at all, keeps working.
+
+### Two runs of the same commit, one red and one green
+
+At `371eeca` the suite was run twice within twelve minutes:
+
+| run | summary | e2e |
+| --- | --- | --- |
+| 11:34:50 | 20 pass, 0 blocked, **1 fail** | 221 passed, 5.3m |
+| 11:46:28 | **21 pass, 0 blocked, 0 fail, 0 error** | exit 0 |
+
+Twenty tests did not report on the first run. Nothing in the product changed
+between the two, and the build was recorded as served and unchanged in both.
+
+Two agents ran suites in one checkout at that time, which is the most likely
+cause: each run rebuilds `.next` and starts a server, and two of those
+interleaving is exactly the arrangement that has already taken down a run in
+this project once. The recording now says so itself, because it captures the
+tree and the build rather than only the commit.
+
+**A flake is neither a pass nor a failure, and it is not a pass that happened to
+be lucky.** Both rows are kept above rather than the red one deleted, because a
+suite that has flaked and a suite that has never flaked are different products,
+and only the history shows which one this is.
+
+The honest reading of the green row is therefore: *everything passes, and the
+e2e gate has demonstrated at least once that it does not always.* Until the flake
+is understood, the twenty missing tests are an open question rather than a
+settled one.
 
 ### Still open
 
