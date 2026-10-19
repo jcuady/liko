@@ -123,10 +123,12 @@ const GATES = [
   { id: 'probe:shape', script: 'probe:shape' },
   { id: 'probe:guardian', script: 'probe:guardian', server: true, env: { LIKO_VERIFY_BASE_URL: () => `http://127.0.0.1:${SERVER_PORT}` } },
   { id: 'verify:app', script: 'verify:app', server: true, env: { LIKO_VERIFY_BASE_URL: () => `http://127.0.0.1:${SERVER_PORT}` } },
+  { id: 'verify:saas', script: 'verify:saas', live: true },
   { id: 'db:check', script: 'db:check' },
   { id: 'db:settle', script: 'db:settle' },
   { id: 'probe:files', script: 'probe:files' },
   { id: 'verify:controls', script: 'verify:controls' },
+  { id: 'verify:links', script: 'verify:links' },
   { id: 'verify:filters', script: 'verify:filters' },
   { id: 'probe:ai', script: 'probe:ai', live: true },
 ];
@@ -155,8 +157,16 @@ const BLOCKED = new Set(['probe:ai']);
  * cookie is `Secure`, so the check's own request was leaving anonymous and the
  * sign-in page was being read as a refusal. An exclusion is not a decision, it is
  * a debt, and a debt whose stated reason is wrong is worse than the red gate it
- * was hiding. Fixed, mutation-proved, and registered. The rest genuinely cannot
- * run here: they need a deployed site, or they write to one.
+ * was hiding. Fixed, mutation-proved, and registered.
+ *
+ * The same happened to `verify:saas`, whose reason read "needs a deployment
+ * rather than a checkout" — true only while there is nothing deployed. There is
+ * a deployment, the gate answers **28 passed / 0 failed** against it, and the
+ * reason had been quietly wrong the whole time. **Read the reason before
+ * trusting the absence**: an exclusion whose justification has expired is not a
+ * decision, it is a stale note that reads like one.
+ *
+ * What remains genuinely cannot run here: they write to the live project.
  *
  * So the remaining omissions are declared with a reason, and a script that is
  * neither registered nor listed here FAILS the recorder. That is the part that
@@ -170,7 +180,6 @@ const EXCLUDED = {
     'writes to the live project: it calls the security definer redeem_org_invite and cleans up after itself',
   'probe:gemini': 'a pre-flight provider diagnostic that overlaps probe:ai, which the recorder does run',
   'probe:ai:check': 'not a measurement: it replays the cache probe:ai has just written, and probe:ai already reports the result',
-  'verify:saas': 'live HTTP against the deployed site, which needs a deployment rather than a checkout',
   'db:apply': 'an operation, not a measurement: it writes the migration',
 };
 
