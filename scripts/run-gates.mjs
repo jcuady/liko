@@ -24,7 +24,7 @@
  * Optional: node scripts/run-gates.mjs --only lint,unit   to run a subset.
  */
 
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
@@ -117,6 +117,8 @@ const GATES = [
   { id: 'check:redaction', script: 'check:redaction' },
   { id: 'check:primitives', script: 'check:primitives' },
   { id: 'e2e', script: 'e2e' },
+  { id: 'check:responsive', script: 'check:responsive', server: true },
+  { id: 'check:behaviour', script: 'check:behaviour', server: true },
   { id: 'db:check', script: 'db:check' },
   { id: 'db:settle', script: 'db:settle' },
   { id: 'probe:files', script: 'probe:files' },
@@ -134,13 +136,17 @@ const BLOCKED = new Set(['probe:ai']);
  * Every gate-shaped script in package.json is either in GATES or listed here.
  *
  * WHY THIS EXISTS. The recorder reported "11 pass" while six further scripts
- * named `check:*`, `probe:*`, `verify:*` and `db:*` sat outside it. Two of them
- * are layout and no-JS behaviour gates that pass, and because nothing ran them
- * automatically their rows in PROJECT_STATUS.md sat at "not re-run 2026-10-17"
- * while everything beside them was re-verified. A recorder that says "11 pass"
- * reads as "everything passed", and it is not saying that.
+ * named `check:*`, `probe:*`, `verify:*` and `db:*` sat outside it. A recorder
+ * that says "N pass" reads as "everything passed", and it is not saying that.
  *
- * So the omissions are declared rather than left implicit, and a script that is
+ * Declaring the omissions was the first half. The second half was to remove two
+ * of them: `check:responsive` and `check:behaviour` need a server, and nothing
+ * was wrong with serving one — see `ensureServer`. They were documented rather
+ * than registered only because starting a server here was the job nobody had
+ * done. The rest genuinely cannot run here: they need a live project, a
+ * deployed site, or they write to one.
+ *
+ * So the remaining omissions are declared with a reason, and a script that is
  * neither registered nor listed here FAILS the recorder. That is the part that
  * matters: it is not enough to write down today's omissions, because the next
  * person to add a gate would otherwise widen the gap silently.
@@ -148,9 +154,6 @@ const BLOCKED = new Set(['probe:ai']);
  * Each reason below was read out of the script it names, not assumed.
  */
 const EXCLUDED = {
-  'check:responsive':
-    'needs a server on 3311 serving this checkout: pnpm build && pnpm start --port 3311',
-  'check:behaviour': 'needs the same server on 3311 as check:responsive',
   'probe:seats':
     'writes to the live project: it calls the security definer redeem_org_invite and cleans up after itself',
   'probe:shape':
@@ -182,13 +185,14 @@ function unaccountedGates() {
 const IS_WIN = process.platform === 'win32';
 
 /** A shell is used only where a batch shim makes one unavoidable. */
-function invoke(exe, args, { timeout, viaCmd }) {
+function invoke(exe, args, { timeout, viaCmd, env }) {
   const shared = {
     cwd: ROOT,
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe'],
     timeout,
     maxBuffer: 32 * 1024 * 1024,
+    ...(env ? { env } : {}),
   };
 
   if (!IS_WIN || !viaCmd) return execFileSync(exe, args, shared);
@@ -200,6 +204,125 @@ function tail(text) {
   const lines = redact(text).split(/\r?\n/).filter((l) => l.trim().length > 0);
   return lines.slice(-TAIL_LINES);
 }
+
+/*
+ * A PRODUCTION SERVER FOR THE GATES THAT MEASURE RENDERED PAGES.
+ *
+ * `check:responsive` and `check:behaviour` open real pages in a real browser, so
+ * they need a server serving THIS checkout. Excluding them was honest but it
+ * cost coverage: they ran only when somebody remembered, and their rows in
+ * PROJECT_STATUS.md sat at "not re-run 2026-10-17" while every row beside them
+ * was re-measured. So the recorder starts one and these become ordinary gates.
+ *
+ * THE PORT IS DELIBERATELY NOT 3311. That is where `playwright.config.ts` puts
+ * its own server, and a `pnpm start` left behind on 3311 by one of these very
+ * checks is what made a later e2e run adopt a stale process and collapse
+ * mid-suite. Distinct ports mean the two can never meet.
+ *
+ * One server serves both gates and is torn down when the run ends. `describeTarget`
+ * still has the last word: it compares the served build id against
+ * `.next/BUILD_ID` and fails rather than grading a stale process, so starting a
+ * server here cannot quietly reintroduce the bug it prevents.
+ */
+const SERVER_PORT = 3317;
+
+let server = null;
+
+function serverEnv() {
+  return { ...process.env, PORT: String(SERVER_PORT) };
+}
+
+/** Start the server and wait for it to answer, without throwing. */
+function ensureServer() {
+  if (server) return { ok: true };
+
+  const buildId = join(ROOT, '.next', 'BUILD_ID');
+  if (!existsSync(buildId)) {
+    return {
+      ok: false,
+      reason:
+        'no .next/BUILD_ID in this checkout, so the rendered-page gates have nothing to ' +
+        'compare a server against. They are ordered after `e2e`, which builds; run the ' +
+        'recorder rather than a single gate in isolation.',
+    };
+  }
+
+  const bin = join(ROOT, 'node_modules', 'next', 'dist', 'bin', 'next');
+  server = spawn(process.execPath, [bin, 'start', '--port', String(SERVER_PORT)], {
+    cwd: ROOT,
+    env: serverEnv(),
+    stdio: 'ignore',
+  });
+
+  /*
+   * Readiness is polled inside one child so this stays synchronous. `next start`
+   * binds the port well after the process exists, so spawning is not readiness.
+   *
+   * IT SETS `process.exitCode` AND RETURNS RATHER THAN CALLING `process.exit()`.
+   * Calling exit from inside a fetch callback on Windows trips a libuv assertion
+   * (`UV_HANDLE_CLOSING`) that kills the child before it can report anything,
+   * which looks exactly like "the server never answered" and was, for one
+   * baffling run, believed to be a server problem. Letting the loop drain and
+   * exit on its own costs nothing and does not assert.
+   */
+  const probe = `
+    const deadline = Date.now() + 60000;
+    const tick = () => {
+      let code = 1;
+      fetch('http://127.0.0.1:${SERVER_PORT}/_next/static/' +
+            require('node:fs').readFileSync('${buildId.replace(/\\/g, '\\\\')}', 'utf8').trim() +
+            '/_buildManifest.js')
+        .then((r) => { code = r.ok ? 0 : 1; })
+        .catch(() => { code = 1; })
+        .finally(() => {
+          if (code === 0 || Date.now() > deadline) {
+            process.exitCode = code;
+            return;
+          }
+          setTimeout(tick, 500);
+        });
+    };
+    tick();
+  `;
+
+  try {
+    execFileSync(process.execPath, ['-e', probe], {
+      cwd: ROOT,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+      timeout: 90_000,
+    });
+    return { ok: true };
+  } catch (error) {
+    stopServer();
+    const why = `${error.stderr ?? ''}${error.stdout ?? ''}`
+      .split(/\r?\n/)
+      .filter((l) => l.trim().length > 0)
+      .slice(-4)
+      .join(' | ');
+    return {
+      ok: false,
+      reason:
+        `the server never answered on port ${SERVER_PORT}` +
+        (why ? ` — ${redact(why)}` : ` (${String(error.message ?? error).slice(0, 200)})`),
+    };
+  }
+}
+
+function stopServer() {
+  if (!server) return;
+  const pid = server.pid;
+  try {
+    // `next start` runs under a shell on Windows, so the children have to go too.
+    if (IS_WIN && pid) execFileSync('taskkill', ['/PID', String(pid), '/T', '/F'], { stdio: 'ignore' });
+    else server.kill();
+  } catch {
+    /* already gone, which is the state we wanted anyway */
+  }
+  server = null;
+}
+
+process.on('exit', stopServer);
 
 function run(gate) {
   const started = Date.now();
@@ -214,9 +337,17 @@ function run(gate) {
     };
   }
 
+  const env = gate.server ? serverEnv() : undefined;
+  if (gate.server) {
+    const ready = ensureServer();
+    if (!ready.ok) {
+      return { status: 'fail', exit: 1, ms: Date.now() - started, tail: [ready.reason] };
+    }
+  }
+
   try {
     const { exe, args, viaCmd } = launcherFor(command);
-    const out = invoke(exe, args, { timeout: gate.live ? 180_000 : 900_000, viaCmd });
+    const out = invoke(exe, args, { timeout: gate.live ? 180_000 : 900_000, viaCmd, env });
     return { status: 'pass', exit: 0, ms: Date.now() - started, tail: tail(out) };
   } catch (error) {
     const combined = `${error.stdout ?? ''}\n${error.stderr ?? ''}`;
@@ -304,8 +435,10 @@ for (const gate of gates) {
   const result = run(gate);
   results[gate.id] = { ...result, at: new Date().toISOString() };
   const mark = { pass: 'ok  ', blocked: 'BLOCK', fail: 'FAIL', error: 'ERR ' }[result.status];
-  process.stdout.write(`${mark}  ${gate.id.padEnd(12)} exit ${result.exit}  ${(result.ms / 1000).toFixed(1)}s\n`);
+  process.stdout.write(`${mark}  ${gate.id.padEnd(16)} exit ${result.exit}  ${(result.ms / 1000).toFixed(1)}s\n`);
 }
+
+stopServer();
 
 /*
  * A blocked or failed gate must not delete the proof of a previous pass. The
