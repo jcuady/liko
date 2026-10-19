@@ -514,7 +514,7 @@ Audited 2026-10-19 with the TypeScript parser rather than a regex, because a reg
 
 The e2e test drives the whole round trip, and it is mutation-proved against the failure that matters. Making the action report success **without deleting** leaves the toast saying "That file was removed." and still fails the test, because the poll finds the row on screen: `Expected: 0, Received: 1`. That is the shape of bug a status-code assertion cannot see, and it is exactly what this one was written to catch.
 
-**The other three are left unwired, deliberately, and each for a different reason.**
+**The other four were left unwired at the time of that audit, each for a different reason.**
 
 | Action | Why it stays |
 |---|---|
@@ -522,6 +522,19 @@ The e2e test drives the whole round trip, and it is mutation-proved against the 
 | `loadPolicies` | The gradebook loads grades and never policies; adding the call would mean deciding what the page does with them |
 | `logoutAction` | Redundant with `/api/auth/sign-out`, which is what `UserMenu` actually calls. Two ways to sign out, one used. Removing it needs no failing test to justify, because there is nothing to break |
 | `timetableAiStatusAction` | Reports the AI allowance on the timetable. The generator already has a live meter; a second one on a screen that does not generate is a design choice, not a repair |
+
+**Updated later the same day — the table above is now history, not the current state.** Three of those four have since been resolved, and re-verified by name rather than remembered:
+
+| Action | Now | Evidence |
+|---|---|---|
+| `addAttendanceNote` | **Wired** | 4 references, first at `attendance/AttendanceNoteDialog.tsx:6`. A note control now sits against a mark |
+| `timetableAiStatusAction` | **Wired** | 2 references, first at `schedule/TimetablePhotoImport.tsx:17`. The photo import screen reads the allowance |
+| `loadPolicies` | **Retired** | Zero references *and* no declaration anywhere in `src` — deleted outright rather than left as dead weight |
+| `logoutAction` | **Still unwired, still deliberate** | Zero references. Redundant with `/api/auth/sign-out`, which is what `UserMenu` calls |
+
+So the two judgement calls this file left open — whether `addAttendanceNote` was a control nobody asked for, and whether `loadPolicies` should exist at all — were answered by `312da33` ("Give attendance notes a control, and retire three dead exports"), not deferred indefinitely. Only `logoutAction` remains a deliberate omission, and its justification did not change: two ways to sign out where one is used is not a defect, and removing it needs no failing test to justify because there is nothing to break.
+
+**A dated table is a snapshot, and a snapshot goes stale silently.** Nothing in the recorder compares a documented status against the source, so a row can name an action as dead for as long as it likes while the code underneath moves. That correction was made by hand, from a fresh name search. **No check covers this shape today** — the recorder enforces that every gate-shaped script is registered or excluded, but it says nothing about the state of any export a document describes. Worth knowing rather than assuming: an earlier draft of this paragraph credited a `verify:gates` script for catching the count form of the same drift, and there is no such script in `package.json`. The count is enforced inside `run-gates.mjs` itself, not by a separate check.
 
 **Why the number is small, and the false positives along the way.** A first pass reported eight dead actions and three were wrong: `loadGrades`, `loadAssessments` and `loadQuestions` are all called through `const { loadGrades } = await import('./actions')`, and a scanner that reads `ImportDeclaration` nodes does not see a dynamic `import()`. A second pass over the raw name list produced **218** "dead" exports overall, almost all of them Next.js default exports such as `export default function AdminPage` and `Props` interfaces a file declares for its own use. **Neither version was usable as evidence.** No automated gate was added: a dead-export check that cannot see dynamic imports reports working code as dead, and one that ignores default exports reports most of `app/` as dead. Both are worse than no check, because a red gate gets disabled.
 
