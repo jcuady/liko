@@ -25,7 +25,7 @@ inheriting a word from an earlier round.
 | Lint | **PASS** | `pnpm lint`, exit 0 | round twelve |
 | Unit tests | **PASS** | `537 passed, 2 skipped`, measured in a detached worktree at `312da33` so the figure is that commit's and not the shared tree's. The commit after it changed only a client component with no unit test. | round twelve |
 | e2e | **PASS** | `241 passed (4.8m)` at `9604440`, the whole suite, exit 0. Up from `232` at `fe01de2`: eight of these are the new attendance note spec. | round twelve |
-| **Full gate** | **21 pass, 0 blocked, 0 fail, 0 error** | `pnpm gates` at `371eeca`, recorded in `docs/evidence/gates.json`, with the build recorded as served and unchanged across the run. Twenty-one registered gates. One caveat is stated below rather than left out: **the e2e gate flaked on the previous run of the same commit.** | round fifteen |
+| **Full gate** | **21 pass, 0 blocked, 0 fail, 0 error** | `pnpm gates` at `371eeca`, recorded in `docs/evidence/gates.json`, with the build recorded as served and unchanged across the run. Twenty-one registered gates. **The e2e gate flaked on the previous run of this same commit**, nine timeouts across eight specs, and the cause is established in round sixteen: eleven concurrent Playwright sessions on one machine. Not a product defect. | round sixteen |
 | **Live app against Postgres** | **PASS** | `verify:app`, **57 passed, 0 failed**, run against the **deployed production site**, not only a local build. All five accounts, every entitled route, refusals, a real attendance write, cron, push, gradebook export scope, and no page errors. Run at `09ebf10`; the only commit deployed afterwards is `20819c0`, documentation only, so the measurement still describes the running system. That second half is a claim about the diff, not a second run. | round eleven |
 | **Deployed to production** | **PASS** | Production serves the tip of `main`, deployed by the Vercel Git integration, so **a push to `main` is a production deploy**. Read from the deployment's own build log twice this round: `09ebf10` at 06:15 UTC and `20819c0` at 06:42 UTC. Recording both rather than the latest, because a pinned sha goes stale on the next push by anyone. | round eleven |
 | **Per-role sweep of the deployed site** | **PASS** | Guardian probe against production, 5 of 5. `/grades` and `/history` each name the child the seat is linked to. | round eleven |
@@ -2384,6 +2384,62 @@ The honest reading of the green row is therefore: *everything passes, and the
 e2e gate has demonstrated at least once that it does not always.* Until the flake
 is understood, the twenty missing tests are an open question rather than a
 settled one.
+
+### Round sixteen: that open question, answered from a file nobody was reading
+
+The full failure was in the recorder all along. Read rather than summarised:
+
+    9 failed
+       e2e/deck-upload.spec.ts   keeps an image as an image
+       e2e/deck-upload.spec.ts   a file can be taken back out again
+       e2e/helpers/select.spec.ts a pointerup with no pointerdown behind it
+       e2e/import.spec.ts        adds the students and reports the rows it left out
+       e2e/interactions.spec.ts  shows the teacher context on the profile
+       e2e/quiz-maker.spec.ts    a question can be written, answered and saved
+       e2e/schedule.spec.ts      a saved class reaches the student
+       e2e/slide-editor.spec.ts  the change survives a reload
+       e2e/slides.spec.ts        the demo workspace ships with a real deck
+    14 did not run
+    218 passed (5.9m)
+
+Nine failures across **eight unrelated spec files**, and the failures are
+timeouts: `Test timeout of 45000ms exceeded` on a click, and `element(s) not
+found` after a 20s wait on a page that had rendered a second earlier in the same
+run. A product defect does not arrive in eight unrelated places at once and then
+vanish on the next run of the identical commit.
+
+`test-results/` settles it. Playwright writes one `run-<timestamp>` directory per
+session, and in the five minutes around the failure there are **eleven**:
+
+    11-25:29  11-27:02  11-27:03 x3  11-28:34  11-28:41
+    11-29:07  11-29:20  11-29:55  11-30:28
+
+Eleven sessions, each with its own `next build`, its own server and its own
+browser workers, all pointed at one checkout on one machine. The run that failed
+was competing with about ten of them. It is not established how those sessions
+were launched, and this document does not apportion them.
+
+**A red e2e gate on a busy machine is a measurement of the machine.** The
+failure signature is the evidence: timeouts, scattered, in areas with nothing in
+common. A real defect has a subject.
+
+### The rule, which is about me
+
+I launched a full `vitest run` across the same window, on the same machine,
+while that gate run was in flight. That is mine, and it is the kind of thing
+that turns someone else's green run red.
+
+**Do not run a suite in this checkout while another is in flight.** It is the
+same discipline as not deploying from a dirty tree and not running two Playwright
+sessions at once: the second run does not just cost you time, it costs the first
+run its meaning. And when a gate goes red, ask what else was running before
+concluding anything about the product.
+
+The recorder could answer this itself and currently does not. A run record that
+carried the number of `test-results/run-*` directories present at start would
+turn "the machine was busy" from an argument into a fact. That is the one change
+this round would make to `run-gates.mjs`, which belongs to the other process and
+is not mine to edit today.
 
 ### Still open
 
