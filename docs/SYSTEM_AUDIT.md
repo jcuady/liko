@@ -26,8 +26,8 @@ inheriting a word from an earlier round.
 | Unit tests | **PASS** | `518 passed, 10 skipped, 40 files` | `fe01de2` |
 | e2e | **PASS** | `232 passed` | `fe01de2` |
 | **Full gate** | **11 pass, 0 blocked, 0 fail, 0 error** | `pnpm gates` at `fe01de2`, recorded in `docs/evidence/gates.json`. `probe:ai` is green after hours of `503`. A blocked gate is not a pass, and there is nothing left blocked to excuse. | round eleven |
-| **Live app against Postgres** | **PASS** | `verify:app`, **57 passed, 0 failed**, run against the **deployed production site** and not only a local build. All five accounts, every entitled route, refusals, a real attendance write, cron, push, gradebook export scope, and no page errors. | round eleven |
-| **Deployed to production** | **PASS** | Production serves `fe01de2`, named by the deployment's own build log. `main` is auto-deployed by the Vercel Git integration, so **a push to `main` is a production deploy**. | round eleven |
+| **Live app against Postgres** | **PASS** | `verify:app`, **57 passed, 0 failed**, run against the **deployed production site** at `09ebf10` and not only a local build. All five accounts, every entitled route, refusals, a real attendance write, cron, push, gradebook export scope, and no page errors. | round eleven |
+| **Deployed to production** | **PASS** | Production serves `09ebf10`, read from the deployment's own build log at 06:15 UTC. `main` is auto-deployed by the Vercel Git integration, so **a push to `main` is a production deploy**. The commit moves without anyone asking, and this row was already stale once before it was rewritten. | round eleven |
 | **Per-role sweep of the deployed site** | **PASS** | Guardian probe against production, 5 of 5. `/grades` and `/history` each name the child the seat is linked to. | round eleven |
 | **Guardian read path in production** | **PASS** | Closed. The linked-read policies are applied and the code no longer discards what they admit. Round nine's FAIL is not carried forward. | round eleven |
 | SQL parse + cross-refs | **PASS** | 273 statements, 28 tables, RLS on all 28, 41 policies re-runnable | `fe01de2` |
@@ -1880,6 +1880,31 @@ that knows about deploys you did not make.
 There is a governance consequence worth stating plainly: **on this project a
 push to `main` is a production deploy.** That is not a property of the code and
 nothing in the repository warns about it.
+
+### It then moved again, inside the same round
+
+This branch is shared. Another process works in the same checkout and pushes the
+same branch, so `origin/main` moved from `fe01de2` to `09ebf10` while this round
+was being written, carrying six commits that were not mine, one of which changes
+the data mode the app is served in.
+
+Two things followed, and both are the same lesson arriving late.
+
+The commit I had just made was **already on `main`**, pushed by that other
+process. An approval to push it was therefore a no-op, and asking for it was
+close to meaningless: the action had been taken by something else before the
+question was answered. On a repository where a push is a deploy, *who pushed* is
+part of the state, and `git log --oneline origin/main..HEAD` — not the branch I
+am standing on — is the question that answers it.
+
+And the row I had written saying production serves `fe01de2` was stale the
+moment it was written. The corrected row names `09ebf10`, read from the build
+log, and `verify:app` was re-run against production at that commit: 57 passed,
+0 failed, with the gradebook scope checks included. The earlier 57 was a true
+statement about a commit that is no longer deployed, which is worth very little.
+
+**Read what is live at the moment you are about to describe it.** On this
+repository that is a command, and it is cheap.
 
 ### A failing gate that was not a failing application
 
