@@ -107,6 +107,72 @@ const TAIL_LINES = 60;
  */
 const TAIL_LINES_FAILURE = 400;
 
+/*
+ * THE TWO PORTS THE RECORDER OWNS, DECLARED BEFORE THEY ARE USED.
+ *
+ * They are here, above `GATES`, rather than beside the code that spawns them
+ * because that is where the bug lived. `E2E_PORT` was `const` at the bottom of
+ * this file and used at the top inside `GATES`, so `String(E2E_PORT)` threw
+ * `ReferenceError: Cannot access 'E2E_PORT' before initialization` while the
+ * module was still evaluating — the recorder could not start at all.
+ *
+ * It is worth being precise about how that survived. The commit that broke it
+ * was written, committed and pushed; it had never been executed. The gates that
+ * appear beside it in PROJECT_STATUS.md were recorded by the *previous* working
+ * version, minutes earlier. `SERVER_PORT` was immune only by accident: the two
+ * places that used it read it inside an arrow function, which defers evaluation,
+ * while `E2E_PORT` was read eagerly. **A lazy reference hides an ordering
+ * dependency until the day someone writes the eager one.** Both constants now
+ * sit at the top with the array that consumes them.
+ */
+
+/*
+ * A PRODUCTION SERVER FOR THE GATES THAT MEASURE RENDERED PAGES.
+ *
+ * `check:responsive` and `check:behaviour` open real pages in a real browser, so
+ * they need a server serving THIS checkout. Excluding them was honest but it
+ * cost coverage: they ran only when somebody remembered, and their rows in
+ * PROJECT_STATUS.md sat at "not re-run 2026-10-17" while every row beside them
+ * was re-measured. So the recorder starts one and these become ordinary gates.
+ *
+ * THE PORT IS DELIBERATELY NOT 3311. That is where `playwright.config.ts` puts
+ * its own server, and a `pnpm start` left behind on 3311 by one of these very
+ * checks is what made a later e2e run adopt a stale process and collapse
+ * mid-suite. Distinct ports mean the two can never meet.
+ *
+ * One server serves both gates and is torn down when the run ends. `describeTarget`
+ * still has the last word: it compares the served build id against
+ * `.next/BUILD_ID` and fails rather than grading a stale process, so starting a
+ * server here cannot quietly reintroduce the bug it prevents.
+ */
+const SERVER_PORT = 3317;
+
+/**
+ * The port the e2e suite gets when the RECORDER runs it.
+ *
+ * `playwright.config.ts` reads `PORT` and defaults to 3311, and it sets
+ * `reuseExistingServer: !process.env.CI` — so outside CI a suite **adopts
+ * whatever is already listening** instead of starting its own. Two suites in one
+ * working directory therefore share one server, one in-memory fixture workspace
+ * and one `.next`, and they corrupt each other's state rather than failing
+ * loudly.
+ *
+ * That is not hypothetical. Two Playwright runs were in flight at once and the
+ * evidence read **9 failed, 14 did not run, 218 passed**, scattered across
+ * deck-upload, import, quiz-maker, schedule, slide-editor and slides — with
+ * fixtures from one test visible to another ("Question 1" and "Question 2" both
+ * matching a single-element locator). No product code had changed under any of
+ * those features since the previous green run. A regression that appears in six
+ * unrelated features at once, with no diff to any of them, is shared state, not
+ * a defect.
+ *
+ * 3319, for the same reason 3317 exists: not 3311 on purpose. Give this run its
+ * own port and it cannot adopt somebody else's server, so two runs either
+ * succeed independently or say so.
+ */
+
+const E2E_PORT = 3319;
+
 /**
  * Gates, by the package.json script that defines them.
  *
@@ -244,52 +310,6 @@ function tail(text, lines = TAIL_LINES) {
   }
   return out;
 }
-
-/*
- * A PRODUCTION SERVER FOR THE GATES THAT MEASURE RENDERED PAGES.
- *
- * `check:responsive` and `check:behaviour` open real pages in a real browser, so
- * they need a server serving THIS checkout. Excluding them was honest but it
- * cost coverage: they ran only when somebody remembered, and their rows in
- * PROJECT_STATUS.md sat at "not re-run 2026-10-17" while every row beside them
- * was re-measured. So the recorder starts one and these become ordinary gates.
- *
- * THE PORT IS DELIBERATELY NOT 3311. That is where `playwright.config.ts` puts
- * its own server, and a `pnpm start` left behind on 3311 by one of these very
- * checks is what made a later e2e run adopt a stale process and collapse
- * mid-suite. Distinct ports mean the two can never meet.
- *
- * One server serves both gates and is torn down when the run ends. `describeTarget`
- * still has the last word: it compares the served build id against
- * `.next/BUILD_ID` and fails rather than grading a stale process, so starting a
- * server here cannot quietly reintroduce the bug it prevents.
- */
-const SERVER_PORT = 3317;
-
-/**
- * The port the e2e suite gets when the RECORDER runs it.
- *
- * `playwright.config.ts` reads `PORT` and defaults to 3311, and it sets
- * `reuseExistingServer: !process.env.CI` — so outside CI a suite **adopts
- * whatever is already listening** instead of starting its own. Two suites in one
- * working directory therefore share one server, one in-memory fixture workspace
- * and one `.next`, and they corrupt each other's state rather than failing
- * loudly.
- *
- * That is not hypothetical. Two Playwright runs were in flight at once and the
- * evidence read **9 failed, 14 did not run, 218 passed**, scattered across
- * deck-upload, import, quiz-maker, schedule, slide-editor and slides — with
- * fixtures from one test visible to another ("Question 1" and "Question 2" both
- * matching a single-element locator). No product code had changed under any of
- * those features since the previous green run. A regression that appears in six
- * unrelated features at once, with no diff to any of them, is shared state, not
- * a defect.
- *
- * 3319, for the same reason 3317 exists: not 3311 on purpose. Give this run its
- * own port and it cannot adopt somebody else's server, so two runs either
- * succeed independently or say so.
- */
-const E2E_PORT = 3319;
 
 let server = null;
 
@@ -525,6 +545,30 @@ function run(gate) {
 const onlyArg = process.argv.find((a) => a.startsWith('--only='));
 const only = onlyArg ? onlyArg.split('=')[1].split(',').map((s) => s.trim()) : null;
 const gates = only ? GATES.filter((g) => only.includes(g.id)) : GATES;
+
+/*
+ * `--list` evaluates the whole module and stops.
+ *
+ * WHY THIS EXISTS. The recorder is the only thing that runs the gates, so when
+ * it cannot start, nothing reports on it — every other gate is downstream of the
+ * component that is broken. That is exactly what happened: `E2E_PORT` was read
+ * before its `const`, the module threw while evaluating, and the failure was
+ * discovered by trying to use the tool rather than by any check. The commit
+ * carrying the bug had never been executed.
+ *
+ * Reaching this line therefore proves something on its own: every declaration
+ * the registry reads was initialised. It costs under a second and it runs no
+ * gate, no build and no server, which makes it safe to call from a smoke test
+ * and cheap enough to call by hand before a twelve-minute run.
+ */
+if (process.argv.includes('--list')) {
+  process.stdout.write(
+    `${gates.length} gate(s) selected\n` +
+      gates.map((g, i) => `  ${String(i + 1).padStart(2)}. ${g.id}`).join('\n') +
+      '\n',
+  );
+  process.exit(0);
+}
 
 const commit = execFileSync('git', ['rev-parse', '--short', 'HEAD'], {
   cwd: ROOT,
