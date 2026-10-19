@@ -25,7 +25,7 @@ inheriting a word from an earlier round.
 | Lint | **PASS** | `pnpm lint`, exit 0 | round twelve |
 | Unit tests | **PASS** | `537 passed, 2 skipped`, measured in a detached worktree at `312da33` so the figure is that commit's and not the shared tree's. The commit after it changed only a client component with no unit test. | round twelve |
 | e2e | **PASS** | `241 passed (4.8m)` at `9604440`, the whole suite, exit 0. Up from `232` at `fe01de2`: eight of these are the new attendance note spec. | round twelve |
-| **Full gate** | **17 pass, 0 blocked, 0 fail, 0 error** | `pnpm gates` at `38d9903`, recorded in `docs/evidence/gates.json`. Seventeen registered gates; five further gate-shaped scripts are excluded and each exclusion carries a stated reason. `probe:ai` is green, so nothing is BLOCKED and there is nothing left to excuse. | round thirteen |
+| **Full gate** | **19 pass, 1 blocked, 0 fail, 0 error** | `pnpm gates` at `498362b`, recorded in `docs/evidence/gates.json`. Nineteen registered gates; `verify:links` and `verify:filters` are among them. The single non-pass is `probe:ai`, blocked on the provider answering `HTTP 503 ... high demand`. A blocked gate is not a pass. | round fourteen |
 | **Live app against Postgres** | **PASS** | `verify:app`, **57 passed, 0 failed**, run against the **deployed production site**, not only a local build. All five accounts, every entitled route, refusals, a real attendance write, cron, push, gradebook export scope, and no page errors. Run at `09ebf10`; the only commit deployed afterwards is `20819c0`, documentation only, so the measurement still describes the running system. That second half is a claim about the diff, not a second run. | round eleven |
 | **Deployed to production** | **PASS** | Production serves the tip of `main`, deployed by the Vercel Git integration, so **a push to `main` is a production deploy**. Read from the deployment's own build log twice this round: `09ebf10` at 06:15 UTC and `20819c0` at 06:42 UTC. Recording both rather than the latest, because a pinned sha goes stale on the next push by anyone. | round eleven |
 | **Per-role sweep of the deployed site** | **PASS** | Guardian probe against production, 5 of 5. `/grades` and `/history` each name the child the seat is linked to. | round eleven |
@@ -2261,4 +2261,28 @@ this person see it", and the difference is worth naming because conflating the
 two is how a route ends up looking reachable and being useless.
 
 Registered as `pnpm verify:links` and wired into `run-gates.mjs`.
+
+### `probe:ai` passed, and then it did not
+
+The full suite at `498362b` reads **19 pass, 1 blocked, 0 fail**. The blocked one
+is `probe:ai`, and the reason is worth stating because it is the same shape as a
+finding:
+
+    FAIL  the provider answered -- HTTP 503 This model is currently
+          experiencing high demand.
+
+An hour earlier, at `38d9903`, the same gate on the same product code passed
+`2 passed, 0 failed`. Nothing about the deck generator changed in between. The
+gate went from green to blocked without a line of product code moving, which is
+the clearest possible statement that it is measuring **the provider's mood** and
+not this repository.
+
+It is recorded as BLOCKED rather than PASS because a gate that could not run has
+proved nothing, and because "it usually passes" is not the sentence a reader of
+an evidence file needs. It has been capacity-blocked for hours at a stretch
+earlier in this project and green moments later, and both states are true.
+
+A gate whose result can change with no code change is not a defect in the gate.
+It is a fact about what the gate can tell you, and it belongs in the table next
+to the result rather than in a footnote.
 
