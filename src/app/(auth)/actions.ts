@@ -14,7 +14,7 @@ import { safeNextPath } from '@/lib/security/redirect';
 
 import { checkPasswordStrength } from '@/lib/auth/password';
 import { recordConsent } from '@/lib/auth/consent';
-import { clearSessionCookie, setSessionCookie } from '@/lib/auth/cookie';
+import { setSessionCookie } from '@/lib/auth/cookie';
 import {
   completePasswordUpdate,
   requestPasswordReset,
@@ -395,11 +395,6 @@ export async function resetPasswordAction(
   }
 
   redirect('/login?reset=1');
-}
-
-export async function logoutAction(): Promise<void> {
-  await clearSessionCookie();
-  redirect('/');
 }
 
 /**

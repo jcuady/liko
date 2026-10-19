@@ -12,6 +12,7 @@ import { queryKeys } from '@/lib/query/keys';
 import type { AttendanceStatus } from '@/lib/api/types';
 
 import { loadAttendance } from './actions';
+import { AttendanceNoteDialog } from './AttendanceNoteDialog';
 import { enqueueWrite } from '@/lib/outbox';
 
 /**
@@ -213,14 +214,17 @@ export function AttendanceRegister({
             {saving ? ', saving' : ''}
           </p>
         </div>
-        <Button
-          variant="secondary"
-          size="sm"
-          onClick={presentAll}
-          disabled={saving || students.length === 0}
-        >
-          Mark all present
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <AttendanceNoteDialog classId={classId} students={students} disabled={saving} />
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={presentAll}
+            disabled={saving || students.length === 0}
+          >
+            Mark all present
+          </Button>
+        </div>
       </div>
 
       <div className="rounded-[16px] border border-border bg-surface p-5">

@@ -31,6 +31,8 @@ import { data } from '@/lib/api/client';
 import { requirePermission } from '@/lib/auth/guards';
 import type { AttendanceStatus, Severity } from '@/lib/api/types';
 
+import { NOTE_MAX_LENGTH, NOTE_SEVERITIES } from './note-craft';
+
 export interface AttendanceActionResult {
   ok: boolean;
   message: string;
@@ -46,12 +48,16 @@ export async function loadAttendance(
   return store.getAttendance(session.userId, classId, date);
 }
 
-const SEVERITIES: Severity[] = ['note', 'praise', 'concern', 'intervention'];
+const SEVERITIES: Severity[] = NOTE_SEVERITIES.map((option) => option.value);
 
 /**
  * Notes ride the behaviour log because that is the only per-student free-text
  * channel the seam exposes. Writing them anywhere else would mean inventing a
  * table, and inventing a table here is how a mark and its note drift apart.
+ *
+ * The vocabulary and the length limit come from `note-craft`, which is also what
+ * the register's control reads. They used to be literals here, which meant the
+ * field and the server could disagree and neither would notice.
  */
 export async function addAttendanceNote(input: {
   classId: string;
@@ -65,8 +71,8 @@ export async function addAttendanceNote(input: {
   if (!input.classId || !input.studentId || entry.length === 0) {
     return { ok: false, message: 'That note was empty, so nothing was saved.' };
   }
-  if (entry.length > 500) {
-    return { ok: false, message: 'Keep notes under 500 characters.' };
+  if (entry.length > NOTE_MAX_LENGTH) {
+    return { ok: false, message: `Keep notes under ${NOTE_MAX_LENGTH} characters.` };
   }
 
   try {

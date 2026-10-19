@@ -86,16 +86,6 @@ export async function saveGrade(input: {
 }
 
 /**
- * Read path for the scale editor. Built-in scales come back with the account's
- * own, so the editor renders one list.
- */
-export async function loadPolicies(): Promise<GradingPolicyRecord[]> {
-  const session = await requirePermission('grade:read');
-  const store = await data();
-  return store.listPolicies(session.userId);
-}
-
-/**
  * Creates or updates a custom scale.
  *
  * `validatePolicy` runs here as well as inside the seam. The action reports all

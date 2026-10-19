@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { Camera, CircleAlert, TriangleAlert, X } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -14,9 +14,11 @@ import { formatMinute, type ScheduleConflict, type ScheduleEntry } from '@/lib/s
 import {
   confirmScheduleAction,
   readTimetableAction,
+  timetableAiStatusAction,
   type ConfirmResult,
   type ReadResult,
 } from './actions';
+import { queryKeys } from '@/lib/query/keys';
 
 /**
  * Photographing a timetable, in two steps.
@@ -68,6 +70,18 @@ export function TimetablePhotoImport({
 }: Props) {
   const router = useRouter();
   const inputRef = React.useRef<HTMLInputElement>(null);
+
+  /*
+   * The same meter the deck panel shows. Reading a photograph is the most
+   * expensive AI call in this product, so a teacher about to spend it deserves
+   * to know what is left before the upload rather than after the refusal.
+   */
+  const status = useQuery({
+    queryKey: queryKeys.aiStatus(),
+    queryFn: timetableAiStatusAction,
+    refetchInterval: 30_000,
+    staleTime: 15_000,
+  });
 
   const [proposal, setProposal] = React.useState<{
     entries: ScheduleEntry[];
@@ -139,10 +153,22 @@ export function TimetablePhotoImport({
 
   const busy = read.isPending || confirm.isPending;
 
+  const usage = status.data;
+  const exhausted = usage ? usage.remaining <= 0 : false;
+
   return (
     <Card>
       <CardHeader>
         <CardTitle>Photograph your timetable</CardTitle>
+        <p className="text-[0.8125rem] text-ink-subtle" role="status" aria-live="polite">
+          {status.isLoading
+            ? 'Checking what is left'
+            : usage
+              ? usage.configured
+                ? `${usage.remaining} of ${usage.limit} left this hour`
+                : 'Not configured on this deployment'
+              : ''}
+        </p>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
         <p className="text-body text-ink-muted">
@@ -173,10 +199,15 @@ export function TimetablePhotoImport({
             </FormField>
 
             <div className="flex flex-wrap items-center gap-3">
-              <Button type="submit" disabled={busy}>
+              <Button type="submit" disabled={busy || exhausted}>
                 <Camera size={17} aria-hidden="true" />
                 {read.isPending ? 'Reading it' : 'Read my timetable'}
               </Button>
+              {exhausted ? (
+                <p className="text-[0.8125rem] text-ink-muted">
+                  The hourly limit has been reached. This comes back on its own.
+                </p>
+              ) : null}
 
               {/* Polite rather than a spinner in the button alone: the call can take
                   a while, and silence is what makes a button look broken. */}
