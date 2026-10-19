@@ -699,6 +699,28 @@ if (contaminated) {
       '             describe a build that no longer exists and cannot be read as a verdict on\n' +
       `             ${commit}. Re-run the recorder on its own.\n\n`,
   );
+} else if (!buildAtStart && gates.some((gate) => gate.server)) {
+  /*
+   * Not contaminated -- there was no build to be contaminated. This is the case
+   * where a second process held the Next.js build lock, `e2e` could not build,
+   * and every server-backed gate then refused to start for want of a
+   * `.next/BUILD_ID`. Five gates red for one cause, and the `changed: false` in
+   * the record described that perfectly while meaning the opposite of what it
+   * says. The build id is absent at BOTH ends, so comparing them finds no
+   * change; the absence itself is the finding.
+   *
+   * GATED ON A SERVER GATE ACTUALLY HAVING BEEN ASKED FOR. A `--only=typecheck`
+   * probe never calls `ensureServer`, so `buildAtStart` is null for a reason that
+   * has nothing to do with a missing build, and warning about it would put this
+   * line on screen for every diagnostic probe. A warning that fires when nothing
+   * is wrong is the warning nobody reads.
+   */
+  process.stdout.write(
+    `NO BUILD  there was no .next/BUILD_ID when the run started, so no server was\n` +
+      `          served and every rendered-page gate below refused for want of one.\n` +
+      '          A second process usually means this: another build in this working\n' +
+      `          directory holds the lock. Re-run the recorder on its own.\n\n`,
+  );
 }
 
 /*
@@ -721,7 +743,20 @@ const record = {
   at: new Date().toISOString(),
   commit,
   tree,
-  build: { atStart: buildAtStart, atEnd: buildAtEnd, changed: buildChanged },
+  build: {
+    atStart: buildAtStart,
+    atEnd: buildAtEnd,
+    changed: buildChanged,
+    /*
+     * `served` exists because `atStart: null, atEnd: null, changed: false` reads
+     * as "the build was stable" when the truth is "there was no build at all".
+     * That is not hypothetical: a second process held the Next.js build lock, so
+     * `e2e` could not build, `.next/BUILD_ID` did not exist, and every
+     * server-backed gate refused to start -- five red gates. `changed: false`
+     * described that perfectly and meant the opposite of what it says.
+     */
+    served: Boolean(buildAtStart),
+  },
   contaminated,
   partial: Boolean(only),
   gateCount: gates.length,
