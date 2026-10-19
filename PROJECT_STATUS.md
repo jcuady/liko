@@ -496,6 +496,16 @@ The honest limit: it has been proven on synthetic sheets drawn flat and upright,
 not on a photograph of a photocopied page at an angle with a shadow across it.
 That is the gap the confirm-before-save grid exists to cover.
 
+## Route reachability — no page is orphaned
+
+Audited 2026-10-19: **all 45 routes in `src/app` were enumerated and every user-facing one has a caller in the product.** This was checked because a route can be green across typecheck, lint, unit, e2e and route-coverage while nothing in the application links to it — those gates prove a page renders and its controls work, not that a person can find it.
+
+**One route is correctly unlinked.** `/api/cron/at-risk` is the daily at-risk sweep, invoked by the scheduler declared in `vercel.json` rather than by a browser, and `src/app/subprocessors/page.tsx` documents exactly that. There is no UI link because there should not be one.
+
+**Two routes looked orphaned and were not, and both were my scanner's fault.** A first pass matched only exact quoted strings and reported `/grades/export` and `/assess/sheet` as unlinked. Both are linked through template literals carrying a query string — `href={`/grades/export?class=${...}`}` with a `download` attribute in `app/(dashboard)/grades/Gradebook.tsx:362`, and `href={`/assess/sheet?assessment=${...}`}` in `app/(dashboard)/assess/AssessmentList.tsx:203`. A second pass, boundary-aware, reported zero orphans — and that was *also* wrong, because `/api/cron/at-risk` then matched a **comment** in `src/sw.ts:35` and a file-path string on the subprocessors page. Neither is navigation.
+
+**So this audit is recorded here rather than promoted to a gate, and the reason is the whole point of writing it down.** A reachability check that matches prose and comments cannot tell a link from a sentence, so it would report orphans that are not there and pass routes that are. Green route coverage is the gate most likely to *reward* an orphan page, because adding a page makes the enumeration more complete while the product stays unreachable. A correct version has to parse `<Link href>`, `<a href>` and `router.push` targets, exclude comments, and treat `/api/*` as scheduler territory — that is real work, and until it exists the honest statement is the one above: **verified by inspection, not by an automated gate.**
+
 ## Security Review
 
 Full pass over every server action, route handler, RLS policy, and service-worker rule. Findings and fixes are tabulated in `docs/SECURITY.md`. The two that mattered:
