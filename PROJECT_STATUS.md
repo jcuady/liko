@@ -91,6 +91,37 @@ whole map: `weekly_schedule_entries` carries a linked-aware policy, so the
 guardian's week renders fifteen lessons, while `grades` has only the generated
 `own rows` policy and a mark's `owner_id` is the teacher's id.
 
+## Open: five data methods that exist and are wired to nothing
+
+A repo-wide sweep of the `WorkspaceData` seam found **87 members and 5 with no
+call site anywhere** — not in `src/app`, not in `src/components`, not in `e2e`,
+not in `scripts`, not in `docs`:
+
+| Method | Table it would read or write | Verdict |
+|---|---|---|
+| `listBehaviourLogs` | `behaviour_logs` | redundant — `/history` reads `student_history` |
+| `appendHistory` | `student_history` | redundant — `addBehaviourLog` inserts inline |
+| `listAttempts` | `quiz_attempts` | no UI calls it |
+| `updateFlashcardDeck` | `flashcard_decks` | no UI calls it; only `ArchiveDeckButton` exists |
+| `deleteFlashcard` | `flashcards` | no UI calls it |
+
+This is **not** a functional defect, and the sweep that produced it also says
+so. The census of reads and writes across all 27 tables found no table that the
+app writes and nothing ever displays — which is the defect class worth hunting
+here, because it is the one where a button succeeds and its result can never be
+seen. The specific worry here was `behaviour_logs`: `addBehaviourLog` writes it
+and `/history` reads `student_history`, which looked exactly like a note that
+saves and never appears. It is not: `client.ts` mirrors every behaviour entry
+into `student_history` as well, and the comment there says so. Reading past that
+comment is what stopped a fourth phantom today.
+
+What remains is dead surface: three implementations plus three fixture
+implementations that no caller reaches. That is a maintenance cost, not a
+user-visible fault, and it is left in place rather than removed — deleting a
+public interface member is a change with no failing test to justify it, and the
+one place it could matter (`updateFlashcardDeck`) would need a product decision
+about whether deck editing exists at all.
+
 ## Executive Summary
 
 LIKO is a teaching-workspace PWA: a teacher plans lessons, builds assessments, takes attendance, grades, and watches student history on one thread, and slides decks for the lesson.
