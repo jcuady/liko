@@ -130,6 +130,7 @@ const GATES = [
   { id: 'verify:controls', script: 'verify:controls' },
   { id: 'verify:links', script: 'verify:links' },
   { id: 'verify:filters', script: 'verify:filters' },
+  { id: 'verify:rbac-routes', script: 'verify:rbac-routes' },
   { id: 'probe:ai', script: 'probe:ai', live: true },
 ];
 
