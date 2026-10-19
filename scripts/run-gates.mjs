@@ -25,7 +25,8 @@
  */
 
 import { execFileSync, spawn } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 
 import { redact } from './lib/redact.mjs';
@@ -233,6 +234,44 @@ const SERVER_PORT = 3317;
 
 let server = null;
 
+/** The last few hundred lines the server wrote to stderr, kept to explain a failure. */
+let serverLog = [];
+
+/**
+ * Where the server's stderr goes.
+ *
+ * A FILE DESCRIPTOR, NOT AN EVENT HANDLER. This recorder is synchronous from end
+ * to end, so a `server.stderr.on('data', ...)` handler would never be called
+ * before the evidence file is written -- the event loop never turns. The log
+ * would be empty, the record would carry an empty `serverLog`, and the fix would
+ * look like it worked while proving nothing. Handing the child a real file
+ * descriptor has the operating system do the writing, which needs no event loop.
+ */
+let serverLogPath = join(tmpdir(), 'liko-gates-server-stderr.log');
+let serverLogFd = null;
+
+/** The build id the run started serving, compared against the one on disk at the end. */
+let buildAtStart = null;
+
+/**
+ * The id of the build currently on disk, or null if there is none.
+ *
+ * `.next` is gitignored, so the tree-state check cannot see it. A second process
+ * working in the same checkout can replace it without touching a single tracked
+ * file, and a server already serving it will start answering 500 as its chunks
+ * are swapped underneath it. That is not hypothetical: it happened during a full
+ * run here, when a concurrent `next build` in the same working directory replaced
+ * the build between two gates, and three gates went red for reasons that had
+ * nothing to do with the product.
+ */
+function readBuildId() {
+  try {
+    return readFileSync(join(ROOT, '.next', 'BUILD_ID'), 'utf8').trim();
+  } catch {
+    return null;
+  }
+}
+
 function serverEnv() {
   /*
    * `LIKO_DATA_MODE=supabase`, DELIBERATELY AGAINST `.env.local`.
@@ -266,11 +305,32 @@ function ensureServer() {
     };
   }
 
+  /*
+   * The build this run is about to serve, recorded before it starts serving.
+   * `.next` is gitignored, so a dirty tree says nothing about it, and a second
+   * process in the same working directory can replace it mid-run.
+   */
+  buildAtStart = readBuildId();
+
   const bin = join(ROOT, 'node_modules', 'next', 'dist', 'bin', 'next');
+  /*
+   * THE SERVER'S ERROR OUTPUT IS KEPT, NOT DISCARDED.
+   *
+   * This was `stdio: 'ignore'`, which threw away the one thing that explains a
+   * 500. A gate that reported "Internal Server Error" gave the reader no cause
+   * at all, and the cause had to be reconstructed by hand -- by starting a
+   * second server and hoping it reproduced, which it did not, because the cause
+   * was that the build directory changed underneath the running server.
+   */
+  try {
+    serverLogFd = openSync(serverLogPath, 'w');
+  } catch {
+    serverLogFd = null;
+  }
   server = spawn(process.execPath, [bin, 'start', '--port', String(SERVER_PORT)], {
     cwd: ROOT,
     env: serverEnv(),
-    stdio: 'ignore',
+    stdio: ['ignore', 'ignore', serverLogFd ?? 'ignore'],
   });
 
   /*
@@ -329,6 +389,14 @@ function ensureServer() {
 }
 
 function stopServer() {
+  if (serverLogFd !== null) {
+    try {
+      closeSync(serverLogFd);
+    } catch {
+      /* already closed */
+    }
+    serverLogFd = null;
+  }
   if (!server) return;
   const pid = server.pid;
   try {
@@ -575,6 +643,54 @@ for (const gate of gates) {
 stopServer();
 
 /*
+ * The server's own log, read from the file the operating system wrote for it.
+ * Read after `stopServer`, because that is what closes the descriptor and
+ * guarantees the bytes are all there.
+ */
+try {
+  if (existsSync(serverLogPath)) {
+    serverLog = readFileSync(serverLogPath, 'utf8')
+      .split(/\r?\n/)
+      .filter((line) => line.trim() !== '')
+      .slice(-60);
+  }
+} catch {
+  serverLog = [];
+}
+
+/*
+ * Did the build change underneath the run?
+ *
+ * `.next` is gitignored, so the tree check above cannot see it, and the server
+ * reads its chunks lazily from disk. A concurrent `next build` in the same
+ * working directory replaces the whole directory while a server is serving it,
+ * and the server then answers 500 for pages whose chunks were swapped.
+ *
+ * That is not hypothetical. It happened during a full run here: three gates went
+ * red with "Internal Server Error", the tree was clean the whole time, and the
+ * only trace was that the build id on disk at the end was not the one the server
+ * had started on. A red gate that was never the product's fault is the same
+ * failure as a wrong cause written into a document -- it costs the next person
+ * hours and sends them to open the wrong file.
+ *
+ * So the run is CONTAMINATED, which is not the same as failed and not the same
+ * as passed: the measurements are real but they describe a build that no longer
+ * exists, and they cannot be read as a verdict on this commit.
+ */
+const buildAtEnd = readBuildId();
+const buildChanged = Boolean(buildAtStart) && buildAtEnd !== buildAtStart;
+const contaminated = buildChanged;
+
+if (contaminated) {
+  process.stdout.write(
+    `CONTAMINATED  the build changed during this run: served ${buildAtStart}, on disk now ${buildAtEnd}.\n` +
+      '             Something rebuilt .next while these gates were running, so the results below\n' +
+      '             describe a build that no longer exists and cannot be read as a verdict on\n' +
+      `             ${commit}. Re-run the recorder on its own.\n\n`,
+  );
+}
+
+/*
  * A blocked or failed gate must not delete the proof of a previous pass. The
  * last run that actually measured this gate is kept separately and reported, so
  * the record shows both "it worked on Tuesday" and "it measured nothing today"
@@ -594,6 +710,10 @@ const record = {
   at: new Date().toISOString(),
   commit,
   tree,
+  build: { atStart: buildAtStart, atEnd: buildAtEnd, changed: buildChanged },
+  contaminated,
+  partial: Boolean(only),
+  gateCount: gates.length,
   node: process.version,
   summary: {
     pass: Object.values(results).filter((r) => r.status === 'pass').length,
@@ -603,12 +723,44 @@ const record = {
   },
   results,
   lastPassing,
+  /*
+   * The server's own error output, kept only when something went wrong. A gate
+   * that reported "Internal Server Error" without the server's log is a report
+   * with no cause in it, and reconstructing the cause by hand is the expensive
+   * part.
+   */
+  serverLog: serverLog.length ? serverLog.join('\n') : undefined,
   note:
     'Recorded by scripts/run-gates.mjs. A blocked gate measured nothing and never overwrites a previous pass; see lastPassing. ' +
-    'The gates run the WORKING TREE, so `commit` describes only what was checked out: read `tree` for whether that commit is also what was measured.',
+    'The gates run the WORKING TREE, so `commit` describes only what was checked out: read `tree` for whether that commit is also what was measured. ' +
+    '`build` records the build the server served, and `contaminated` says whether that build changed while the run was in flight.',
 };
 
-previous.runs = [...(previous.runs ?? []), record].slice(-30);
+/*
+ * A DIAGNOSTIC RUN MUST NOT EVICT A FULL RUN.
+ *
+ * The history was capped at thirty records and the cap was applied to all runs
+ * alike, so eight `--only=typecheck` probes pushed two full-suite runs out of
+ * the file. That is the wrong way round: the file is the project's proof, and a
+ * one-gate diagnostic is worth less than a full run of every gate. The two
+ * records lost that way cannot be reconstructed from the file afterwards.
+ *
+ * So full runs and partial runs are counted separately, and a partial run is
+ * dropped before a full one is. The full-run cap is the thirty the file has
+ * always had; the partial runs get five slots of their own on top, so a
+ * diagnostic can never push a full run out. Records written before this
+ * distinction existed have no `partial` field and count as full, which is the
+ * right reading of them -- the registry grew over time, so an older run with
+ * fewer results was still every gate that existed then.
+ */
+const KEEP_FULL = 30;
+const KEEP_PARTIAL = 5;
+
+const all = [...(previous.runs ?? []), record];
+const fullRuns = all.filter((r) => !r.partial);
+const partialRuns = all.filter((r) => r.partial);
+const kept = new Set([...fullRuns.slice(-KEEP_FULL), ...partialRuns.slice(-KEEP_PARTIAL)]);
+previous.runs = all.filter((r) => kept.has(r));
 
 mkdirSync(dirname(OUT), { recursive: true });
 writeFileSync(OUT, `${JSON.stringify(previous, null, 2)}\n`, 'utf8');
@@ -618,7 +770,13 @@ process.stdout.write(
   `${record.summary.pass} pass, ${record.summary.blocked} blocked, ${record.summary.fail} fail, ${record.summary.error} error\n`,
 );
 
-if (record.summary.blocked + record.summary.fail + record.summary.error > 0) {
+if (contaminated) {
+  process.stdout.write(
+    'this run is CONTAMINATED, not a verdict: the build it served no longer exists on disk, so its results\n' +
+      'describe a build that was replaced mid-flight. Re-run the recorder on its own to get a real answer.\n',
+  );
+  process.exitCode = 1;
+} else if (record.summary.blocked + record.summary.fail + record.summary.error > 0) {
   process.stdout.write(
     'a blocked gate is not a pass and a failing gate is not either: this run did not prove everything\n',
   );

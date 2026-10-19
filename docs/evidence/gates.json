@@ -269,7 +269,9 @@
           "commit": "63bea86"
         }
       },
-      "note": "Recorded by scripts/run-gates.mjs. A blocked gate measured nothing and never overwrites a previous pass; see lastPassing."
+      "note": "Recorded by scripts/run-gates.mjs. A blocked gate measured nothing and never overwrites a previous pass; see lastPassing.",
+      "partial": false,
+      "gateCount": 11
     },
     {
       "at": "2026-10-16T07:22:06.949Z",
@@ -597,7 +599,9 @@
           "commit": "87a98f8"
         }
       },
-      "note": "Recorded by scripts/run-gates.mjs. A blocked gate measured nothing and never overwrites a previous pass; see lastPassing."
+      "note": "Recorded by scripts/run-gates.mjs. A blocked gate measured nothing and never overwrites a previous pass; see lastPassing.",
+      "partial": false,
+      "gateCount": 11
     },
     {
       "at": "2026-10-16T07:58:41.337Z",
@@ -868,7 +872,9 @@
           "commit": "87a98f8"
         }
       },
-      "note": "Recorded by scripts/run-gates.mjs. A blocked gate measured nothing and never overwrites a previous pass; see lastPassing."
+      "note": "Recorded by scripts/run-gates.mjs. A blocked gate measured nothing and never overwrites a previous pass; see lastPassing.",
+      "partial": false,
+      "gateCount": 11
     },
     {
       "at": "2026-10-16T09:03:34.143Z",
@@ -1195,7 +1201,9 @@
           "commit": "b934402"
         }
       },
-      "note": "Recorded by scripts/run-gates.mjs. A blocked gate measured nothing and never overwrites a previous pass; see lastPassing."
+      "note": "Recorded by scripts/run-gates.mjs. A blocked gate measured nothing and never overwrites a previous pass; see lastPassing.",
+      "partial": false,
+      "gateCount": 11
     },
     {
       "at": "2026-10-16T09:17:06.137Z",
@@ -1465,7 +1473,9 @@
           "commit": "b934402"
         }
       },
-      "note": "Recorded by scripts/run-gates.mjs. A blocked gate measured nothing and never overwrites a previous pass; see lastPassing."
+      "note": "Recorded by scripts/run-gates.mjs. A blocked gate measured nothing and never overwrites a previous pass; see lastPassing.",
+      "partial": false,
+      "gateCount": 11
     },
     {
       "at": "2026-10-16T09:25:48.971Z",
@@ -1777,7 +1787,9 @@
           "commit": "ae79b7d"
         }
       },
-      "note": "Recorded by scripts/run-gates.mjs. A blocked gate measured nothing and never overwrites a previous pass; see lastPassing."
+      "note": "Recorded by scripts/run-gates.mjs. A blocked gate measured nothing and never overwrites a previous pass; see lastPassing.",
+      "partial": false,
+      "gateCount": 11
     },
     {
       "at": "2026-10-16T15:36:07.006Z",
@@ -2108,7 +2120,9 @@
           "commit": "ae79b7d"
         }
       },
-      "note": "Recorded by scripts/run-gates.mjs. A blocked gate measured nothing and never overwrites a previous pass; see lastPassing."
+      "note": "Recorded by scripts/run-gates.mjs. A blocked gate measured nothing and never overwrites a previous pass; see lastPassing.",
+      "partial": false,
+      "gateCount": 11
     },
     {
       "at": "2026-10-16T17:00:39.610Z",
@@ -2427,7 +2441,9 @@
           "commit": "ae79b7d"
         }
       },
-      "note": "Recorded by scripts/run-gates.mjs. A blocked gate measured nothing and never overwrites a previous pass; see lastPassing."
+      "note": "Recorded by scripts/run-gates.mjs. A blocked gate measured nothing and never overwrites a previous pass; see lastPassing.",
+      "partial": false,
+      "gateCount": 11
     },
     {
       "at": "2026-10-16T17:10:17.121Z",
@@ -2709,7 +2725,9 @@
           "commit": "ae79b7d"
         }
       },
-      "note": "Recorded by scripts/run-gates.mjs. A blocked gate measured nothing and never overwrites a previous pass; see lastPassing."
+      "note": "Recorded by scripts/run-gates.mjs. A blocked gate measured nothing and never overwrites a previous pass; see lastPassing.",
+      "partial": false,
+      "gateCount": 11
     },
     {
       "at": "2026-10-16T17:48:04.774Z",
@@ -3060,7 +3078,9 @@
           "commit": "ae79b7d"
         }
       },
-      "note": "Recorded by scripts/run-gates.mjs. A blocked gate measured nothing and never overwrites a previous pass; see lastPassing."
+      "note": "Recorded by scripts/run-gates.mjs. A blocked gate measured nothing and never overwrites a previous pass; see lastPassing.",
+      "partial": false,
+      "gateCount": 11
     },
     {
       "at": "2026-10-16T18:02:35.726Z",
@@ -3342,7 +3362,9 @@
           "commit": "ae79b7d"
         }
       },
-      "note": "Recorded by scripts/run-gates.mjs. A blocked gate measured nothing and never overwrites a previous pass; see lastPassing."
+      "note": "Recorded by scripts/run-gates.mjs. A blocked gate measured nothing and never overwrites a previous pass; see lastPassing.",
+      "partial": false,
+      "gateCount": 11
     },
     {
       "at": "2026-10-17T02:22:30.089Z",
@@ -3697,7 +3719,9 @@
           "commit": "ae79b7d"
         }
       },
-      "note": "Recorded by scripts/run-gates.mjs. A blocked gate measured nothing and never overwrites a previous pass; see lastPassing."
+      "note": "Recorded by scripts/run-gates.mjs. A blocked gate measured nothing and never overwrites a previous pass; see lastPassing.",
+      "partial": false,
+      "gateCount": 11
     },
     {
       "at": "2026-10-17T02:39:14.324Z",
@@ -3967,7 +3991,9 @@
         }
       },
       "lastPassing": {},
-      "note": "Recorded by scripts/run-gates.mjs. A blocked gate measured nothing and never overwrites a previous pass; see lastPassing."
+      "note": "Recorded by scripts/run-gates.mjs. A blocked gate measured nothing and never overwrites a previous pass; see lastPassing.",
+      "partial": false,
+      "gateCount": 11
     },
     {
       "at": "2026-10-17T03:26:29.092Z",
@@ -4236,7 +4262,9 @@
         }
       },
       "lastPassing": {},
-      "note": "Recorded by scripts/run-gates.mjs. A blocked gate measured nothing and never overwrites a previous pass; see lastPassing."
+      "note": "Recorded by scripts/run-gates.mjs. A blocked gate measured nothing and never overwrites a previous pass; see lastPassing.",
+      "partial": false,
+      "gateCount": 11
     },
     {
       "at": "2026-10-17T06:33:15.647Z",
@@ -4520,7 +4548,9 @@
           "commit": "a9b664b"
         }
       },
-      "note": "Recorded by scripts/run-gates.mjs. A blocked gate measured nothing and never overwrites a previous pass; see lastPassing."
+      "note": "Recorded by scripts/run-gates.mjs. A blocked gate measured nothing and never overwrites a previous pass; see lastPassing.",
+      "partial": false,
+      "gateCount": 11
     },
     {
       "at": "2026-10-17T07:27:48.278Z",
@@ -4860,7 +4890,9 @@
           "commit": "60ca219"
         }
       },
-      "note": "Recorded by scripts/run-gates.mjs. A blocked gate measured nothing and never overwrites a previous pass; see lastPassing."
+      "note": "Recorded by scripts/run-gates.mjs. A blocked gate measured nothing and never overwrites a previous pass; see lastPassing.",
+      "partial": false,
+      "gateCount": 11
     },
     {
       "at": "2026-10-17T09:51:21.239Z",
@@ -5144,7 +5176,9 @@
           "commit": "366615f"
         }
       },
-      "note": "Recorded by scripts/run-gates.mjs. A blocked gate measured nothing and never overwrites a previous pass; see lastPassing."
+      "note": "Recorded by scripts/run-gates.mjs. A blocked gate measured nothing and never overwrites a previous pass; see lastPassing.",
+      "partial": false,
+      "gateCount": 11
     },
     {
       "at": "2026-10-18T15:38:39.220Z",
@@ -5432,7 +5466,9 @@
           "commit": "366615f"
         }
       },
-      "note": "Recorded by scripts/run-gates.mjs. A blocked gate measured nothing and never overwrites a previous pass; see lastPassing."
+      "note": "Recorded by scripts/run-gates.mjs. A blocked gate measured nothing and never overwrites a previous pass; see lastPassing.",
+      "partial": false,
+      "gateCount": 11
     },
     {
       "at": "2026-10-19T02:39:21.484Z",
@@ -5824,7 +5860,9 @@
           "commit": "366615f"
         }
       },
-      "note": "Recorded by scripts/run-gates.mjs. A blocked gate measured nothing and never overwrites a previous pass; see lastPassing."
+      "note": "Recorded by scripts/run-gates.mjs. A blocked gate measured nothing and never overwrites a previous pass; see lastPassing.",
+      "partial": false,
+      "gateCount": 11
     },
     {
       "at": "2026-10-19T03:13:27.089Z",
@@ -6114,7 +6152,9 @@
         }
       },
       "lastPassing": {},
-      "note": "Recorded by scripts/run-gates.mjs. A blocked gate measured nothing and never overwrites a previous pass; see lastPassing."
+      "note": "Recorded by scripts/run-gates.mjs. A blocked gate measured nothing and never overwrites a previous pass; see lastPassing.",
+      "partial": false,
+      "gateCount": 11
     },
     {
       "at": "2026-10-19T03:48:09.578Z",
@@ -6403,7 +6443,9 @@
         }
       },
       "lastPassing": {},
-      "note": "Recorded by scripts/run-gates.mjs. A blocked gate measured nothing and never overwrites a previous pass; see lastPassing."
+      "note": "Recorded by scripts/run-gates.mjs. A blocked gate measured nothing and never overwrites a previous pass; see lastPassing.",
+      "partial": false,
+      "gateCount": 11
     },
     {
       "at": "2026-10-19T04:22:02.526Z",
@@ -6777,7 +6819,9 @@
           "commit": "fe01de2"
         }
       },
-      "note": "Recorded by scripts/run-gates.mjs. A blocked gate measured nothing and never overwrites a previous pass; see lastPassing."
+      "note": "Recorded by scripts/run-gates.mjs. A blocked gate measured nothing and never overwrites a previous pass; see lastPassing.",
+      "partial": false,
+      "gateCount": 11
     },
     {
       "at": "2026-10-19T04:52:04.883Z",
@@ -7066,7 +7110,9 @@
         }
       },
       "lastPassing": {},
-      "note": "Recorded by scripts/run-gates.mjs. A blocked gate measured nothing and never overwrites a previous pass; see lastPassing."
+      "note": "Recorded by scripts/run-gates.mjs. A blocked gate measured nothing and never overwrites a previous pass; see lastPassing.",
+      "partial": false,
+      "gateCount": 11
     },
     {
       "at": "2026-10-19T05:04:17.229Z",
@@ -7099,7 +7145,9 @@
         }
       },
       "lastPassing": {},
-      "note": "Recorded by scripts/run-gates.mjs. A blocked gate measured nothing and never overwrites a previous pass; see lastPassing."
+      "note": "Recorded by scripts/run-gates.mjs. A blocked gate measured nothing and never overwrites a previous pass; see lastPassing.",
+      "partial": false,
+      "gateCount": 2
     },
     {
       "at": "2026-10-19T05:25:48.806Z",
@@ -7423,7 +7471,9 @@
         }
       },
       "lastPassing": {},
-      "note": "Recorded by scripts/run-gates.mjs. A blocked gate measured nothing and never overwrites a previous pass; see lastPassing."
+      "note": "Recorded by scripts/run-gates.mjs. A blocked gate measured nothing and never overwrites a previous pass; see lastPassing.",
+      "partial": false,
+      "gateCount": 13
     },
     {
       "at": "2026-10-19T05:43:50.799Z",
@@ -7506,7 +7556,9 @@
         }
       },
       "lastPassing": {},
-      "note": "Recorded by scripts/run-gates.mjs. A blocked gate measured nothing and never overwrites a previous pass; see lastPassing."
+      "note": "Recorded by scripts/run-gates.mjs. A blocked gate measured nothing and never overwrites a previous pass; see lastPassing.",
+      "partial": false,
+      "gateCount": 1
     },
     {
       "at": "2026-10-19T05:58:01.455Z",
@@ -7885,7 +7937,9 @@
           "commit": "329c897"
         }
       },
-      "note": "Recorded by scripts/run-gates.mjs. A blocked gate measured nothing and never overwrites a previous pass; see lastPassing."
+      "note": "Recorded by scripts/run-gates.mjs. A blocked gate measured nothing and never overwrites a previous pass; see lastPassing.",
+      "partial": false,
+      "gateCount": 15
     },
     {
       "at": "2026-10-19T06:48:40.413Z",
@@ -8312,7 +8366,9 @@
           "commit": "bb4e3dc"
         }
       },
-      "note": "Recorded by scripts/run-gates.mjs. A blocked gate measured nothing and never overwrites a previous pass; see lastPassing."
+      "note": "Recorded by scripts/run-gates.mjs. A blocked gate measured nothing and never overwrites a previous pass; see lastPassing.",
+      "partial": false,
+      "gateCount": 15
     },
     {
       "at": "2026-10-19T07:03:45.699Z",
@@ -8669,7 +8725,9 @@
         }
       },
       "lastPassing": {},
-      "note": "Recorded by scripts/run-gates.mjs. A blocked gate measured nothing and never overwrites a previous pass; see lastPassing."
+      "note": "Recorded by scripts/run-gates.mjs. A blocked gate measured nothing and never overwrites a previous pass; see lastPassing.",
+      "partial": false,
+      "gateCount": 15
     },
     {
       "at": "2026-10-19T08:06:48.295Z",
@@ -9109,7 +9167,9 @@
           "commit": "f7c31b9"
         }
       },
-      "note": "Recorded by scripts/run-gates.mjs. A blocked gate measured nothing and never overwrites a previous pass; see lastPassing."
+      "note": "Recorded by scripts/run-gates.mjs. A blocked gate measured nothing and never overwrites a previous pass; see lastPassing.",
+      "partial": false,
+      "gateCount": 16
     }
   ]
 }
