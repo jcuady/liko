@@ -2204,3 +2204,61 @@ one is dated rather than phrased as a standing truth.
 The two decisions remain the owner's: whether an administrator may read a
 child's roster, and whether to ship store buttons with no app behind them.
 
+## Round fourteen: thirty-six links to nowhere that all existed
+
+Round thirteen ended by listing what its gate did not cover. One of those lines
+was "links to routes that do not exist", and that is the question this round
+answered.
+
+### The answer is no, and getting there took four wrong answers
+
+`verify:links` walks the App Router to build the set of real URLs, then parses
+every `.tsx` under `src` for the `href`s written in the source. The answer is
+**62 internal links across 44 routes, 0 broken, 0 unexamined.**
+
+Getting there looked like this:
+
+| pass | reported | why it was wrong |
+| --- | --- | --- |
+| one | 36 broken, including `/login` | the route set held 15 entries instead of 44 |
+| two | 0 broken, 10 unexamined | `mailto:` and `#` counted as unexaminable; partial prefixes not checked |
+| three | 0 broken, 0 unexamined | correct |
+
+### The bug was one missing `else`
+
+The first version built the route set by skipping any directory whose name was
+a route group, because `(dashboard)` contributes no URL segment. It should have
+descended into it *without adding a segment*. Skipping meant the set held the ten
+top-level marketing pages and nothing else, and the gate then reported
+`/login`, `/register`, `/overview` and `/slides` as links to nowhere.
+
+**Thirty-six confident wrong answers from one missing `else**, and every one of
+them named a page that plainly exists. A person reading that list would have
+started "fixing" working navigation.
+
+The second fix is smaller and is the one that makes the number worth having. A
+link written as `` `/flashcards/${id}` `` has no static string to compare, and
+the first version put all ten of those in an "unexamined" bucket, which is a way
+of saying "I did not check". Their static prefix is checkable, and every one of
+them resolves. `mailto:` and `#` were in that bucket too, which mixed a limit
+with a defect.
+
+### It can fail
+
+Before recording the zero, a file was planted holding seven links: one to a
+route that does not exist, one `href=""`, and five that are all legitimate
+(`/slides` reaching the parent of a dynamic segment, `/slides/abc123` reaching
+the child, `/pricing?plan=school#top` with both a query and a fragment, an
+external URL, and a fragment-only anchor). The gate reported exactly the first
+two, named them with file and line, and exited 1.
+
+### What it still does not cover
+
+`router.push('/x')` and `redirect('/x')` are not `href`s and are not read here.
+Whether a destination then *permits* the reader is `verify:app`'s job and it
+already does that per role. This gate answers "does the page exist", not "can
+this person see it", and the difference is worth naming because conflating the
+two is how a route ends up looking reachable and being useless.
+
+Registered as `pnpm verify:links` and wired into `run-gates.mjs`.
+

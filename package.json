@@ -30,6 +30,7 @@
     "verify:saas": "node scripts/verify-prod-saas.mjs",
     "verify:app": "node --env-file=.env.local scripts/verify-app-live.mjs",
     "verify:controls": "node scripts/verify-controls.mjs",
+    "verify:links": "node scripts/verify-links.mjs",
     "verify:filters": "node scripts/verify-filters.mjs",
     "probe:guardian": "node --env-file=.env.local scripts/probe-guardian-views.mjs"
   },
