@@ -549,6 +549,20 @@ Audited 2026-10-19: **all 45 routes in `src/app` were enumerated and every user-
 
 **What it does not claim.** That a filter is *attached*, not that it filters correctly — `e2e` answers that, with real interactions. And it deliberately covers five tags, not every input-like element: `Checkbox` and `Switch` were considered and left out, because a narrow question answered correctly is worth more than a broad one that cries wolf.
 
+## Nine red e2e tests that were one red cause, and how to tell
+
+**What the run said.** `19 pass, 1 blocked, 1 fail`, with the e2e gate reporting **9 failed, 14 did not run, 218 passed**. Nine failures, and the record only showed the last two of them.
+
+**The recorder could not show the rest, and that was its own defect.** A gate's output is kept as a 60-line tail. Nine Playwright failures take about fifteen lines each, so the record kept failures 8 and 9 and **silently dropped 1 to 7** — the worst way round, because the first failure is the cause and the rest are the echo. A failing gate now keeps **400 lines**, and a truncated tail says so on its first line rather than presenting itself as the whole story. The fix was proven by the very run that motivated it: the re-run showed failures 1 through 6, where before it could only show 8 and 9.
+
+**What the failures actually were.** Scattered across `deck-upload`, `import`, `quiz-maker`, `schedule`, `slide-editor` and `slides`. A regression that appears in six unrelated features at once is not a regression in any of them, and no product code under any of those features had changed since the previous green run.
+
+**The cause.** Two Playwright runs were in flight in the same working directory. `playwright.config.ts` sets `reuseExistingServer: !process.env.CI`, so outside CI a suite **adopts whatever is already listening on 3311** rather than starting its own. The two runs therefore shared one server, one in-memory fixture workspace and one `.next`, and each saw the other's state. The proof is inside the failure messages: a single-element locator in the quiz maker matched **both "Question 1" and "Question 2"**, which is not a product fault but two runs writing to one fixture.
+
+**The fix, and it is the 3317 argument again.** The recorder's e2e gate now runs on **port 3319**, not 3311 — for exactly the reason `SERVER_PORT` is 3317 and not 3311. `playwright.config.ts` reads `PORT` from the environment and nothing in the suite hardcodes 3311, so a dedicated port means this run can never adopt somebody else's server. Two runs then either succeed independently or say so.
+
+**What this does not solve, stated plainly.** The port stops *server adoption*. It does not stop *build collision*: one working directory has one `.next`, so two suites building at once still contend for the Next.js build lock. That one is loud — the second build exits with `⨯ Another next build process is already running` rather than corrupting anything — which is the right way to fail. But it does mean **a full e2e measurement is not obtainable while another suite is running in this directory**, and the last clean one remains **241 passed / 0 failed**.
+
 ## Every route-permission rule gates a real route
 
 `scripts/verify:rbac-routes` is **gate 21**, and it closes a hole that nothing else could see.

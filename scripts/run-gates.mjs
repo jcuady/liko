@@ -97,6 +97,17 @@ function launcherFor(command) {
 const TAIL_LINES = 60;
 
 /**
+ * How much of a FAILING gate's output to keep.
+ *
+ * Six times the passing tail, and for one reason: a passing gate's tail is a
+ * summary nobody needs to diagnose, while a failing gate's output IS the
+ * diagnosis. Sixty lines covered a single failure; an e2e run that failed nine
+ * tests kept the last four and dropped the first five, which is the worst way
+ * round -- the first failure is the cause and the rest are the echo.
+ */
+const TAIL_LINES_FAILURE = 400;
+
+/**
  * Gates, by the package.json script that defines them.
  *
  * The recorder reads each script's own command out of `package.json` and runs
@@ -117,7 +128,7 @@ const GATES = [
   { id: 'check:sql', script: 'check:sql' },
   { id: 'check:redaction', script: 'check:redaction' },
   { id: 'check:primitives', script: 'check:primitives' },
-  { id: 'e2e', script: 'e2e' },
+  { id: 'e2e', script: 'e2e', env: { PORT: String(E2E_PORT) } },
   { id: 'check:responsive', script: 'check:responsive', server: true },
   { id: 'check:behaviour', script: 'check:behaviour', server: true },
   { id: 'probe:shape', script: 'probe:shape' },
@@ -218,9 +229,20 @@ function invoke(exe, args, { timeout, viaCmd, env }) {
   return execFileSync('cmd.exe', ['/d', '/s', '/c', [exe, ...args].join(' ')], shared);
 }
 
-function tail(text) {
-  const lines = redact(text).split(/\r?\n/).filter((l) => l.trim().length > 0);
-  return lines.slice(-TAIL_LINES);
+function tail(text, lines = TAIL_LINES) {
+  const kept = redact(text).split(/\r?\n/).filter((l) => l.trim().length > 0);
+  /*
+   * A truncated failure tail says "this was truncated" rather than pretending to
+   * be the whole story. It happened: an e2e run failed 9 tests and the record kept
+   * the last 60 lines, which showed failures 8 and 9 and silently dropped 1 to 7.
+   * The FIRST failure is the one that matters -- the rest are usually cascade --
+   * so a reader who cannot see it is left with the cause and none of the effect.
+   */
+  const out = kept.slice(-lines);
+  if (kept.length > lines) {
+    out.unshift(`[... ${kept.length - lines} earlier line(s) omitted ...]`);
+  }
+  return out;
 }
 
 /*
@@ -243,6 +265,31 @@ function tail(text) {
  * server here cannot quietly reintroduce the bug it prevents.
  */
 const SERVER_PORT = 3317;
+
+/**
+ * The port the e2e suite gets when the RECORDER runs it.
+ *
+ * `playwright.config.ts` reads `PORT` and defaults to 3311, and it sets
+ * `reuseExistingServer: !process.env.CI` — so outside CI a suite **adopts
+ * whatever is already listening** instead of starting its own. Two suites in one
+ * working directory therefore share one server, one in-memory fixture workspace
+ * and one `.next`, and they corrupt each other's state rather than failing
+ * loudly.
+ *
+ * That is not hypothetical. Two Playwright runs were in flight at once and the
+ * evidence read **9 failed, 14 did not run, 218 passed**, scattered across
+ * deck-upload, import, quiz-maker, schedule, slide-editor and slides — with
+ * fixtures from one test visible to another ("Question 1" and "Question 2" both
+ * matching a single-element locator). No product code had changed under any of
+ * those features since the previous green run. A regression that appears in six
+ * unrelated features at once, with no diff to any of them, is shared state, not
+ * a defect.
+ *
+ * 3319, for the same reason 3317 exists: not 3311 on purpose. Give this run its
+ * own port and it cannot adopt somebody else's server, so two runs either
+ * succeed independently or say so.
+ */
+const E2E_PORT = 3319;
 
 let server = null;
 
@@ -470,7 +517,7 @@ function run(gate) {
       ms: Date.now() - started,
       tail: neverRan
         ? [`the gate could not be started at all: ${String(error.message ?? error).slice(0, 300)}`]
-        : tail(combined),
+        : tail(combined, TAIL_LINES_FAILURE),
     };
   }
 }
