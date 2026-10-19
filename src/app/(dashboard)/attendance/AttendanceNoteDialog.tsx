@@ -69,12 +69,26 @@ export function AttendanceNoteDialog({
     mutationFn: addAttendanceNote,
   });
 
-  // Closing must not leave yesterday's half-written note in the field.
+  /*
+   * Closing must not leave yesterday's half-written note in the field.
+   *
+   * Every route out of the dialog goes through here rather than through a bare
+   * `setOpen(false)`. The first version reset from `onOpenChange` only, and the
+   * Cancel button set the state directly, which does not raise that callback:
+   * the dialog closed and the note stayed where it was, so reopening showed the
+   * teacher a sentence they had already abandoned. Radix calls `onOpenChange`
+   * when the trigger drives the state, not when the controlled prop changes.
+   */
   const reset = () => {
     setStudentId('');
     setSeverity('note');
     setEntry('');
     setProblem('');
+  };
+
+  const close = () => {
+    setOpen(false);
+    reset();
   };
 
   const save = async () => {
@@ -98,7 +112,7 @@ export function AttendanceNoteDialog({
       toast.success('Note saved.', {
         description: 'It is now part of the history for that student.',
       });
-      setOpen(false);
+      close();
     } catch {
       setProblem('That note could not be saved.');
     }
@@ -110,8 +124,8 @@ export function AttendanceNoteDialog({
     <Dialog
       open={open}
       onOpenChange={(next) => {
-        setOpen(next);
-        if (!next) reset();
+        if (next) setOpen(true);
+        else close();
       }}
     >
       <DialogTrigger asChild>
@@ -202,7 +216,7 @@ export function AttendanceNoteDialog({
         </div>
 
         <DialogFooter>
-          <Button variant="ghost" size="sm" onClick={() => setOpen(false)}>
+          <Button variant="ghost" size="sm" onClick={close}>
             Cancel
           </Button>
           <Button size="sm" onClick={save} disabled={mutation.isPending}>
