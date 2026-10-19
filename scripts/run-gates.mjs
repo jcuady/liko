@@ -119,6 +119,8 @@ const GATES = [
   { id: 'e2e', script: 'e2e' },
   { id: 'check:responsive', script: 'check:responsive', server: true },
   { id: 'check:behaviour', script: 'check:behaviour', server: true },
+  { id: 'probe:shape', script: 'probe:shape' },
+  { id: 'probe:guardian', script: 'probe:guardian', server: true, env: { LIKO_VERIFY_BASE_URL: () => `http://127.0.0.1:${SERVER_PORT}` } },
   { id: 'db:check', script: 'db:check' },
   { id: 'db:settle', script: 'db:settle' },
   { id: 'probe:files', script: 'probe:files' },
@@ -156,13 +158,16 @@ const BLOCKED = new Set(['probe:ai']);
 const EXCLUDED = {
   'probe:seats':
     'writes to the live project: it calls the security definer redeem_org_invite and cleans up after itself',
-  'probe:shape':
-    'needs the live database, and proves something check:sql cannot: that the constraint still on the server is the one written',
   'probe:gemini': 'a pre-flight provider diagnostic that overlaps probe:ai, which the recorder does run',
+  'verify:app':
+    'RED on two assertions and not mine to decide: a student asking for /grades/export is ' +
+    'answered 200 text/html, because proxy.ts rewrites a refused role to the /forbidden ' +
+    'page rather than returning 403, so the "refused outright" expectation does not fit a ' +
+    'rewrite-based refusal. No grade data leaks -- the route can only answer text/csv -- but ' +
+    'whether the route or the assertion is wrong is an open call. Registering a known-red ' +
+    'gate would make every run red, so it stays out until that is settled.',
   'probe:ai:check': 'not a measurement: it replays the cache probe:ai has just written, and probe:ai already reports the result',
   'verify:saas': 'live HTTP against the deployed site, which needs a deployment rather than a checkout',
-  'verify:app': 'needs a running server; this is the gap probe:guardian was written to cover for guardians',
-  'probe:guardian': 'needs a running server or a live host; set LIKO_VERIFY_BASE_URL to choose one',
   'db:apply': 'an operation, not a measurement: it writes the migration',
 };
 
@@ -229,7 +234,21 @@ const SERVER_PORT = 3317;
 let server = null;
 
 function serverEnv() {
-  return { ...process.env, PORT: String(SERVER_PORT) };
+  /*
+   * `LIKO_DATA_MODE=supabase`, DELIBERATELY AGAINST `.env.local`.
+   *
+   * `.env.local` says `fixtures`, and the e2e suite inherits that — its own
+   * webServer sets a session secret and a rate-limit override and nothing else.
+   * But a gate that touches data cannot use fixtures: pointed at a
+   * fixture-mode server, `verify:app` reports **41 passed, 16 failed**, and one
+   * of those reads `writing attendance into another teacher's class is refused —
+   * answered 200`, which looks exactly like a cross-tenant security hole and is
+   * an artefact of the wrong mode. `probe:guardian` fails the same way.
+   *
+   * Supabase is also the mode production runs in, so the layout and no-JS gates
+   * are better off on it: they then measure the server a real request reaches.
+   */
+  return { ...process.env, PORT: String(SERVER_PORT), LIKO_DATA_MODE: 'supabase' };
 }
 
 /** Start the server and wait for it to answer, without throwing. */
@@ -337,7 +356,12 @@ function run(gate) {
     };
   }
 
-  const env = gate.server ? serverEnv() : undefined;
+  const env = { ...(gate.server ? serverEnv() : {}) };
+  // A gate may name the target it should measure; a value may be a function so it
+  // can depend on SERVER_PORT rather than repeating the number in two places.
+  for (const [key, value] of Object.entries(gate.env ?? {})) {
+    env[key] = typeof value === 'function' ? value() : value;
+  }
   if (gate.server) {
     const ready = ensureServer();
     if (!ready.ok) {
