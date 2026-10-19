@@ -542,6 +542,30 @@ Audited 2026-10-19: **all 45 routes in `src/app` were enumerated and every user-
 
 **What it does not claim.** That a filter is *attached*, not that it filters correctly — `e2e` answers that, with real interactions. And it deliberately covers five tags, not every input-like element: `Checkbox` and `Switch` were considered and left out, because a narrow question answered correctly is worth more than a broad one that cries wolf.
 
+## Every route-permission rule gates a real route
+
+`scripts/verify:rbac-routes` is **gate 21**, and it closes a hole that nothing else could see.
+
+**The hole.** `ROUTE_PERMISSIONS` in `src/lib/auth/rbac.ts` is a list of prefixes that decide which role may open which page. **Nothing asserted that each prefix matches a real route.** A typo there is invisible from both directions at once: the rule looks present in the source, the page looks present on disk, and the gap between them is not something any existing check reports. `/grdes` matches nothing, the gradebook stops being gated at the proxy, and no gate reports the miss — while the *server actions* still re-check permissions, so nothing leaks and nothing looks wrong.
+
+**What is green.** 13 rules over 38 routes; **20 routes are gated and 0 rules are dead.** The 18 that are not gated are all correct: the marketing pages, the seven legal pages, `/offline`, `/pricing`, and `/forbidden` — which must render for whoever was just refused, or it cannot do its job.
+
+**Only the reverse is asserted, and the asymmetry is the design.** "No rule is dead" is wrong in every case, so it is a gate. "Every page has a rule" is *not* wrong in every case — `/settings` is role-agnostic, `/forbidden` is the refusal page, and every public page must render for an anonymous visitor — so asserting it would be a gate about a design decision nobody made. A check that encodes a preference as a requirement is how a gate gets disabled.
+
+**The matcher is copied, not imported, and says so at the point of use.** This file cannot import a TypeScript module. The condition is a verbatim copy of `permissionForPath`'s, because a gate that tested a *different* rule from the one the application applies would be a gate about the gate.
+
+**Proven to fail.** Adding `{ prefix: '/grdes', permission: 'grade:read' }` to the rule list — one character — turns it red and names the rule with the permission it would have gated:
+
+```
+FAIL  1 route rule(s) gate no route at all
+  /grdes         requires grade:read
+A rule that matches no route is doing nothing. Either the prefix is misspelled,
+in which case the page it was written to protect is no longer gated, or the route
+was renamed and the rule was left behind.
+```
+
+The mutation was reverted and `rbac.ts` verified byte-identical to `HEAD` afterwards.
+
 ## The recorder now records what it measured, not only what it is labelled with
 
 **The defect.** `scripts/run-gates.mjs` labels every run with `git rev-parse --short HEAD`. The gates run the **working tree**. Those are the same thing only when nothing is uncommitted, and the recorder never said so. A run over edited-and-staged code was therefore filed under the previous commit and read afterwards as proof about that commit.
