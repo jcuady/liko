@@ -419,10 +419,45 @@ const commit = execFileSync('git', ['rev-parse', '--short', 'HEAD'], {
  * "HEAD" is not merely imprecise for a dirty tree, it can name a version that
  * never existed.
  *
- * The paths are recorded rather than just a boolean. A count says "something was
- * dirty" and leaves the reader unable to judge whether it mattered; the list lets
- * them see that it was `b.txt` or that it was `proxy.ts`.
+ * WHY THE CHANGES ARE SPLIT INTO TWO LISTS. A dirty tree is not automatically an
+ * inexact label. A stray note at the repository root cannot change what any gate
+ * measures, and if every run printed a warning for it, the warning would be
+ * noise that people learn to skip -- which is the fate of every check that cries
+ * wolf. So the paths are sorted by whether they can reach the build, and only the
+ * ones that can are allowed to raise an alarm. The split is deliberately a
+ * whitelist of directories and root config files, because a blacklist of "safe"
+ * paths would have to be right about every new file, and a wrong blacklist is
+ * silent while a wrong whitelist is loud.
  */
+const MATERIAL_ROOTS = ['src', 'e2e', 'scripts', 'supabase', 'tests', 'public'];
+const MATERIAL_ROOT_FILES = [
+  'package.json',
+  'pnpm-lock.yaml',
+  'pnpm-workspace.yaml',
+  'tsconfig.json',
+  'playwright.config.ts',
+  'vitest.config.ts',
+  'postcss.config.mjs',
+  'next.config.ts',
+  'next.config.mjs',
+  'vercel.json',
+];
+
+function isMaterial(path) {
+  const normalised = path.replace(/\\/g, '/');
+  const head = normalised.split('/')[0];
+  if (MATERIAL_ROOT_FILES.includes(normalised)) return true;
+  if (!MATERIAL_ROOTS.includes(head)) return false;
+  /*
+   * `scripts/` holds gate scripts, so anything there matters. But a scratch file
+   * another process left behind does not, and a worktree or a build directory
+   * under `src/` is not source either.
+   */
+  if (head === 'scripts' && /\.(mjs|cjs|js|ts)$/.test(normalised)) return true;
+  if (head === 'scripts') return false;
+  return true;
+}
+
 function treeState() {
   let porcelain;
   try {
@@ -439,7 +474,21 @@ function treeState() {
     .filter((line) => line.trim() !== '')
     .map((line) => line.slice(3).trim());
 
-  return { clean: paths.length === 0, count: paths.length, paths };
+  const material = paths.filter(isMaterial);
+  const immaterial = paths.filter((p) => !isMaterial(p));
+
+  return {
+    clean: paths.length === 0,
+    count: paths.length,
+    material,
+    immaterial,
+    /*
+     * `exact` is the question the evidence record actually needs answered: does
+     * the commit label describe the code that was measured? It is not the same
+     * as "the tree is clean".
+     */
+    exact: material.length === 0,
+  };
 }
 
 const tree = treeState();
@@ -498,13 +547,19 @@ process.stdout.write(
  * Said before the gates run, not after. A reader who sees this line knows the
  * commit label on the evidence record is a label and not a measurement, and can
  * decide whether to trust the run before reading a single result.
+ *
+ * Only a change that can reach the build is allowed to raise it. A stray file
+ * that cannot change what a gate measures is reported and ignored, because a
+ * warning that fires on every run is a warning nobody reads.
  */
-if (tree.clean === false) {
+if (tree.exact === false) {
   process.stdout.write(
-    `WARNING  the working tree was not clean: ${tree.count} path(s) differ from ${commit}.\n` +
-      `         The gates measured the WORKING TREE, so ${commit} is a label on this run and\n` +
-      `         not a statement about the code that was tested.\n` +
-      tree.paths.map((p) => `           ${p}\n`).join('') +
+    `WARNING  ${tree.material.length} changed path(s) can reach the build, so ${commit} is a\n` +
+      `         label on this run and not a statement about the code that was tested.\n` +
+      tree.material.map((p) => `           ${p}\n`).join('') +
+      (tree.immaterial.length
+        ? `         ${tree.immaterial.length} further path(s) cannot reach the build and are not listed: ${tree.immaterial.join(', ')}\n`
+        : '') +
       '\n',
   );
 }
