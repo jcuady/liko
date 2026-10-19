@@ -27,44 +27,48 @@ Project: `https://ulrjitekiylgepdyijsw.supabase.co`
 | Git history | 31 commits on `main`, pushed, remote verified identical |
 | Deployment | **Live** at `https://liko-jcuadys-projects.vercel.app`, project `jcuadys-projects/liko`. Production build, `LIKO_DATA_MODE=supabase`, verified by signing in against live Supabase |
 
-### The deployment does not contain the 2026-10-17 work
+### The 2026-10-17 work is now deployed — this section is RESOLVED
 
-Recorded 2026-10-17, and it is the single most misleading thing in this document:
-**everything below is on this machine only.** `origin/main` and local `HEAD` are both
-`a101b53` at the time of writing, and 16 files are uncommitted, so the live
-deployment is running a build that predates all of it.
+**Read this as history, not as the current state.** It was written on 2026-10-17
+when `origin/main` and local `HEAD` were both `a101b53` with 16 files
+uncommitted, and the section led with "everything below is on this machine
+only". That is no longer true: both fixes are on `main` and live at
+`https://liko-jcuadys-projects.vercel.app`.
 
-**One of the two fixes is a production exposure; the other is not, and conflating
-them would send the next person to the wrong system.**
+The two fixes stayed separated deliberately, and the separation is the part
+worth keeping, because conflating them would send the next person to the wrong
+system:
 
-- **A stale demo-mode session cookie crashes data pages. This one IS live.** Under
-  `supabase`, a cookie signed in `fixtures` mode verifies, carries an id that cannot
-  name an account, and is rejected by Postgres for a uuid column — every data page
-  reaching the error boundary while answering HTTP 200. Production runs
-  `supabase`, so this applies to the deployed site.
-- **The roster fix is fixtures-mode only. Production was never affected.** The
+- **The stale demo-cookie crash WAS a production exposure, and it is fixed and
+  shipped.** Under `supabase`, a cookie signed in `fixtures` mode verifies,
+  carries an id that cannot name an account, and is rejected by Postgres for a
+  uuid column — every data page reaching the error boundary while answering HTTP
+  200. Production runs `supabase`, so this applied to the deployed site.
+- **The roster fix was fixtures-mode only. Production was never affected.** The
   change adds `isDemoStaff`, which matches the fixed demo ids `usr_demo_*`. A
   production session carries a Supabase uuid, so the predicate is false and the
   page behaves exactly as it did. This matters because the live site reads
   `Roster not visible to you` for `CHEM-2` and `PHYS-1` while showing `SCI-4` —
   and that output is **correct**. The administrator genuinely does not own the
   other two classes and RLS genuinely refuses those names; that is the fix from
-  `d75a38a` working as designed, not the defect this round repaired. The roster
-  bug was confined to the fixture workspace and the Playwright suite, where the
-  synthetic `demo-owner` matches no account id at all.
+  `d75a38a` working as designed, not a defect. The roster bug was confined to
+  the fixture workspace and the Playwright suite, where the synthetic
+  `demo-owner` matches no account id at all.
 
-Both are fixed and verified locally; neither is deployed. This closes only when the
-work is committed and `main` is deployed, which has not been done because the
-branch also carries a concurrent agent's rewrite to `src/lib/srs/scheduler.ts` and
-its test, and committing those under one message would misattribute that work.
-**Whoever picks this up should resolve that first.**
+**Why it went stale for a day, and why it cannot again.** The Vercel project had
+no git integration, so a push to `main` deployed nothing; the build was only
+ever refreshed when a human ran one. That is why `main` could move six commits
+while the public URL kept serving a build from the 17th. `vercel git connect` is
+done, and verified by watching a push create a deployment nobody asked for.
 
-The honest summary: every read and write through the seam has now run against the
-real database, not just the fixture adapter. `pnpm db:check`, `pnpm db:settle` and
-`pnpm verify:app` are the commands that prove it, and all three are green. The
-deployment is up and serving real data. What remains is one blocked signup path
-that needs a Supabase email provider, one provider key the deck generator cannot
-run without, plus things that need hardware or a lawyer.
+The honest summary, restated: every read and write through the seam has run
+against the real database, not just the fixture adapter. `pnpm db:check`,
+`pnpm db:settle` (25/0), `pnpm verify:app` (56/0) and `pnpm probe:guardian`
+(5/0, against the live host) are the commands that prove it. A parent account
+now reads its child's mark and history in the deployed product, which was not
+true a day ago. What remains is one blocked signup path that needs a Supabase
+email provider, one provider key the deck generator cannot run without, plus
+things that need hardware or a lawyer.
 
 ### The seeded demo data
 

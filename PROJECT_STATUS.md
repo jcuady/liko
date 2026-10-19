@@ -28,7 +28,7 @@ The supplied brand design in `Liko new landing design and branding/` has been ap
 - The mock's internal titles were real `h3` and `h4` elements sitting directly under the page `h1`, which is a heading-level skip. They are paragraphs now.
 - The logo, app icons, maskable icon and Open Graph image were still painted `#29813d`, the pre-rebrand green, because `BRAND_GREEN` was a constant nobody had revisited.
 
-## Open: linked accounts can see a class but not the marks on it
+## Linked accounts could see a class but not the marks on it — CLOSED
 
 **Status: CLOSED for the pages a parent can reach, measured end to end.** This
 section was first written as a derivation from the policies with an explicit
@@ -38,16 +38,20 @@ correct. The seat is now linked, the numbers below were measured with the
 guardian's own token, five linked-read policies have landed, the four
 owner-filtered reads that were discarding them have been removed, and
 `pnpm probe:guardian` now drives the rendered pages and confirms a parent sees
-its child's mark and history.
+its child's mark and history. What follows is kept as the reasoning, not as a
+description of the current state.
 
 While verifying another agent's in-flight `client.ts` fix I swept every read
 path that still filters `.eq('owner_id', userId)`. Removing that filter is
 correct on `students`, because `students` carries a second, linked-aware
 policy and the app-level filter was throwing away rows RLS was admitting. It
 is **not** a fix anywhere the table has no such policy, because there RLS
-already returns nothing and the filter is not what is stopping the read.
+already returns nothing and the filter is not what is stopping the read. That
+distinction is the whole lesson of this section: the same filter is the entire
+fix on one table and no fix at all on another.
 
-The two tables a linked account is entitled to and cannot reach:
+The state as it was, for the two tables a linked account was entitled to and
+could not reach:
 
 | Table | Policies present | Reachable by |
 |---|---|---|
@@ -61,34 +65,37 @@ account id, not the child's. So for a guardian or a student the `own rows`
 predicate is false on every row, and RLS returns an empty set before the
 application filter is even reached.
 
-Why it is still open rather than fixed here: `/grades` maps to `grade:read`
-and `/history` to `history:read`, and the matrix already grants a guardian
-`linked` on both and a student `own` on both. **The intent is already
-recorded; only the policy is missing.** That is a migration, and it is a
+This was left to the owner of the product rather than taken here, because
+`/grades` maps to `grade:read` and `/history` to `history:read`, and both are a
 policy decision about a minor's records — the same class of decision as the
-guardian seat itself, so it is not one to take unilaterally.
+guardian seat itself. **The decision was made: all six tables get the linked
+read**, on the grounds that the RBAC matrix already states the intent and only
+the schema had not implemented it.
 
 **The measurement, once unconfounded (round ten).** Linking the seat removed the
-first of the two causes; the second was measured directly and is larger than the
-two tables named above. A guardian's own token reads `classes` 1, `students` 1,
-`weekly_schedule_entries` 15 — and **zero** from `assessments`, `grades`,
-`student_history`, `lesson_plans`, `attendance` and `calendar_events`. That is
-three of nine class-scoped tables admitting a linked account. The service role
-was used only to confirm the seat is genuinely linked, because it bypasses RLS
-and would otherwise answer yes to everything.
+first of the two causes; the second was measured directly and was larger than
+the two tables named above. A guardian's own token read `classes` 1,
+`students` 1, `weekly_schedule_entries` 15 — and **zero** from `assessments`,
+`grades`, `student_history`, `lesson_plans`, `attendance` and
+`calendar_events`. Three of nine class-scoped tables admitted a linked account.
+The service role was used only to confirm the seat is genuinely linked, because
+it bypasses RLS and would otherwise answer yes to everything.
 
-So the honest summary of a parent account in this product is that it is a
-**partially built feature**, not a broken one: the matrix grants
-`class:read`, `grade:read`, `history:read` and `flashcard:read` at scope
-`linked`, and the schema implements two of those and not the others. Adding the
-missing policies is a privacy decision about a minor's records and remains
-deliberately open — a mark, an attendance row and a lesson plan are three
-different things to hand to a parent, and `attendance` has no parent-facing
-story in this product at all.
+Two corrections were made to that map rather than carried forward:
 
-It is also why `/schedule` works and `/grades` does not. That asymmetry is the
-whole map: `weekly_schedule_entries` carries a linked-aware policy, so the
-guardian's week renders fifteen lessons, while `grades` has only the generated
+- **`calendar_events` was never a gap.** It already carried a linked-aware
+  policy; the seeded rows simply had a null `student_id`, so the map recorded a
+  data fact as a policy fact. An assertion written before the migration passed
+  immediately, which is what exposed it.
+- **That policy granted too much.** It was `for all`, carrying the roster join
+  in both `using` and `with check`, while its own comment said the requirement
+  was that the student needs to *see* it. A parent could edit and delete an
+  entry the teacher had written. It is now a select policy plus three
+  owner-only write policies.
+
+It is also why `/schedule` worked while `/grades` did not. That asymmetry was
+the whole map: `weekly_schedule_entries` carried a linked-aware policy, so the
+guardian's week rendered fifteen lessons, while `grades` had only the generated
 `own rows` policy and a mark's `owner_id` is the teacher's id.
 
 ## Open: five data methods that exist and are wired to nothing
@@ -376,13 +383,13 @@ A row that was not re-run says so and carries the date it was last measured. It 
 | Typecheck | `pnpm typecheck` | **0 errors** (re-run 2026-10-17) |
 | Lint | `pnpm lint` | **0 errors, 0 warnings**, exit 0 (re-run 2026-10-17) |
 | Unit | `pnpm vitest run` | **518 passed, 10 skipped** in 40 files (re-run 2026-10-19), superseding the earlier 520/2/39. Two changes, both accounted for. **The file count rose 39 → 40 because `vitest.config.ts` was silently ignoring `*.test.tsx`, so a whole component test was never collected at all; that is a hole that was closed, not a new file.** The skip count rose 2 → 10 and that is *not* a regression: all 10 skips live in `src/lib/slides/live-response.test.ts`, they are gated on a live-model cache that `pnpm probe:ai` produces, and that probe last returned **503 at capacity**, so the cache does not exist. The tenth skip is the file's own meta-test, whose message says so in as many words ("is absent, so the live checks did not run. Produce one with: `pnpm probe:ai`"). The suite fails loudly rather than silently degrading when the model is unavailable |
-| Migration | `pnpm check:sql` | **254 statements parse; 170 cross-references resolve; RLS on 28/28 tables; 32/32 policies re-runnable.** Not re-run 2026-10-17 |
+| Migration | `pnpm check:sql` | **272 statements parse; 188 cross-references resolve; RLS on 28/28 tables; 41/41 policies re-runnable** (re-run 2026-10-19), superseding the 254/170/32 recorded on 2026-10-17. The policy count moved because five linked-read policies and the three owner-only calendar write policies were added, replacing one `for all` policy — see the linked-scope section |
 | Production build | `pnpm build` | **exit 0, compiled successfully.** Re-run 2026-10-17. The one standing warning was `unpdf` reaching for `import.meta`, which webpack cannot analyse. It is silenced by exact module path in `next.config.ts` rather than tolerated, because a warning that fires on every build is one the team learns to skip. The e2e upload suite is what keeps that honest: it parses a real PDF through the built server |
 | End to end | `pnpm e2e` | **Flaky at every worker count**, so no single figure is a gate. Four full runs on 2026-10-17: `workers: 4` → 231/0 then 213/7; `workers: 1` → 231/0 then 230/1. Every failing spec passes in isolation. Rate limiting and parallelism are both **ruled out**; what survives is an intermittent Radix-select fault whose cause is not established. **A green run here is not evidence of anything** — see the 2026-10-17 entry |
 | Live provider | `pnpm probe:ai` | **2 passed**: the real model returns a deck, and the answer is replayed through the real validator. Run on demand, never in the suite. Not re-run 2026-10-17 |
 | Static layout | `pnpm check:responsive` | **PASS at 375, 768, 1024, 1440 and 1920px**, no horizontal overflow. Not re-run 2026-10-17 |
 | Static behaviour | `pnpm check:behaviour` | **all passed**: anchors clear the nav, reduced motion, no-JS fallback. Not re-run 2026-10-17 |
-| Live schema | `pnpm db:apply` then `pnpm db:check` | **APPLIED AND CONFIRMED 2026-10-17**, superseding the earlier "not re-run" note on this row. The migration file defines 28 tables and 32 policies; `db:check` reports all 28 tables present against the live project |
+| Live schema | `pnpm db:apply` then `pnpm db:check` | **RE-APPLIED AND CONFIRMED 2026-10-19**, superseding the 2026-10-17 confirmation on this row. The migration file defines 28 tables and 41 policies; `db:check` reports all 28 tables present against the live project, and its self-check confirms two canary tables correctly read as missing |
 | Live RLS behaviour | `pnpm db:settle` | **25 passed, 0 failed** (re-run 2026-10-19), superseding the earlier 16 and the 14 before it. Includes six flashcard assertions, six linked-read assertions comparing the EXACT set of row ids a guardian may read (`grades`, `attendance`, `student_history`, `calendar_events`, `assessments`, `lesson_plans`) rather than a count, because a count is satisfied by a guardian who can read everything, and three calendar-write assertions that a parent may not edit or delete an entry its child's teacher wrote while the teacher still may. Confirmed load-bearing: run before the policies were applied it reported **17 passed, 5 failed**, and before the write split it reported **23 passed, 2 failed** — the failures were exactly the newly-guaranteed behaviours |
 | Live application | `pnpm verify:app` | **56 passed, 0 failed** (re-run 2026-10-19), every workspace route rendering with real seeded data, refusals holding, an attendance write read back out of Postgres and replayed without duplicating, a write into another teacher's class refused, the at-risk sweep authenticating and staying idempotent, the push route refusing six SSRF payloads and enforcing per-teacher ownership, an outbound dispatch reaching the push service and pruning a dead endpoint, and registration reported as blocked by the email quota. **Its guardian coverage is thinner than it looks and is recorded as such**: for `guardian@liko.test` it asserts only that `/overview` renders and `/admin` is refused. It never visits `/grades` or `/history` for that role, so 56/0 is satisfied by a guardian whose every page is empty — which is the state this product spent two rounds in |
 | What a parent actually SEES | `pnpm probe:guardian` | **5 passed, 0 failed** (re-run 2026-10-19), the gate that answers the question `verify:app` structurally cannot: signs the guardian in against the live project and asserts that `/grades` names the linked child **and** renders the assessment that child's mark is on, and that `/history` names the child. Seed-written witnesses (`Ben Osei`, `Unit 1: Atomic Structure`) rather than a blacklist of empty-state phrases — the first version of this probe blacklisted "no marks" and reported a working gradebook as empty, because the page always renders the sentence "A student with no marks yet has no total rather than a zero". A check built on absence matches prose |
@@ -524,7 +531,12 @@ Three of the five blockers listed here were resolved on 2026-10-09 and are kept 
 6. **OPEN: the legal text has not been read by a lawyer.** It describes this implementation accurately, which is the most it can do, but accuracy about the system is not legal sufficiency.
 7. **OPEN: Supabase's built-in email quota is exhausted, so nobody can register.** The project sends `over_email_send_rate_limit` for every signup and every password reset. It is not a code fault: the seed created its accounts through the admin API, which sends no email, which is why this only appeared when a real person filled in the register form. Fixing it needs a custom SMTP provider or a plan with a higher limit, both of which are dashboard decisions.
 8. **OPEN, AND IT IS A PROVIDER NOT A BUG: the deck generator runs on the AI free tier, and that tier refuses.** A real call during this work returned `503 This model is currently experiencing high demand`, and `gemini-2.5-flash` returned `404` for a new key even though the model list reported it as available. LIKO handles all of it: the panel says the model is out of capacity, it distinguishes a refusal from an outage, and each teacher gets eight generations an hour so one person cannot exhaust the shared allowance. **What it cannot do is make the free tier reliable.** That needs a paid key, and the panel never claims otherwise.
-9. **OPEN: this round's fixes are not deployed.** `origin/main` and local `HEAD` are both `a101b53` and 16 files are uncommitted, so the live deployment predates all of the 2026-10-17 work. One of the two High fixes is a **production** exposure — the stale demo-cookie crash, since production runs `supabase`. The other, the roster-visibility fix, is **fixtures-mode only** and never affected production: `isDemoStaff` matches the fixed demo ids, so a production session carrying a Supabase uuid is unaffected. The live site reading `Roster not visible to you` for `CHEM-2` and `PHYS-1` while showing `SCI-4` is the `d75a38a` fix behaving correctly, not a defect. It closes when the work is committed and `main` is deployed. **Not done here on purpose:** the working tree also carries a concurrent agent's rewrite to `src/lib/srs/scheduler.ts` and its test, and committing those under one message would misattribute that work. That attribution question belongs to the user, not to the agent that found it.
+9. **RESOLVED 2026-10-19: this round's fixes ARE deployed.** This said "OPEN: not deployed" — `origin/main` and local `HEAD` both at `a101b53` with 16 files uncommitted — which was true when written and is false now. Both fixes are on `main` and live at `https://liko-jcuadys-projects.vercel.app`: `main` is `ea94cd1` and the production alias resolves to a build made from it. **The reasoning underneath is kept, because it was the reason the item was not simply closed by deploying:**
+
+   - **The stale demo-cookie crash was a genuine production exposure.** Production runs `LIKO_DATA_MODE=supabase`, and a session cookie minted while the app ran in `fixtures` mode stayed valid after the switch, so a real visitor with an old cookie reached a page that queried `auth.uid()` as a uuid and got `invalid input syntax for type uuid`. Fixed and shipped.
+   - **The roster fix was fixtures-mode only and never affected production.** `isDemoStaff` matches the fixed demo ids, so a production session carrying a Supabase uuid is unaffected. The live site reading `Roster not visible to you` for `CHEM-2` and `PHYS-1` while showing `SCI-4` was the `d75a38a` fix behaving correctly, not a defect. Conflating the two fixes would have sent someone looking for a production bug that was not there.
+
+   **Deployment no longer depends on a human.** The Vercel project had no git integration, which is why this sat undeployed for a day while `main` moved six commits; `vercel git connect` is done and verified by watching a push create a deployment nobody asked for.
 
 ### The RLS settling test
 
@@ -580,7 +592,7 @@ Instrument:
 - One `goto` in twenty omitted the `settle()` every other navigation calls, so a streamed control was counted before it existed and the register write reported "the write was never attempted" for a page that renders it
 - `e2e/flashcards.spec.ts` still asserted the Good button reads `10m` — the ladder where hard, good and easy all landed on the same rung, which is the defect that ladder was rewritten to remove. A test pinning behaviour the product deliberately moved off from is a specification of the old bug
 
-**Open, and recorded because it is diagnosed rather than merely observed.** The e2e suite alternates between green and red full runs, with a different failing set each time. Two full runs captured: one **231 passed / 0 failed**, one **213 passed / 7 failed** across `responsive`, `schedule` (×4), `slides` and others — all of which pass in isolation. The failures were **not** the same defect:
+**Diagnosed then; the two surviving faults are now addressed below — see "Why the cause was never established" further down this section for what changed and what remains unproven.** The e2e suite alternated between green and red full runs, with a different failing set each time. Two full runs captured: one **231 passed / 0 failed**, one **213 passed / 7 failed** across `responsive`, `schedule` (×4), `slides` and others — all of which pass in isolation. The failures were **not** the same defect:
 
 - Five were "element not found / not visible" inside a 20 s assertion, spread across three unrelated files. That is the signature of a **server that cannot keep up**, not of three separate bugs.
 - Two were `strict mode violation`: `getByRole('link', { name: 'Schedule' })` matched **both** the desktop sidebar link and the mobile tab-bar link at once. Both renderings are briefly present together while a slow re-render is in flight, and a locator that can match two elements is a latent failure even when it passes today.
