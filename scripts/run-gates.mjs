@@ -127,6 +127,7 @@ const GATES = [
   { id: 'db:settle', script: 'db:settle' },
   { id: 'probe:files', script: 'probe:files' },
   { id: 'verify:controls', script: 'verify:controls' },
+  { id: 'verify:filters', script: 'verify:filters' },
   { id: 'probe:ai', script: 'probe:ai', live: true },
 ];
 
