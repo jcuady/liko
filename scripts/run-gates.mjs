@@ -405,6 +405,46 @@ const commit = execFileSync('git', ['rev-parse', '--short', 'HEAD'], {
 }).trim();
 
 /**
+ * What the gates actually measured, as distinct from what they are labelled.
+ *
+ * WHY THIS EXISTS. The gates run the working tree. `commit` is `HEAD`. Those are
+ * the same thing only when nothing is uncommitted, and the recorder never said so,
+ * so a run over edited-and-staged code was filed under the previous commit and
+ * read afterwards as proof about that commit. It happened here: a run recorded at
+ * `312da33` was measuring a tree that contained four uncommitted files, none of
+ * them in that commit.
+ *
+ * Untracked files count. `src/` compiles untracked modules into the build, so an
+ * untracked `.tsx` is part of what `e2e` and `verify:app` exercised, which means
+ * "HEAD" is not merely imprecise for a dirty tree, it can name a version that
+ * never existed.
+ *
+ * The paths are recorded rather than just a boolean. A count says "something was
+ * dirty" and leaves the reader unable to judge whether it mattered; the list lets
+ * them see that it was `b.txt` or that it was `proxy.ts`.
+ */
+function treeState() {
+  let porcelain;
+  try {
+    porcelain = execFileSync('git', ['status', '--porcelain'], {
+      cwd: ROOT,
+      encoding: 'utf8',
+    });
+  } catch (error) {
+    return { clean: null, count: 0, paths: [], error: String(error.message ?? error).slice(0, 200) };
+  }
+
+  const paths = porcelain
+    .split(/\r?\n/)
+    .filter((line) => line.trim() !== '')
+    .map((line) => line.slice(3).trim());
+
+  return { clean: paths.length === 0, count: paths.length, paths };
+}
+
+const tree = treeState();
+
+/**
  * Read the previous evidence, tolerating a byte order mark.
  *
  * `JSON.parse` refuses a leading U+FEFF outright, and this file is small enough
@@ -454,6 +494,21 @@ process.stdout.write(
   `running ${gates.length} gate(s) at ${commit} — ${Object.keys(EXCLUDED).length} further gate-shaped script(s) excluded, each with a stated reason\n\n`,
 );
 
+/*
+ * Said before the gates run, not after. A reader who sees this line knows the
+ * commit label on the evidence record is a label and not a measurement, and can
+ * decide whether to trust the run before reading a single result.
+ */
+if (tree.clean === false) {
+  process.stdout.write(
+    `WARNING  the working tree was not clean: ${tree.count} path(s) differ from ${commit}.\n` +
+      `         The gates measured the WORKING TREE, so ${commit} is a label on this run and\n` +
+      `         not a statement about the code that was tested.\n` +
+      tree.paths.map((p) => `           ${p}\n`).join('') +
+      '\n',
+  );
+}
+
 const results = {};
 for (const gate of gates) {
   const result = run(gate);
@@ -483,6 +538,7 @@ for (const [id, result] of Object.entries(results)) {
 const record = {
   at: new Date().toISOString(),
   commit,
+  tree,
   node: process.version,
   summary: {
     pass: Object.values(results).filter((r) => r.status === 'pass').length,
@@ -493,7 +549,8 @@ const record = {
   results,
   lastPassing,
   note:
-    'Recorded by scripts/run-gates.mjs. A blocked gate measured nothing and never overwrites a previous pass; see lastPassing.',
+    'Recorded by scripts/run-gates.mjs. A blocked gate measured nothing and never overwrites a previous pass; see lastPassing. ' +
+    'The gates run the WORKING TREE, so `commit` describes only what was checked out: read `tree` for whether that commit is also what was measured.',
 };
 
 previous.runs = [...(previous.runs ?? []), record].slice(-30);
