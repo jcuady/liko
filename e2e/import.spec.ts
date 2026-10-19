@@ -71,6 +71,19 @@ test.describe('class list import', () => {
     await page.getByRole('button', { name: /Add 1 student$/ }).click();
 
     await expect(page.getByText('1 added, 1 left out.')).toBeVisible();
+    /*
+     * Left as a bare `getByText`, and the reason it is NOT routed through the
+     * toast helper is worth keeping, because I got this wrong first: this
+     * sentence looked like an error toast, so scoping it through `expectToast`
+     * made the suite fail with "element(s) not found" - it is a per-row
+     * validation message in the import preview, not a toast at all, and it lives
+     * outside the Notifications region entirely.
+     *
+     * The scoping helper is for messages that are actually toasts. The blast
+     * radius of a duplicated live region is real, but it is bounded by which
+     * messages go through `toast.error`, and that has to be established per site
+     * rather than assumed from the fact that a sentence ends in a full stop.
+     */
     await expect(page.getByText('"not-an-email" is not an email address.')).toBeVisible();
 
     await page.getByRole('button', { name: 'Done' }).click();

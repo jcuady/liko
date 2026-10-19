@@ -2016,6 +2016,16 @@ alter table public.calendar_events enable row level security;
 -- student in every school.
 drop policy if exists "events visible to owner and student"
   on public.calendar_events;
+
+-- The drop above removes the policy this one replaces. This policy and the three
+-- below it are new names, and each needs its own drop, because the migration is
+-- re-runnable and a second apply must not fail on "policy already exists". The
+-- first version of this split dropped only the OLD name, which made
+-- `pnpm check:sql` fail exactly here. Caught by the gate recorder rather than by
+-- reading, which is the point of running the gate through one command instead of
+-- three.
+drop policy if exists "events readable by owner or linked child"
+  on public.calendar_events;
 create policy "events readable by owner or linked child"
   on public.calendar_events
   for select to authenticated

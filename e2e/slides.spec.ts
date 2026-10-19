@@ -1,5 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 
+import { expectToast } from './helpers/toast';
+
 /**
  * The slide editor.
  *
@@ -72,7 +74,20 @@ test.describe('decks', () => {
     await page.getByRole('button', { name: 'New deck' }).click();
     await page.getByRole('button', { name: 'Create deck' }).click();
 
-    await expect(page.getByText('Give the deck a title.')).toBeVisible();
+    /*
+     * Scoped through the toast helper, and the reason is not obvious from the
+     * line above it. An error toast is mirrored into `#liko-assertive-toasts` so
+     * a screen reader is told about it immediately (`src/lib/toast.ts`), which
+     * puts the same sentence in the DOM twice. A bare `getByText` then matches
+     * both and fails with a strict mode violation that reads exactly like a
+     * product fault. It failed here in the 2026-10-19 gate run, which ran e2e
+     * straight after a build - the busiest moment - and passed minutes earlier on
+     * its own.
+     *
+     * This is one of five call sites the first pass at that fix missed; the
+     * message text is the join key, not the call site.
+     */
+    await expectToast(page, 'Give the deck a title.');
   });
 });
 
