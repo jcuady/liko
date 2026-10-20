@@ -17,6 +17,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { queryKeys } from '@/lib/query/keys';
+import { can, type Role } from '@/lib/auth/rbac';
 import type { HistoryRecord } from '@/lib/api/types';
 
 import { addBehaviourLog, loadHistory } from './actions';
@@ -81,17 +82,41 @@ export function StudentHistory({
   students,
   studentId,
   history,
+  role,
 }: {
   classes: { id: string; name: string }[];
   classId: string;
   students: { id: string; fullName: string; initials: string }[];
   studentId: string | null;
   history: HistoryRecord[];
+  role: Role | undefined;
 }) {
   const queryClient = useQueryClient();
   const router = useRouter();
   const [selectedClassId, setSelectedClassId] = React.useState(classId);
   const [selectedStudentId, setSelectedStudentId] = React.useState<string>('');
+
+  /*
+   * MAY THIS ACCOUNT WRITE ON THE RECORD.
+   *
+   * `addBehaviourLog` calls `requirePermission('history:write')`, and
+   * `history:write` is `no` for a student and `no` for a guardian, because the
+   * permission was split away from `history:read` on purpose: a student holds
+   * the read at `own` and a guardian at `linked`, and `can()` counts an
+   * ownership scope as permitted, so before the split both of them reached a
+   * handler that appended a behaviour log against any student id they named.
+   *
+   * The server side was fixed and this side was not. The entry form was
+   * rendered to every role that could open the page, so a student and a
+   * guardian were each offered a free-text field, a severity picker with
+   * "praise" and "concern" on it, and an "Add entry" button, and every
+   * submission was refused by the very permission that was introduced to stop
+   * it.
+   *
+   * A record of a child's behaviour is not a small thing to offer a control
+   * over, and the two roles that cannot write it are the two that read it.
+   */
+  const mayWrite = can(role, 'history:write');
 
   const effectiveClassId = classes.some((item) => item.id === selectedClassId)
     ? selectedClassId
@@ -218,7 +243,7 @@ export function StudentHistory({
               {rows.length === 0 ? (
                 <p className="text-body text-ink-muted">
                   Enrolment, attendance flags, and assessment scores appear here as they happen.
-                  Add the first note below.
+                  {mayWrite ? ' Add the first note below.' : ''}
                 </p>
               ) : (
                 <ol className="flex flex-col gap-3">
@@ -253,75 +278,86 @@ export function StudentHistory({
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Add an entry</CardTitle>
-              <p className="text-meta text-ink-muted">
-                Entries are cumulative. They stay on the record, so write what you would be willing
-                to read back.
-              </p>
-            </CardHeader>
-            <CardContent>
-              <form
-                className="flex flex-col gap-4"
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  if (!activeStudentId) return;
-                  const form = new FormData(event.currentTarget);
-                  log.mutate({
-                    classId: effectiveClassId,
-                    studentId: activeStudentId,
-                    entry: String(form.get('entry') ?? ''),
-                    severity: String(form.get('severity') ?? 'note') as
-                      | 'note'
-                      | 'praise'
-                      | 'concern'
-                      | 'intervention',
-                  });
-                  event.currentTarget.reset();
-                }}
-              >
-                <FormField id="history-entry" label="Entry" required>
-                  {(props) => (
-                    <Textarea
-                      {...props}
-                      name="entry"
-                      rows={3}
-                      placeholder="Stayed after to finish the lab write-up."
-                    />
-                  )}
-                </FormField>
+          {/*
+            THE ENTRY FORM, AND WHO IS OFFERED IT.
+            The write permission and the read permission are separate, and a
+            reader is not a writer. The roles that read this page and cannot
+            write to it are a student and a guardian, so the form is rendered
+            where the write will be accepted and nowhere else. A control that
+            always refuses is worse than no control, because the refusal reads
+            as a broken product rather than as a boundary.
+          */}
+          {mayWrite ? (
+            <Card>
+              <CardHeader>
+                <CardTitle>Add an entry</CardTitle>
+                <p className="text-meta text-ink-muted">
+                  Entries are cumulative. They stay on the record, so write what you would be willing
+                  to read back.
+                </p>
+              </CardHeader>
+              <CardContent>
+                <form
+                  className="flex flex-col gap-4"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    if (!activeStudentId) return;
+                    const form = new FormData(event.currentTarget);
+                    log.mutate({
+                      classId: effectiveClassId,
+                      studentId: activeStudentId,
+                      entry: String(form.get('entry') ?? ''),
+                      severity: String(form.get('severity') ?? 'note') as
+                        | 'note'
+                        | 'praise'
+                        | 'concern'
+                        | 'intervention',
+                    });
+                    event.currentTarget.reset();
+                  }}
+                >
+                  <FormField id="history-entry" label="Entry" required>
+                    {(props) => (
+                      <Textarea
+                        {...props}
+                        name="entry"
+                        rows={3}
+                        placeholder="Stayed after to finish the lab write-up."
+                      />
+                    )}
+                  </FormField>
 
-                <FormField id="history-severity" label="Kind">
-                  {(props) => (
-                    /*
-                     * `name` on the root again: this form is posted through
-                     * `FormData` on submit, and Radix puts the name on the
-                     * hidden native select beside the trigger.
-                     */
-                    <Select name="severity" defaultValue="note">
-                      <SelectTrigger {...props}>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {SEVERITY_OPTIONS.map((option) => (
-                          <SelectItem key={option.value} value={option.value}>
-                            {option.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  )}
-                </FormField>
+                  <FormField id="history-severity" label="Kind">
+                    {(props) => (
+                      /*
+                       * `name` on the root again: this form is posted through
+                       * `FormData` on submit, and Radix puts the name on the
+                       * hidden native select beside the trigger.
+                       */
+                      <Select name="severity" defaultValue="note">
+                        <SelectTrigger {...props}>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {SEVERITY_OPTIONS.map((option) => (
+                            <SelectItem key={option.value} value={option.value}>
+                              {option.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                  </FormField>
 
-                <div>
-                  <Button type="submit" disabled={log.isPending || !activeStudentId}>
-                    {log.isPending ? 'Saving' : 'Add entry'}
-                  </Button>
-                </div>
-              </form>
-            </CardContent>
-          </Card>
+                  <div>
+                    <Button type="submit" disabled={log.isPending || !activeStudentId}>
+                      {log.isPending ? 'Saving' : 'Add entry'}
+                    </Button>
+                  </div>
+                </form>
+              </CardContent>
+            </Card>
+          ) : null}
         </>
       )}
     </div>

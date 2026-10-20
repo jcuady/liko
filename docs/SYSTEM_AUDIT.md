@@ -2809,11 +2809,191 @@ administrators, which is a decision about children's records, or narrowing the
 matrix, which removes a capability the product currently advertises. Both are
 the owner's to make, and neither was made here.
 
+## Round nineteen: the control that was still offered after the boundary moved
+
+### The same defect, three more pages, and why it was the same defect
+
+Round eighteen fixed the copy on `/classes` and the controls on `/classes`.
+It did not stop there, because the question it answered was larger than one
+page: **is a control ever offered to an account that cannot use it?**
+
+The answer was yes, on three more pages, and the shape of it was identical
+every time.
+
+Each of these pages has a read permission that a student or a guardian holds
+at `own` or `linked`, and a separate write permission that the same role
+holds at `no`. The split is old and deliberate. `rbac.ts` says of it: "Writing
+a behaviour note is not reading history", and it records the incident that
+caused it, where "a student holds that at scope `own` and a guardian at
+`linked`, and `can()` counts an ownership scope as permitted, so both reached a
+handler that appended a behaviour log against any `student_id` they named."
+
+**THE SERVER WAS FIXED AND THE INTERFACE WAS NOT.** Every one of these
+actions calls `requirePermission` on the write permission, so the refusal was
+already in place and total. What was left behind was an interface still
+offering the control, so the refusal arrived as a toast that reads like a
+broken product rather than like a boundary.
+
+| Page | What it offered | What refused it |
+|---|---|---|
+| `/grades` | an editable cell for every mark, "Use for this class", "New scale", "New assessment" | `grade:write`, `assess:write` |
+| `/history` | a free-text field, a severity picker with "praise" and "concern" on it, "Add entry" | `history:write` |
+| `/flashcards` | "New deck", and behind it a class picker that was empty because loading it needs the same permission | `flashcard:write` |
+
+The severity picker is the one that matters most. A student's record of their
+own behaviour, with "praise" and "concern" on the scale, offered to the two
+roles that read that record and are forbidden to write it, and refused on
+submit with "That entry could not be saved."
+
+### The census, and why it is a census and not a sample
+
+The route map in `rbac.ts` has thirteen entries, and it makes the sweep
+exhaustive rather than a sample:
+
+| Route | Permission | Who reaches it | A read and a write split? |
+|---|---|---|---|
+| `/overview` | `analytics:read` | teacher, admin | no, both roles hold every write |
+| `/grades` | `grade:read` | all four | **yes, fixed this round** |
+| `/assess` | `assess:write` | teacher, admin | no, the route permission is the write |
+| `/quiz` | `quiz:take` | student | no |
+| `/flashcards` | `flashcard:read` | all four | **yes, fixed this round** |
+| `/plan` | `plan:write` | teacher, admin | no |
+| `/slides` | `plan:write` | teacher, admin | no |
+| `/attendance` | `attendance:write` | teacher, admin | no |
+| `/classes` | `class:read` | all four | **yes, fixed in round eighteen** |
+| `/history` | `history:read` | all four | **yes, fixed this round** |
+| `/admin` | `org:manage` | admin | no |
+| `/schedule` | `class:read` | all four | no, it was already gated |
+| `/settings` | `class:read` | all four | no, it is self service |
+
+**THE PATTERN IS ONLY POSSIBLE WHERE THE ROUTE PERMISSION IS NOT THE WRITE
+PERMISSION.** On `/assess`, `/plan`, `/slides` and `/attendance` the route
+permission is itself the write permission, so everyone who reaches the page
+can write on it and there is no reader who is not a writer. That is why the
+sweep found exactly the pages it did, and why the list is finished rather
+than open ended.
+
+`/schedule` is the page that was already right. `CalendarExtrasPanel` takes a
+`canWriteTerms` prop and guards the term controls with it, because
+`saveTermAction` needs `class:write` and a student holds it at `no`. That
+page had the shape the other three were missing, which is evidence that the
+pattern is known in this codebase and was applied unevenly rather than being
+a design nobody had thought about.
+
+### The fix, and the one decision inside it
+
+Each control is guarded by **the permission that actually governs it**, not by
+one blanket flag. "Use for this class" and "New scale" need `grade:write`,
+"New assessment" needs `assess:write`, and the grid needs `grade:write`. They
+happen to agree for the four roles in the matrix today, and collapsing them
+into one flag would make them agree by accident, which is how a permission
+model rots: the next role to be granted one of them would be granted the
+other.
+
+The capability is decided on the server, where the session is, and carried
+down as the role, because the client cannot know the session. `can()` is the
+same function the server action uses, so the two cannot disagree about who may
+write.
+
+The one place where a flag was already right is the flashcards deck page, and
+it was left alone. It uses `editable`, which is ownership, and `canReview`,
+which is the role: "The two halves are chosen by ownership rather than by
+role, because they are not the same question." A guardian owns no deck and is
+not a student, so that page was already correct and was not touched.
+
+### The instrument, and the one thing that makes it work
+
+`e2e/role-controls.spec.ts`, nine tests over three pages and four roles.
+
+**THE FORBIDDEN-CONTROL ASSERTIONS ARE SOFT, AND THAT IS THE POINT.** A hard
+assertion stops a test at its first failure, so a single mutation run would
+prove only the first control on each list and leave the rest unexercised. A
+soft assertion records the failure and carries on, so one run against a
+reverted gate reports **every** forbidden control at once, and the test still
+fails at the end of it. An enumeration that stops at the first entry is not
+an enumeration.
+
+**EVERY LOCATOR HAS A POSITIVE CONTROL.** A count of zero for a locator that
+matches nothing is a pass that means nothing, so each one is also asserted to
+find its control on the page of a role that can use it. The gradebook's
+editable cells are the awkward one, because the grid marks them with an
+explicit `role="gridcell"` on a `td` that otherwise has the implicit role of
+a table cell, and an explicit role on a cell inside a table is exactly
+the sort of thing a role engine may resolve differently from a browser's own
+view of the accessibility tree.
+
+**THE INSTRUMENT HAD A BUG IN IT, AND IT WAS FOUND BY RUNNING IT.** The first
+version of that assertion was a CSS selector, and the mutation run against it
+produced a failure that reported no count at all. Changing it to a role query
+produced the same empty count, and so did asking about `.first()`, so the
+locator was not the cause and the assumption that it was was wrong twice.
+
+The page snapshot Playwright left behind the third time settled it. The
+student was looking at **thirty-two editable cells**, so the defect was
+exactly where the assertion was looking, and the reason the count was missing
+was that the assertion had never run: each of the three assertions before it
+had waited out the full twenty second default, because a count of zero that
+is never going to arrive is still waited for, and three of those outlived the
+test's own forty five second limit. The test was killed mid-way, and the
+last assertion on the list was cut off and reported what it had instead of
+what it found.
+
+The fix is a four second timeout on each of these assertions, which is long
+enough for a page that has already loaded and short enough that four of them
+fit inside the test's limit. The mutation run after that reported every
+control on every list, with a count for each.
+
+The lesson is the one this repository keeps arriving at: **a failure that
+cannot be read is not a result.** The assertion was correct, the gate was
+correct, and the mutation was correct, and the run still proved less than it
+looked like it proved, because the instrument gave up half way through.
+
+The positive control that matters most is the one that says a student is
+**still** offered "New deck". A student holds `flashcard:write` at `own`, so
+the button is right for them, and hiding it from everybody would have taken
+away the one thing that page offers a student who is not waiting for a
+teacher to share a deck. A fix that over-hides is a defect too.
+
+### The mutation
+
+All three gates were reverted at once, and the browser was run against the
+result. Every forbidden control was reported, for the student and for the
+guardian, on all three pages, and the positive controls stayed green, which
+is what says the zero is a fact about the role rather than about the
+locator. The three files were restored byte-for-byte afterwards and verified
+by SHA-256.
+
+### What this round did not close
+
+The general instrument is still missing, and it is the same gap round
+eighteen named: **there is no gate that can find this class of defect on its
+own.** A gate that reads source cannot tell a control that is role-gated from
+one that is not, so the controls are checked in a browser, and a browser
+check needs the control to be named. Every page fixed here was found by
+reading the pages a linked account lands on, not by a sweep.
+
+That is the honest shape of it: the census above says the four pages where
+the split exists are now correct, and the census is complete because the
+route map is. A page added tomorrow with a read permission and a write
+permission would not be found by anything currently in the repository, and
+that remains open.
+
 ### Still open
 
-Two things are open. One is blocked on the tooling rather than on a decision,
-and one is waiting on the owner because both of its fixes are a decision about
-other people's children.
+Three things are open. One is blocked on the tooling rather than on a
+decision, one is waiting on the owner because both of its fixes are a decision
+about other people's children, and one is a gap in the instruments rather than
+in the product.
+
+**THERE IS NO GATE THAT FINDS THE CONTROLS ON ITS OWN.** Round nineteen fixed
+four pages and every one of them was found by reading the pages a linked
+account lands on. The census in that round is complete because the route map
+in `rbac.ts` is complete, not because anything in the repository looks for
+this. A page added tomorrow with a read permission and a write permission
+would be found by a person reading it, and by nothing else. The copy has a
+gate; the controls have a browser check that names each control, and the two
+cannot be merged because a gate that reads source cannot tell a control that
+is role-gated from one that is not.
 
 **The administrator's roster write still reports a success it did not
 achieve.** The interface no longer offers it, and the details are in round

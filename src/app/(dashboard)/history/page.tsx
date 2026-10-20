@@ -86,6 +86,7 @@ export default async function HistoryPage({
         }))}
         studentId={student?.id ?? null}
         history={history}
+        role={session.role}
       />
     </div>
   );

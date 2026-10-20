@@ -18,6 +18,7 @@ import {
 } from '@/components/ui/select';
 import { FormField } from '@/components/ui/form-field';
 import { queryKeys } from '@/lib/query/keys';
+import { can, type Role } from '@/lib/auth/rbac';
 import type {
   AssessmentRecord,
   GradeRecord,
@@ -59,6 +60,7 @@ export function Gradebook({
   students,
   assessments,
   grades,
+  role,
 }: {
   classes: { id: string; name: string; gradingPolicyId: string | null }[];
   classId: string;
@@ -66,7 +68,30 @@ export function Gradebook({
   students: { id: string; fullName: string; initials: string }[];
   assessments: AssessmentRecord[];
   grades: GradeRecord[];
+  role: Role | undefined;
 }) {
+  /*
+   * MAY THIS ACCOUNT WRITE A MARK, AND MAY IT WRITE THE CLASS'S SCALE.
+   *
+   * `grade:read` is `own` for a student and `linked` for a guardian, so both
+   * can open this page and read the marks on it. `grade:write` is `no` for
+   * both of them, and `assess:write` is `no` for both of them, which is the
+   * point: reading a child's mark and writing one are different grants.
+   *
+   * The grid was handed `editable` outright, so a student and a guardian were
+   * given an editable cell for every mark, a "Use for this class" button that
+   * decides the scale the whole class is reported on, a dialog to invent a new
+   * scale, and a button to create an assessment. Every one of those is a
+   * `grade:write` or an `assess:write` call, and every one of them was
+   * refused by the very permission that says a reader is not a writer.
+   *
+   * Each control is guarded by the permission that actually governs it rather
+   * than by one blanket flag, because the two are separate grants and would
+   * not stay separate for long if they were collapsed into one.
+   */
+  const mayGrade = can(role, 'grade:write');
+  const mayAssess = can(role, 'assess:write');
+
   const queryClient = useQueryClient();
   const [selectedClassId, setSelectedClassId] = React.useState(classId);
   const effectiveClassId = classes.some((item) => item.id === selectedClassId)
@@ -329,28 +354,34 @@ export function Gradebook({
             and a teacher has to re-pick the school's scale every single session,
             which is how a GWA transcript quietly comes out as a percentage one.
           */}
-          <Button
-            type="button"
-            variant="secondary"
-            size="sm"
-            disabled={
-              applyToClass.isPending ||
-              (selectedClass?.gradingPolicyId ?? 'percentage') === policyId
-            }
-            onClick={() => applyToClass.mutate(policyId)}
-          >
-            {applyToClass.isPending ? 'Applying' : 'Use for this class'}
-          </Button>
+          {mayGrade ? (
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              disabled={
+                applyToClass.isPending ||
+                (selectedClass?.gradingPolicyId ?? 'percentage') === policyId
+              }
+              onClick={() => applyToClass.mutate(policyId)}
+            >
+              {applyToClass.isPending ? 'Applying' : 'Use for this class'}
+            </Button>
+          ) : null}
 
-          <ScaleEditorDialog
-            policies={policies}
-            onCreated={(created) => {
-              setScaleOverride((current) => ({ ...current, [effectiveClassId]: created.id }));
-              void queryClient.invalidateQueries({ queryKey: queryKeys.policies() });
-            }}
-          />
+          {mayGrade ? (
+            <ScaleEditorDialog
+              policies={policies}
+              onCreated={(created) => {
+                setScaleOverride((current) => ({ ...current, [effectiveClassId]: created.id }));
+                void queryClient.invalidateQueries({ queryKey: queryKeys.policies() });
+              }}
+            />
+          ) : null}
 
-          <NewAssessmentDialog classId={effectiveClassId} triggerLabel="New assessment" />
+          {mayAssess ? (
+            <NewAssessmentDialog classId={effectiveClassId} triggerLabel="New assessment" />
+          ) : null}
 
           {/*
             A plain link, not a button and not a fetch. The endpoint sends the
@@ -388,7 +419,7 @@ export function Gradebook({
               students={gridStudents}
               columns={assessments.map((assessment) => assessment.title)}
               cells={cells}
-              editable
+              editable={mayGrade}
               onEdit={onEdit}
               formatValue={formatValue}
               maxScoreFor={maxScoreFor}

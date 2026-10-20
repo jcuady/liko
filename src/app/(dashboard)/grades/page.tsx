@@ -70,6 +70,7 @@ export default async function GradesPage() {
         }))}
         assessments={assessments}
         grades={grades}
+        role={session.role}
       />
     </div>
   );

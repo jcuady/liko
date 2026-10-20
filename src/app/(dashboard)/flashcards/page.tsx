@@ -5,6 +5,7 @@ import { Layers } from 'lucide-react';
 import { PageHeader } from '../components/PageHeader';
 import { EmptyState } from '@/components/ui/feedback';
 import { requirePagePermission } from '@/lib/auth/guards';
+import { can } from '@/lib/auth/rbac';
 
 import { NewDeckButton } from './NewDeckButton';
 import { loadDecks, loadShareableClasses } from './actions';
@@ -28,13 +29,34 @@ export const metadata: Metadata = {
  * forbidden screen. What they cannot do is review, and the deck says so.
  */
 export default async function FlashcardsPage() {
-  await requirePagePermission('flashcard:read');
+  const session = await requirePagePermission('flashcard:read');
   const decks = await loadDecks();
 
-  // Gated separately and read separately: a student may study without holding
-  // `flashcard:write`, and asking for classes they cannot publish into would
-  // fail the whole page for a button they can never use.
-  const classes = await loadShareableClasses().catch(() => [] as { id: string; name: string }[]);
+  /*
+   * MAY THIS ACCOUNT MAKE A DECK.
+   *
+   * `flashcard:read` is held by every role, so every role reaches this page.
+   * `flashcard:write` is `own` for a student and `no` for a guardian, and
+   * `createDeck` calls `requirePermission('flashcard:write')`. So a guardian
+   * was met with a "New deck" button, and a dialog whose class picker was
+   * empty, because `loadShareableClasses` needs `flashcard:write` too and had
+   * failed into an empty list.
+   *
+   * The student is the interesting case rather than the easy one: a student
+   * holds `flashcard:write` at `own`, so the button is right for them, and
+   * hiding it for everybody would have taken away the one thing the page
+   * offers a student who is not waiting for a teacher to share a deck.
+   */
+  const mayWrite = can(session.role, 'flashcard:write');
+
+  // Read separately from the page, and only when it can succeed: this needs
+  // `flashcard:write`, so asking for it from a role that cannot write a deck
+  // would fail the whole page for a list nobody is going to use. A student may
+  // also study without holding `flashcard:write` at all, which is why reading
+  // and writing are two permissions.
+  const classes = mayWrite
+    ? await loadShareableClasses().catch(() => [] as { id: string; name: string }[])
+    : [];
 
   const shared = decks.filter((row) => !row.editable).length;
 
@@ -43,14 +65,18 @@ export default async function FlashcardsPage() {
       <PageHeader
         title="Flashcards"
         description="Decks you can study, and the ones your teacher has shared with your class."
-        action={<NewDeckButton classes={classes} />}
+        action={mayWrite ? <NewDeckButton classes={classes} /> : undefined}
       />
 
       {decks.length === 0 ? (
         <EmptyState
           icon={Layers}
           title="No decks yet"
-          description="A deck is a set of question and answer cards. Make one, or wait for a teacher to share one with your class."
+          description={
+            mayWrite
+              ? 'A deck is a set of question and answer cards. Make one, or wait for a teacher to share one with your class.'
+              : 'A deck is a set of question and answer cards. A teacher can share one with your class, and it will appear here.'
+          }
         />
       ) : (
         <>
