@@ -472,6 +472,111 @@ async function verifyRoutes(account) {
 }
 
 /**
+ * THE CONTROLS A ROLE CANNOT USE.
+ *
+ * Every one of these actions calls `requirePermission` before it looks at a
+ * record, so a control the current role may not use is refused at the moment
+ * it is pressed. That is the right place for the refusal and the wrong place
+ * for the control. A student and a guardian were both offered a "New class"
+ * button on the page that is their landing page, an editable cell for every
+ * mark in the gradebook, and a free-text form on a child's behaviour record,
+ * and every one of them was refused with a message that reads like a broken
+ * product rather than like a boundary.
+ *
+ * WHY THIS IS HERE AND NOT ONLY IN THE E2E SPEC. The e2e suite runs against
+ * the fixture workspace, so it says nothing about the deployed bundle. This
+ * runs against the live site, which is the only place a deployed build can be
+ * caught still offering a control it is about to refuse.
+ *
+ * THE POSITIVE CONTROL IS HERE TOO, AND IT IS THE PART THAT MAKES THE ZERO
+ * MEAN SOMETHING. A count of zero for a locator that matches nothing is a
+ * pass that means nothing, so the instructor is asserted to be offered the
+ * same controls on the same pages. A student is still offered "New deck",
+ * because a student holds `flashcard:write` at `own` and a deck they make is
+ * their own; a fix that over-hides is a defect too.
+ */
+const ROLE_GATED_CONTROLS = [
+  { route: '/classes', control: 'New class', refused: ['student', 'guardian'], offered: ['instructor'] },
+  { route: '/grades', control: 'Use for this class', refused: ['student', 'guardian'], offered: ['instructor'] },
+  { route: '/grades', control: 'New scale', refused: ['student', 'guardian'], offered: ['instructor'] },
+  { route: '/grades', control: 'New assessment', refused: ['student', 'guardian'], offered: ['instructor'] },
+  { route: '/history', control: 'Add entry', refused: ['student', 'guardian'], offered: ['instructor'] },
+  { route: '/flashcards', control: 'New deck', refused: ['guardian'], offered: ['student', 'instructor'] },
+];
+
+async function verifyRoleGatedControls() {
+  console.log('Role-gated controls');
+  const browser = await chromium.launch();
+  try {
+    const roles = [
+      { role: 'instructor', email: 'maya@liko.test' },
+      { role: 'student', email: 'student@liko.test' },
+      { role: 'guardian', email: 'guardian@liko.test' },
+    ];
+
+    for (const { role, email } of roles) {
+      const context = await browser.newContext();
+      await seedConsent(context);
+      const page = await context.newPage();
+      await signIn(page, email);
+
+      for (const route of ['/classes', '/grades', '/history', '/flashcards']) {
+        const rules = ROLE_GATED_CONTROLS.filter((rule) => rule.route === route);
+        if (rules.length === 0) continue;
+
+        await page.goto(`${BASE}${route}`, { waitUntil: 'domcontentloaded' });
+        await settle(page);
+
+        for (const rule of rules) {
+          const count = await page.getByRole('button', { name: rule.control }).count();
+          if (rule.refused.includes(role)) {
+            check(
+              `${role} is offered no "${rule.control}" on ${route}`,
+              count === 0,
+              `found ${count}`,
+            );
+          } else if (rule.offered.includes(role)) {
+            check(
+              `${role} is still offered "${rule.control}" on ${route}`,
+              count === 1,
+              `found ${count}`,
+            );
+          }
+        }
+
+        /*
+         * The gradebook's editable cells, which are not a button and so are not
+         * in the table above. The grid marks the cells it wants edited with an
+         * explicit `role="gridcell"`, and the cells it does not are plain table
+         * cells, so the marking is what tells the two apart.
+         */
+        if (route === '/grades') {
+          const cells = await page.getByRole('gridcell').count();
+          if (role === 'instructor') {
+            check(
+              'the instructor is still offered editable marks on /grades',
+              cells > 0,
+              `found ${cells}`,
+            );
+          } else {
+            check(
+              `${role} is offered no editable mark on /grades`,
+              cells === 0,
+              `found ${cells}`,
+            );
+          }
+        }
+      }
+
+      await context.close();
+    }
+  } finally {
+    await browser.close();
+  }
+  console.log('');
+}
+
+/**
  * Marks a register through the UI and confirms the row exists in Postgres.
  *
  * The write goes through the button a teacher would press, so it exercises the
@@ -1209,6 +1314,13 @@ async function main() {
       failures += 1;
       console.log(`  FAIL  ${account.email} could not be verified: ${error.message}\n`);
     }
+  }
+
+  try {
+    await verifyRoleGatedControls();
+  } catch (error) {
+    failures += 1;
+    console.log(`  FAIL  the role-gated controls could not be checked: ${error.message}`);
   }
 
   try {
