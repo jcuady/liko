@@ -51,9 +51,9 @@ export default async function FlashcardsPage() {
 
   // Read separately from the page, and only when it can succeed: this needs
   // `flashcard:write`, so asking for it from a role that cannot write a deck
-  // would fail the whole page for a list nobody is going to use. A student may
-  // also study without holding `flashcard:write` at all, which is why reading
-  // and writing are two permissions.
+  // would fail the whole page for a list nobody is going to use. Reviewing a
+  // deck is a separate grant from writing one, which is why studying is not
+  // the same permission as authoring.
   const classes = mayWrite
     ? await loadShareableClasses().catch(() => [] as { id: string; name: string }[])
     : [];

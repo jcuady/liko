@@ -27,6 +27,7 @@ inheriting a word from an earlier round.
 | e2e | **PASS** | `241 passed (4.8m)` at `9604440`, the whole suite, exit 0. Up from `232` at `fe01de2`: eight of these are the new attendance note spec. | round twelve |
 | **Full gate** | **22 pass, 0 blocked, 0 fail, 0 error** | `pnpm gates` at `a109da8`, recorded in `docs/evidence/gates.json`, with the build recorded as served and unchanged across the run, the tree clean, and the run not contaminated. Twenty-two registered gates, every one green, including `probe:ai`, which was BLOCKED on the previous full run for a third-party 503 and is green here with no code change. The e2e gate passed in 279.5s with no flake. | round seventeen |
 | **Static gates (controls, links, filters, actions, empty states)** | **PASS** | `verify:controls`: 162 controls in 144 files, 0 unwired, 1 inert. `verify:links`: 62 links over 44 routes, 0 broken. `verify:filters`: 131 filters, and the 3 it refuses to look at are examined by a test. `verify:actions`: 79 exported server actions, 0 dead. `verify:empty-states`: 21 dashboard pages against the 4 roles in the matrix, read out of `rbac.ts` and never copied, 0 pages tell a reader to create a class their role cannot create. Each is mutation-proved, a planted defect turns it red, and each prints the corpus it read, so a zero cannot be confused with an empty scan. | round eighteen |
+| **Role controls in the browser** | **PASS** | `e2e/role-controls.spec.ts`, 9 tests over 3 pages and 4 roles. A student and a guardian are offered no control that `requirePermission` would refuse them, on `/grades`, `/history` and `/flashcards`, and a teacher and a student are still offered the ones they can use. A gate that reads source cannot tell a role-gated control from an ungated one, so the copy has a static gate and the controls have a browser. Mutation-proved: reverting the three gates turns 5 of the 9 red with a count for every control, and the 4 positive controls stay green. | round nineteen |
 | **Live app against Postgres** | **PASS** | `verify:app`, **58 passed, 0 failed**, run against the **deployed production site** at `4d8dfce`, not only a local build. All five accounts, every entitled route, refusals, a real attendance write that reached Postgres, cron, push, gradebook export scope, and no console or page errors on any route. | round seventeen |
 | **Deployed to production** | **PASS** | Production serves the tip of `main`, deployed by the Vercel Git integration, so **a push to `main` is a production deploy**. Read from the deployment's own build log, not inferred: `4d8dfce` at 13:05 UTC, compiled successfully, 49 of 49 static pages, status Ready. Recording the sha actually read, because a pinned sha goes stale on the next push by anyone. | round seventeen |
 | **Per-role sweep of the deployed site** | **PASS** | Guardian probe against production, 5 of 5. `/grades` and `/history` each name the child the seat is linked to. | round eleven |
@@ -2843,7 +2844,7 @@ broken product rather than like a boundary.
 The severity picker is the one that matters most. A student's record of their
 own behaviour, with "praise" and "concern" on the scale, offered to the two
 roles that read that record and are forbidden to write it, and refused on
-submit with "That entry could not be saved."
+submit with "That entry could not be saved. Try again."
 
 ### The census, and why it is a census and not a sample
 
@@ -2973,10 +2974,10 @@ check needs the control to be named. Every page fixed here was found by
 reading the pages a linked account lands on, not by a sweep.
 
 That is the honest shape of it: the census above says the four pages where
-the split exists are now correct, and the census is complete because the
-route map is. A page added tomorrow with a read permission and a write
-permission would not be found by anything currently in the repository, and
-that remains open.
+the split exists are now correct, one fixed in round eighteen and three here,
+and the census is complete because the route map is. A page added tomorrow
+with a read permission and a write permission would not be found by anything
+currently in the repository, and that remains open.
 
 ### Still open
 
@@ -2986,14 +2987,14 @@ about other people's children, and one is a gap in the instruments rather than
 in the product.
 
 **THERE IS NO GATE THAT FINDS THE CONTROLS ON ITS OWN.** Round nineteen fixed
-four pages and every one of them was found by reading the pages a linked
-account lands on. The census in that round is complete because the route map
-in `rbac.ts` is complete, not because anything in the repository looks for
-this. A page added tomorrow with a read permission and a write permission
-would be found by a person reading it, and by nothing else. The copy has a
-gate; the controls have a browser check that names each control, and the two
-cannot be merged because a gate that reads source cannot tell a control that
-is role-gated from one that is not.
+three pages and round eighteen one, and every one of the four was found by
+reading the pages a linked account lands on. The census in that round is
+complete because the route map in `rbac.ts` is complete, not because anything
+in the repository looks for this. A page added tomorrow with a read permission
+and a write permission would be found by a person reading it, and by nothing
+else. The copy has a gate; the controls have a browser check that names each
+control, and the two cannot be merged because a gate that reads source cannot
+tell a control that is role-gated from one that is not.
 
 **The administrator's roster write still reports a success it did not
 achieve.** The interface no longer offers it, and the details are in round
