@@ -25,7 +25,7 @@ inheriting a word from an earlier round.
 | Lint | **PASS** | `pnpm lint`, exit 0 | round twelve |
 | Unit tests | **PASS** | `537 passed, 2 skipped`, measured in a detached worktree at `312da33` so the figure is that commit's and not the shared tree's. The commit after it changed only a client component with no unit test. | round twelve |
 | e2e | **PASS** | `256 passed (7.1m)` at `f99efe6`, the whole suite, exit 0. Up from `241` at `9604440`: six of these are the classes page controls and nine are the role controls spec, and the other four are the classes page's own. | round nineteen |
-| **Full gate** | **23 pass, 0 blocked, 0 fail, 0 error** | `pnpm gates` at `f99efe6`, recorded in `docs/evidence/gates.json`, with the build recorded as served and unchanged across the run (`RBHC6uWYsWgBLQ_mAmZPP` at both ends), the run not contaminated, and the two changed paths both immaterial, so the commit label describes the code that was measured. Twenty-three registered gates, every one green, including `probe:ai`, which was BLOCKED on the two previous full runs for a third-party 503 and is green here with no code change. The e2e gate passed in 432.3s with no flake, on a machine where two other projects were running their own suites. | round nineteen |
+| **Full gate** | **22 pass, 1 blocked, 0 fail, 0 error** | `pnpm gates` at `d35dbae`, recorded in `docs/evidence/gates.json`, with the build recorded as served and unchanged across the run (`0Qnm4-PMV3644a6AFODMn` at both ends), the run not contaminated, and the two changed paths both immaterial, so the commit label describes the code that was measured. The block is `probe:ai`, on a third-party **HTTP 503 "high demand"**, and it is not a product failure: the same gate was **green** in the full run at `f99efe6` twenty minutes earlier on the same product code, and the retry recorded at the same commit is green too. Three retries were blocked with that same 503 before the fourth answered, so all twenty-three gates are green at this commit across the two records, and both are kept. A blocked gate is not a pass and the recorder says so. The e2e gate passed in 280.3s with no flake, on a machine where two other projects were running their own suites: the browser worker count was sampled throughout and never exceeded the two of this run's own. | round nineteen |
 | **Static gates (controls, links, filters, actions, empty states)** | **PASS** | `verify:controls`: 162 controls in 144 files, 0 unwired, 1 inert. `verify:links`: 62 links over 44 routes, 0 broken. `verify:filters`: 131 filters, and the 3 it refuses to look at are examined by a test. `verify:actions`: 79 exported server actions, 0 dead. `verify:empty-states`: 21 dashboard pages against the 4 roles in the matrix, read out of `rbac.ts` and never copied, 0 pages tell a reader to create a class their role cannot create. Each is mutation-proved, a planted defect turns it red, and each prints the corpus it read, so a zero cannot be confused with an empty scan. | round eighteen |
 | **Role controls in the browser** | **PASS** | `e2e/role-controls.spec.ts`, 9 tests over 3 pages and 4 roles, against the local build. A student and a guardian are offered no control that `requirePermission` would refuse them, on `/grades`, `/history` and `/flashcards`, and a teacher and a student are still offered the ones they can use. A gate that reads source cannot tell a role-gated control from an ungated one, so the copy has a static gate and the controls have a browser. Mutation-proved: reverting the three gates turns 5 of the 9 red with a count for every control, and the 4 positive controls stay green. The same 21 checks now also run inside `verify:app`, against the deployed site. | round nineteen |
 | **Live app against Postgres** | **PASS** | `verify:app`, **79 passed, 0 failed**, run against the **deployed production site** at `b74680b`, not only a local build. All five accounts, every entitled route, refusals, a real attendance write that reached Postgres, cron, push, gradebook export scope, the 21 role-gated control checks, and no console or page errors on any route. | round nineteen |
@@ -2978,6 +2978,30 @@ the split exists are now correct, one fixed in round eighteen and three here,
 and the census is complete because the route map is. A page added tomorrow
 with a read permission and a write permission would not be found by anything
 currently in the repository, and that remains open.
+
+### The one gate that was blocked, and why it is not a product failure
+
+`probe:ai` was BLOCKED in the full run at `d35dbae`. The reason is in the
+record and it is the third party's:
+
+    FAIL  the provider answered -- HTTP 503 This model is currently
+          experiencing high demand.
+
+**Being LISTED is not the same as being able to ANSWER.** The gate asserts
+that the deployed AI path can actually generate a deck, and when the provider
+is at capacity it cannot, and the honest answer is that the path is unverified
+right now rather than that it works.
+
+What makes it a measurement of the provider and not of this repository is
+that the same gate was **green** in the full run at `f99efe6` twenty minutes
+earlier, on the same product code, with no change to the gate's own input.
+Three retries were blocked with that same 503 and the fourth answered, and
+the green retry is recorded at the same commit. Both records are kept.
+
+A blocked gate is not a pass, and the recorder says so in as many words, so
+the "Full gate" row reads **22 pass, 1 blocked** and not 23. All twenty-three
+gates are green at that commit across the two records, and the row says how
+that was arrived at rather than rounding it up.
 
 ### Still open
 
