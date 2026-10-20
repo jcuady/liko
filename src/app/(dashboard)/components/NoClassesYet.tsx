@@ -20,14 +20,36 @@ import { can, type Role } from '@/lib/auth/rbac';
  * guardian whose account is not linked to a child's roster is not permitted to
  * see one. Both render identically from here. So the non-creator branch states
  * the fact and gives the honest next step, and stops there.
+ *
+ * WHY A PAGE MAY BRING ITS OWN CREATOR WORDING. The default sentence is
+ * "Marks belong to a class, and you have none yet. Create one and this fills
+ * in." That reads for a subject which hangs off a class. The classes page is
+ * the one page where the thing that is missing IS the class, so it had its own
+ * sentence already, and the sentence was better than the default: it says what
+ * a class carries. `creatorDescription` lets that page keep its wording for
+ * the role that can create one and still fall back to the shared sentence for
+ * the role that cannot.
+ *
+ * THE ONE RULE THIS PROP HAS. It is used in the creator branch and nowhere
+ * else, because the creator branch is the only one permitted to invite. If it
+ * reached the non-creator branch then a page wanting a nicer sentence would
+ * have undone the entire component, and the defect this was written for would
+ * be back with a paragraph nobody could account for. `NoClassesYet.test.ts`
+ * holds that line: the custom sentence is asserted to be absent from the
+ * guardian's and the student's copy.
  */
-export function noClassesCopy(role: Role | undefined, subject: string) {
+export function noClassesCopy(
+  role: Role | undefined,
+  subject: string,
+  creatorDescription?: string,
+) {
   const mayCreate = can(role, 'class:write');
 
   return {
     title: 'No classes yet',
     description: mayCreate
-      ? `${subject} belong to a class, and you have none yet. Create one and this fills in.`
+      ? (creatorDescription ??
+        `${subject} belong to a class, and you have none yet. Create one and this fills in.`)
       : // States the fact and stops. Not a diagnosis: a new teacher has made no
         // class, while a guardian whose account is not linked to a roster is not
         // permitted to see one, and both arrive here identically.
@@ -35,8 +57,16 @@ export function noClassesCopy(role: Role | undefined, subject: string) {
   };
 }
 
-export function NoClassesYet({ role, subject }: { role: Role | undefined; subject: string }) {
-  const copy = noClassesCopy(role, subject);
+export function NoClassesYet({
+  role,
+  subject,
+  creatorDescription,
+}: {
+  role: Role | undefined;
+  subject: string;
+  creatorDescription?: string;
+}) {
+  const copy = noClassesCopy(role, subject, creatorDescription);
 
   return <EmptyState icon={School} title={copy.title} description={copy.description} />;
 }

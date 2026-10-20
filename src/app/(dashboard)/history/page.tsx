@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 
 import { PageHeader } from '../components/PageHeader';
+import { NoClassesYet } from '../components/NoClassesYet';
 import { requirePagePermission } from '@/lib/auth/guards';
 import { data } from '@/lib/api/client';
 
@@ -37,10 +38,24 @@ export default async function HistoryPage({
           title="History"
           description="The whole record for a student, not just this week."
         />
-        <p className="rounded-[16px] border border-dashed border-border bg-surface px-6 py-12 text-center text-body text-ink-muted">
-          History follows a student, and no classes exist yet. Create a class and add a roster
-          first.
-        </p>
+        {/*
+         * THE SHARED COMPONENT, AND NOT A PARAGRAPH OF OUR OWN.
+         *
+         * This page used to say "Create a class and add a roster first", to
+         * every role that reached it. `history:read` is `own` for a student and
+         * `linked` for a guardian, so both of them reached it, and neither of
+         * them holds `class:write` at anything but `no`. The instruction was
+         * one the application would refuse them, and it was reachable: an
+         * archived student's seat reads no classes at all, because the linked
+         * read excludes an archived row while leaving the account link alone.
+         *
+         * `NoClassesYet` is the same component `/grades`, `/plan` and `/assess`
+         * already use, and its copy is role-aware: the roles that can create a
+         * class are invited to, and the roles that cannot are told the honest
+         * next step instead. A paragraph written here cannot know the role, so
+         * it cannot make that distinction.
+         */}
+        <NoClassesYet role={session.role} subject="History records" />
       </div>
     );
   }

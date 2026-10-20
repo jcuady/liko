@@ -233,3 +233,106 @@ test.describe('ghost routes', () => {
     ).toBeVisible();
   });
 });
+
+/*
+  THE CONTROLS ON THE CLASSES PAGE, AND WHO IS OFFERED THEM.
+
+  `/classes` is the landing page for a student and for a guardian, because
+  `landingPathFor` sends every role without `analytics:read` there. It used to
+  render the whole write surface to all of them: a "New class" button, and on
+  the roster an "Add student" button, an "Import CSV" button, an "Archive
+  class" button and an "Archive" button on every row.
+
+  Every one of those five actions calls `requirePermission('class:write')`
+  before it looks at a record, and a student holds that permission at `no` and
+  a guardian holds `no`. So all five were refused, and the refusal was
+  reported as "That class could not be created. Try again.", which reads as a
+  broken product rather than as a boundary. The row button was the sharpest
+  one: a student was offered an "Archive" button on their own row.
+
+  WHY THIS IS AN ASSERTION HERE AND NOT ONLY IN THE STATIC GATE. A gate that
+  reads source cannot tell a control that is role-gated from one that is not.
+  It can see that the copy on a page does not invite a role to do something it
+  cannot do, and that is a real check, but the control itself only exists in
+  the rendered page. So the copy has a static gate and the control has a
+  browser.
+
+  THE POSITIVE CONTROL MATTERS AS MUCH. An assertion that a button is absent
+  is also satisfied by a page that renders no buttons at all, which is what a
+  broken build looks like. So the teacher is asserted to be offered the same
+  controls, in the same test file, on the same page.
+*/
+test.describe('the classes page offers its controls only to the roles that can use them', () => {
+  const WRITE_CONTROLS = ['New class', 'Add student', 'Import CSV', 'Archive class'];
+
+  for (const role of ['student', 'guardian'] as const) {
+    test(`${role} is offered no control the application would refuse`, async ({ page }) => {
+      await signIn(page, ACCOUNTS[role].email);
+      await expect(page.locator('#workspace-main')).toBeVisible();
+      await expect(page).toHaveURL(/\/classes/);
+
+      for (const control of WRITE_CONTROLS) {
+        await expect(
+          page.getByRole('button', { name: control }),
+          `${role} must not be offered "${control}", which calls requirePermission('class:write')`,
+        ).toHaveCount(0);
+      }
+
+      /*
+        The per-row button carries the student's own name, so it is not one of
+        the four above. It was the sharpest of the five: a student was offered
+        an "Archive" button on their own roster row.
+      */
+      await expect(
+        page.getByRole('button', { name: /^Archive/ }),
+        `${role} must not be offered an archive button on a roster row`,
+      ).toHaveCount(0);
+    });
+
+    test(`${role} is not told to create a class`, async ({ page }) => {
+      await signIn(page, ACCOUNTS[role].email);
+      await expect(page.locator('#workspace-main')).toBeVisible();
+
+      await expect(
+        page.getByText(/Create one and everything else attaches to it/),
+        `${role} holds class:write at no, so this page must not ask them to create a class`,
+      ).toHaveCount(0);
+    });
+  }
+
+  test('a teacher is still offered the controls that work', async ({ page }) => {
+    await signIn(page, ACCOUNTS.instructor.email);
+    await expect(page.locator('#workspace-main')).toBeVisible();
+    await expect(page).toHaveURL(/\/overview/);
+
+    await page.goto('/classes');
+    await expect(page.getByRole('button', { name: 'New class' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Add student' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Import CSV' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Archive class' })).toBeVisible();
+
+    /*
+      The per-row button, and the reason the negative assertion above is not
+      vacuous. A count of zero for a locator that matches nothing is a pass
+      that means nothing, so the same locator is required to find something on
+      this page. The teacher's roster has students on it, so the row button is
+      there. Its name carries the student's own name, and the lookahead keeps
+      the header's "Archive class" out of it, because the two are different
+      buttons and this one is the one a student was offered on their own row.
+    */
+    await expect(
+      page.getByRole('button', { name: /^Archive (?!class$)/ }),
+      'the roster row carries its own archive button, so the student assertion is not vacuous',
+    ).not.toHaveCount(0);
+  });
+
+  test('an administrator may create a class, which is a class of their own', async ({
+    page,
+  }) => {
+    await signIn(page, ACCOUNTS.admin.email);
+    await expect(page.locator('#workspace-main')).toBeVisible();
+
+    await page.goto('/classes');
+    await expect(page.getByRole('button', { name: 'New class' })).toBeVisible();
+  });
+});

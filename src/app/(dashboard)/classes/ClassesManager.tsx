@@ -4,7 +4,7 @@ import * as React from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import { toast } from '@/lib/toast';
-import { Archive, Plus, Upload, Users } from 'lucide-react';
+import { Archive, Plus, Upload } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Input, Textarea } from '@/components/ui/input';
@@ -18,7 +18,6 @@ import {
 import { FormField } from '@/components/ui/form-field';
 import { Switch } from '@/components/ui/switch';
 import { Badge, Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { EmptyState } from '@/components/ui/feedback';
 import {
   Table,
   TableBody,
@@ -40,9 +39,11 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog';
 import { queryKeys } from '@/lib/query/keys';
+import { can, type Role } from '@/lib/auth/rbac';
 import type { ClassLevel, StudentRecord } from '@/lib/api/types';
 import { buildImportPlan, type ImportPlan } from '@/lib/roster/import';
 
+import { NoClassesYet } from '../components/NoClassesYet';
 import { archiveClass, archiveStudent, createClass, createStudent, importRoster } from './actions';
 
 /**
@@ -88,9 +89,47 @@ export interface ClassSummary {
    * a denied one and a printed "0" would be a claim nobody checked.
    */
   rosterVisible: boolean;
+  /**
+   * Whether this account may CHANGE the roster, as opposed to reading it.
+   *
+   * Narrower than `rosterVisible`, and deliberately so. A linked student or a
+   * guardian reads the roster they are attached to and holds `class:write` at
+   * `no`, so they see the names and none of the controls. An administrator
+   * reads the classes in the organisation and owns none of them, so they see
+   * the class and none of the controls either: the write would match zero rows
+   * and report success over a roster that never changed.
+   *
+   * Decided on the server, because the ownership test needs the session id
+   * and the record's owner, and neither belongs in a client bundle.
+   */
+  mayManage: boolean;
 }
 
-export function ClassesManager({ classes }: { classes: ClassSummary[] }) {
+export function ClassesManager({
+  classes,
+  role,
+}: {
+  classes: ClassSummary[];
+  role: Role | undefined;
+}) {
+  /*
+   * MAY THIS ACCOUNT CREATE A CLASS.
+   *
+   * `createClass` calls `requirePermission('class:write')`, which throws for a
+   * student and for a guardian. The button was rendered anyway, on the page
+   * that is the landing page for exactly those two roles, so every student and
+   * every guardian was met with a "New class" button that could only ever
+   * answer "That class could not be created. Try again."
+   *
+   * The application's own doctrine, in `NoClassesYet`, is that a button which
+   * always renders and does nothing is worse than no button at all. That is
+   * the rule this follows: the control is shown where the action can succeed.
+   *
+   * `can()` is the same function the server action uses, so the two cannot
+   * disagree about who may create a class.
+   */
+  const mayCreate = can(role, 'class:write');
+
   const [selectedId, setSelectedId] = React.useState<string | null>(classes[0]?.id ?? null);
   const selected = classes.find((item) => item.id === selectedId) ?? classes[0] ?? null;
 
@@ -122,14 +161,35 @@ export function ClassesManager({ classes }: { classes: ClassSummary[] }) {
           <h2 className="text-h4">Your classes</h2>
           <p className="text-meta text-ink-muted">{summary}</p>
         </div>
-        <NewClassDialog />
+        {mayCreate ? <NewClassDialog /> : null}
       </div>
 
       {classes.length === 0 ? (
-        <EmptyState
-          icon={Users}
-          title="No classes yet"
-          description="A class holds the roster, the register, the gradebook, and the plan. Create one and everything else attaches to it."
+        /*
+         * THE SHARED COMPONENT, NOT A PARAGRAPH.
+         *
+         * This page used to hand-roll the empty state, and it said "Create one
+         * and everything else attaches to it." That is an instruction to a role
+         * that cannot carry it out: a guardian holds `class:write` at `no` and
+         * a student holds `no`. Both were told to do something the application
+         * would refuse them, on the page that is their landing page.
+         *
+         * `NoClassesYet` is the component `/grades`, `/plan`, `/assess` and
+         * `/history` already use, and its copy is role-aware: the roles that
+         * can create a class are invited to, and the roles that cannot are
+         * told the honest next step instead. A paragraph written here cannot
+         * know the role, so it cannot make that distinction.
+         *
+         * The creator sentence is this page's own, because on the classes page
+         * the thing that is missing IS the class and this sentence says what a
+         * class carries. It is passed as `creatorDescription`, which the
+         * component uses in the creator branch only, so the roles that cannot
+         * create one still read the shared sentence.
+         */
+        <NoClassesYet
+          role={role}
+          subject="Classes"
+          creatorDescription="A class holds the roster, the register, the gradebook, and the plan. Create one and everything else attaches to it."
         />
       ) : (
         <div className="grid gap-6 lg:grid-cols-[minmax(0,20rem)_minmax(0,1fr)]">
@@ -234,52 +294,68 @@ function RosterPanel({ classRecord }: { classRecord: ClassSummary }) {
             Guardian details are used for messages about this student.
           </p>
         </div>
-        <div className="flex shrink-0 flex-wrap gap-2">
-          <NewStudentDialog classId={classRecord.id} />
-          <ImportRosterDialog classId={classRecord.id} />
-          {/*
-            CONFIRMED, BECAUSE ARCHIVING A CLASS IS NOT ARCHIVING A BUTTON.
-            This fired on a single click, while the archive-student action
-            directly below had a full confirmation dialog. So the less dangerous
-            action was the guarded one, which is the wrong way round: archiving a
-            class takes every student on it out of the register, the gradebook and
-            the history in one click, with no undo offered and no chance to see
-            which class was selected first.
+        {/*
+         * THE WRITE CONTROLS, AND WHO SEES THEM.
+         *
+         * These five actions all call `requirePermission('class:write')` and
+         * then write a row whose `owner_id` must be the caller's. A student and
+         * a guardian hold that permission at `no`, so every one of them would
+         * be refused before it looked at a record. An administrator holds the
+         * permission but owns nobody's roster, so the write would match zero
+         * rows and report success over a roster that never changed.
+         *
+         * The buttons used to render for all of them. A student was met with
+         * an "Archive" button on their own row, which would have archived the
+         * one account they had.
+         */}
+        {classRecord.mayManage ? (
+          <div className="flex shrink-0 flex-wrap gap-2">
+            <NewStudentDialog classId={classRecord.id} />
+            <ImportRosterDialog classId={classRecord.id} />
+            {/*
+              CONFIRMED, BECAUSE ARCHIVING A CLASS IS NOT ARCHIVING A BUTTON.
+              This fired on a single click, while the archive-student action
+              directly below had a full confirmation dialog. So the less dangerous
+              action was the guarded one, which is the wrong way round: archiving a
+              class takes every student on it out of the register, the gradebook and
+              the history in one click, with no undo offered and no chance to see
+              which class was selected first.
 
-            The dialog names the class, because "Archive class" alone beside a
-            class named in the card heading is ambiguous when two cards are open.
-          */}
-          <Dialog>
-            <DialogTrigger asChild>
-              <Button variant="ghost" size="sm" disabled={archiveClassMutation.isPending}>
-                <Archive size={15} aria-hidden="true" />
-                Archive class
-              </Button>
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Archive {classRecord.name}?</DialogTitle>
-                <DialogDescription>
-                  Everyone on this roster disappears from the register, the
-                  gradebook and the history. Existing marks are kept but stop
-                  appearing. This cannot be undone from here.
-                </DialogDescription>
-              </DialogHeader>
-              <DialogFooter>
-                <DialogClose asChild>
-                  <Button variant="ghost">Keep it</Button>
-                </DialogClose>
-                <Button
-                  variant="danger"
-                  onClick={() => archiveClassMutation.mutate(classRecord.id)}
-                  disabled={archiveClassMutation.isPending}
-                >
-                  {archiveClassMutation.isPending ? 'Archiving' : 'Archive class'}
+              The dialog names the class, because "Archive class" alone beside a
+              class named in the card heading is ambiguous when two cards are open.
+            */}
+            <Dialog>
+              <DialogTrigger asChild>
+                <Button variant="ghost" size="sm" disabled={archiveClassMutation.isPending}>
+                  <Archive size={15} aria-hidden="true" />
+                  Archive class
                 </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
-        </div>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Archive {classRecord.name}?</DialogTitle>
+                  <DialogDescription>
+                    Everyone on this roster disappears from the register, the
+                    gradebook and the history. Existing marks are kept but stop
+                    appearing. This cannot be undone from here.
+                  </DialogDescription>
+                </DialogHeader>
+                <DialogFooter>
+                  <DialogClose asChild>
+                    <Button variant="ghost">Keep it</Button>
+                  </DialogClose>
+                  <Button
+                    variant="danger"
+                    onClick={() => archiveClassMutation.mutate(classRecord.id)}
+                    disabled={archiveClassMutation.isPending}
+                  >
+                    {archiveClassMutation.isPending ? 'Archiving' : 'Archive class'}
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+          </div>
+        ) : null}
       </CardHeader>
 
       <CardContent>
@@ -321,9 +397,17 @@ function RosterPanel({ classRecord }: { classRecord: ClassSummary }) {
                   <TableHead scope="col">Student</TableHead>
                   <TableHead scope="col">Guardian</TableHead>
                   <TableHead scope="col">Contact</TableHead>
-                  <TableHead scope="col" className="text-right">
-                    <span className="sr-only">Actions</span>
-                  </TableHead>
+                  {/*
+                    THE COLUMN IS HERE ONLY WHEN THERE IS SOMETHING TO DO IN IT.
+                    An empty column headed "Actions" is a promise of an action
+                    that is not offered, and a student or a guardian was met
+                    with exactly that on the one roster they may read.
+                  */}
+                  {classRecord.mayManage ? (
+                    <TableHead scope="col" className="text-right">
+                      <span className="sr-only">Actions</span>
+                    </TableHead>
+                  ) : null}
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -362,18 +446,20 @@ function RosterPanel({ classRecord }: { classRecord: ClassSummary }) {
                         </span>
                       ) : null}
                     </TableCell>
-                    <TableCell className="text-right">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => setStudentToArchive(student.id)}
-                        disabled={archive.isPending}
-                      >
-                        <span className="sr-only">Archive {student.fullName}</span>
-                        <Archive size={15} aria-hidden="true" />
-                        <span aria-hidden="true">Archive</span>
-                      </Button>
-                    </TableCell>
+                    {classRecord.mayManage ? (
+                      <TableCell className="text-right">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setStudentToArchive(student.id)}
+                          disabled={archive.isPending}
+                        >
+                          <span className="sr-only">Archive {student.fullName}</span>
+                          <Archive size={15} aria-hidden="true" />
+                          <span aria-hidden="true">Archive</span>
+                        </Button>
+                      </TableCell>
+                    ) : null}
                   </TableRow>
                 ))}
               </TableBody>

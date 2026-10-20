@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 
 import { PageHeader } from '../components/PageHeader';
 import { requirePagePermission } from '@/lib/auth/guards';
+import { can } from '@/lib/auth/rbac';
 import { isDemoStaff } from '@/lib/auth/store';
 import { data } from '@/lib/api/client';
 import type { StudentRecord } from '@/lib/api/types';
@@ -51,6 +52,40 @@ export default async function ClassesPage() {
   for (const roster of byClass.values()) {
     roster.sort((left, right) => left.fullName.localeCompare(right.fullName));
   }
+
+  /*
+   * MAY THIS ACCOUNT CHANGE THE ROSTER, AS OPPOSED TO READING IT.
+   *
+   * Reading and writing are different grants and they are decided by different
+   * things, so they get different names. `rosterVisible` below answers "may
+   * this account read the names on it". This answers "may this account change
+   * it", and it has two parts.
+   *
+   * THE PERMISSION. Every one of the five writes on this page, `createClass`,
+   * `archiveClass`, `createStudent`, `importRoster` and `archiveStudent`, calls
+   * `requirePermission('class:write')` before it looks at any record. A student
+   * holds that at `no` and a guardian holds `no`, so for those two roles every
+   * one of those calls throws, and the button under it reports "That class
+   * could not be created. Try again." for an action the application had already
+   * refused. That is not a copy problem, it is a control that cannot work.
+   *
+   * THE RECORD. Permission is not enough. The `own rows` policy is
+   * `owner_id = auth.uid()`, and both archive calls filter on `owner_id` as
+   * well, so an administrator who may read a class in the organisation still
+   * cannot change it: the update matches zero rows, and Postgres does not call
+   * a zero-row update an error. The result would be a toast saying "Class
+   * archived." over a class that is still there, with no way to tell the two
+   * apart. So the button belongs where the write will actually land.
+   *
+   * The demo staff escape is the same one `rosterVisible` uses, and it exists
+   * for one reason: the seeded classes carry the synthetic owner `demo-owner`,
+   * which is nobody's account id. In the fixture store every write succeeds
+   * regardless of ownership, and in Postgres the seeded classes are owned by
+   * the instructor's real account id, so the owner test alone would be correct
+   * there. `isDemoStaff` cannot fire against a real account, because it matches
+   * the fixed demo ids only.
+   */
+  const mayWrite = can(session.role, 'class:write');
 
   const summaries: ClassSummary[] = classes.map((classRecord) => ({
     id: classRecord.id,
@@ -115,6 +150,16 @@ export default async function ClassesPage() {
       (byClass.get(classRecord.id) ?? []).some(
         (student) => student.accountId === session.userId,
       ),
+    /*
+     * The write grant, which is narrower than the read grant above. A linked
+     * student or guardian reads the roster they are attached to and holds
+     * `class:write` at `no`, so they see the names and none of the controls.
+     * An administrator reads the classes in the organisation and owns none of
+     * them, so they see the class and none of the controls either.
+     */
+    mayManage:
+      mayWrite &&
+      (classRecord.ownerId === session.userId || isDemoStaff(session.userId)),
   }));
 
   return (
@@ -123,7 +168,7 @@ export default async function ClassesPage() {
         title="Classes"
         description="Every class you teach, with roster, term, and progress attached."
       />
-      <ClassesManager classes={summaries} />
+      <ClassesManager classes={summaries} role={session.role} />
     </div>
   );
 }
