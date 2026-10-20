@@ -26,7 +26,7 @@ inheriting a word from an earlier round.
 | Unit tests | **PASS** | `537 passed, 2 skipped`, measured in a detached worktree at `312da33` so the figure is that commit's and not the shared tree's. The commit after it changed only a client component with no unit test. | round twelve |
 | e2e | **PASS** | `241 passed (4.8m)` at `9604440`, the whole suite, exit 0. Up from `232` at `fe01de2`: eight of these are the new attendance note spec. | round twelve |
 | **Full gate** | **22 pass, 0 blocked, 0 fail, 0 error** | `pnpm gates` at `a109da8`, recorded in `docs/evidence/gates.json`, with the build recorded as served and unchanged across the run, the tree clean, and the run not contaminated. Twenty-two registered gates, every one green, including `probe:ai`, which was BLOCKED on the previous full run for a third-party 503 and is green here with no code change. The e2e gate passed in 279.5s with no flake. | round seventeen |
-| **Static gates (controls, links, filters, actions)** | **PASS** | `verify:controls`: 162 controls in 144 files, 0 unwired, 1 inert. `verify:links`: 62 links over 44 routes, 0 broken. `verify:filters`: 131 filters, and the 3 it refuses to look at are examined by a test. `verify:actions`: 79 exported server actions, 0 dead. Each is mutation-proved, a planted defect turns it red, and each prints the corpus it read, so a zero cannot be confused with an empty scan. | round seventeen |
+| **Static gates (controls, links, filters, actions, empty states)** | **PASS** | `verify:controls`: 162 controls in 144 files, 0 unwired, 1 inert. `verify:links`: 62 links over 44 routes, 0 broken. `verify:filters`: 131 filters, and the 3 it refuses to look at are examined by a test. `verify:actions`: 79 exported server actions, 0 dead. `verify:empty-states`: 21 dashboard pages against the 4 roles in the matrix, read out of `rbac.ts` and never copied, 0 pages tell a reader to create a class their role cannot create. Each is mutation-proved, a planted defect turns it red, and each prints the corpus it read, so a zero cannot be confused with an empty scan. | round eighteen |
 | **Live app against Postgres** | **PASS** | `verify:app`, **58 passed, 0 failed**, run against the **deployed production site** at `4d8dfce`, not only a local build. All five accounts, every entitled route, refusals, a real attendance write that reached Postgres, cron, push, gradebook export scope, and no console or page errors on any route. | round seventeen |
 | **Deployed to production** | **PASS** | Production serves the tip of `main`, deployed by the Vercel Git integration, so **a push to `main` is a production deploy**. Read from the deployment's own build log, not inferred: `4d8dfce` at 13:05 UTC, compiled successfully, 49 of 49 static pages, status Ready. Recording the sha actually read, because a pinned sha goes stale on the next push by anyone. | round seventeen |
 | **Per-role sweep of the deployed site** | **PASS** | Guardian probe against production, 5 of 5. `/grades` and `/history` each name the child the seat is linked to. | round eleven |
@@ -2641,7 +2641,185 @@ one, and the fallback is the manual two step. The manifest ships three real
 shortcuts. Zero store URLs exist in the repository, which is the check, not an
 assertion.
 
+## Round eighteen: a page that asked a student to do something the app would refuse
+
+### The new gate, and what it found on the first honest run
+
+`verify:empty-states` is the twenty-third gate, and it asserts one property:
+
+> No page tells a reader to create a class their role cannot create.
+
+It is a property of two things at once, so it reads both. The copy comes from
+the page and from every component the page renders, because the copy is
+rarely in the page. The roles come from `MATRIX` in `src/lib/auth/rbac.ts`,
+read out of that file with the TypeScript compiler rather than copied, because
+`rbac.ts` says of itself: "Both must consult this file, never a local copy."
+A gate that kept its own table of scopes would be a third copy, and it would
+drift the moment a permission changed.
+
+It implements `can()` exactly as the application does, which is a scope of
+`no` is refused and an ownership scope counts as permitted.
+
+On its first run against the real tree it reported one FAIL, and it named it
+exactly:
+
+    copy in src/app/(dashboard)/classes/ClassesManager.tsx: No classes yet
+    A class holds the roster, the register, the gradebook, and the plan.
+    Create one and everything else attaches to it.
+    student, guardian can reach this page and cannot create a class, so this
+    instruction is one the application will refuse them.
+
+`/classes` is gated on `class:read`, which a student holds at `own` and a
+guardian at `linked`. Both can reach it. Both hold `class:write` at `no`.
+And `/classes` is the landing page for exactly those two roles, because
+`landingPathFor` sends every role without `analytics:read` there. So the
+first thing a student saw after signing in was an instruction to create a
+class, on a page the application would refuse to let them create one.
+
+### What the gate could not see, and what it could
+
+The gate is about copy. It is silent about the controls, and the controls on
+that page were worse than the copy was.
+
+`ClassesManager` rendered its whole write surface to everyone: a "New class"
+button, and on the roster an "Add student" button, an "Import CSV" button, an
+"Archive class" button and an "Archive" button on every row. All five actions
+call `requirePermission('class:write')` before they look at a record, so for a
+student and a guardian all five were refused, and the refusal was reported as
+"That class could not be created. Try again.", which reads as a broken product
+rather than as a boundary.
+
+The row button was the sharpest of the five. A student was offered an
+"Archive" button on their own roster row.
+
+**THIS IS WHY THE COPY AND THE CONTROLS NEED DIFFERENT INSTRUMENTS.** A gate
+that reads source cannot tell a control that is role-gated from one that is
+not. It can see that a page does not invite a role to do something it cannot
+do, and that is worth having, but the button itself only exists in the
+rendered page. So the copy has a static gate and the control has a browser.
+
+### The fix, and the one rule it had to obey
+
+The empty state is now the shared `NoClassesYet` component, the same one
+`/grades`, `/plan`, `/assess` and `/history` already use, and its copy is
+role-aware by construction.
+
+That raised a problem worth writing down. The classes page had its own
+sentence, and a better one than the shared default, because on the classes
+page the thing that is missing IS the class: "A class holds the roster, the
+register, the gradebook, and the plan. Create one and everything else attaches
+to it." The shared default is "Marks belong to a class, and you have none yet.
+Create one and this fills in.", which reads for a subject that hangs off a
+class but not for the class itself.
+
+So `NoClassesYet` gained an optional `creatorDescription`, which lets a page
+keep its wording for the role that can create a class. And that is a door that
+swings the wrong way if nobody holds it: if the custom sentence ever reached
+the non-creator branch, a page wanting a nicer sentence would have undone the
+entire component and brought the original defect back in prose the product had
+already approved.
+
+**THE RULE IS ASSERTED, NOT TRUSTED.** `NoClassesYet.test.ts` proves the
+custom sentence reaches the instructor and the administrator and reaches
+neither the student nor the guardian, and it proves the general property
+besides it, which is that the description invites creation exactly when the
+role can create. The gate cannot do this, because the gate reads the shared
+component as a unit and trusts its copy; the unit test is the instrument that
+can execute the branch.
+
+The controls are gated on the server, where the session and the records are
+both available. Two different grants, named separately, because reading and
+writing are decided by different things:
+
+- `rosterVisible` answers "may this account read the names on it". The owner
+  may, the demo staff may, and a linked student or guardian may read the one
+  row they are attached to.
+- `mayManage` answers "may this account change it". The permission is
+  necessary and not sufficient: the `own rows` policy is
+  `owner_id = auth.uid()` and both archive calls filter on `owner_id` as
+  well, so an administrator who may read a class in the organisation still
+  cannot change it.
+
+The controls are shown where the write will actually land, and nowhere else.
+
+### The instruments, and the mutations that proved they can fail
+
+**A gate with no fixture cannot be shown to fail.** The self-test has five
+cases, including the one that was missed twice: two branches on the same
+condition, the first harmless and the second the whole defect, in a client
+component rather than in the page.
+
+**Two instrument bugs were found by running it, not by reading it.** It read
+only the FIRST class-scoped branch in a file, and `ClassesManager` has two on
+`classes.length === 0`: the summary sentence "Nothing yet." and the empty
+state under it, which is the whole defect. And it read only the page files,
+for the reason given above, which is that the copy is in the component the
+page renders. A third one was found later: `parse()` picked the script kind
+with `file.endsWith('.x')`, and `'foo.tsx'.endsWith('.x')` is false, so every
+`.tsx` was parsed as plain TypeScript and all the JSX was invisible. That one
+arrived from tidying, and the self-test caught it on the next run, which is
+the argument for having a self-test at all: the gate had been reporting a
+defect correctly minutes earlier.
+
+**THE FIX WAS MUTATION-PROVED ON THE REAL TREE, THREE SEPARATE TIMES.**
+
+1. The hand-rolled empty state, restored as a paragraph, turns the gate red
+   with exit 1 and the copy named. The file is restored byte-for-byte
+   afterwards, verified by SHA-256.
+2. The custom creator sentence leaked into the non-creator branch turns the
+   unit test red with three failing assertions, each naming the defect. The
+   file is restored byte-for-byte afterwards.
+3. The roster gate reverted turns the browser red, for the student and for the
+   guardian, with the message naming the control:
+
+       Error: student must not be offered "Add student", which calls
+              requirePermission('class:write')
+       Locator:  getByRole('button', { name: 'Add student' })
+       Expected: 0
+       Received: 1
+
+   The file is restored byte-for-byte afterwards.
+
+**AND THE POSITIVE CONTROL COMES FIRST IN EVERY ONE OF THEM.** A count of
+zero for a locator that matches nothing is a pass that means nothing, so the
+teacher is asserted to be offered the same controls on the same page, in the
+same test file. The mutation run above proves the pair is not vacuous: the
+teacher still saw "Add student" while the student was shown it, and the
+teacher's assertion is the one that proves the locator resolves.
+
+### What this round did not close
+
+One divergence is now visible and is left for the owner, because both of its
+possible fixes are policy decisions about other people's children and neither
+should be made by an audit.
+
+**THE MATRIX AND THE DATABASE DISAGREE ABOUT ADMINISTRATOR WRITES.**
+`can(admin, 'class:write')` is `true`, and the application honours that: an
+administrator is offered "New class", and creating one gives them a class of
+their own, which works. But every write to a roster is filtered on
+`owner_id = auth.uid()`, and Postgres does not call a zero-row update an
+error. So an administrator who invokes `archiveClass` directly, against a
+class they do not own, is told "Class archived." over a class that is still
+there.
+
+The interface no longer offers that path: the roster controls are shown only
+where the write lands. But the action itself still reports a success it did
+not achieve, and closing that means either widening the write policies to
+administrators, which is a decision about children's records, or narrowing the
+matrix, which removes a capability the product currently advertises. Both are
+the owner's to make, and neither was made here.
+
 ### Still open
+
+Two things are open. One is blocked on the tooling rather than on a decision,
+and one is waiting on the owner because both of its fixes are a decision about
+other people's children.
+
+**The administrator's roster write still reports a success it did not
+achieve.** The interface no longer offers it, and the details are in round
+eighteen. The action itself is unchanged, because closing it means either
+widening the write policies to administrators or narrowing the matrix, and
+neither is an audit's to decide.
 
 One thing is blocked on the tooling rather than on a decision. The detached
 verification worktree at `312da33` has been reduced to what the recoverable
