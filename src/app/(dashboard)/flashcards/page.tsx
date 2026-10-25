@@ -58,7 +58,7 @@ export default async function FlashcardsPage() {
     ? await loadShareableClasses().catch(() => [] as { id: string; name: string }[])
     : [];
 
-  const shared = decks.filter((row) => !row.editable).length;
+  const shared = decks.filter((row) => !row.owned).length;
 
   return (
     <div className="mx-auto max-w-[52rem]">
@@ -81,7 +81,7 @@ export default async function FlashcardsPage() {
       ) : (
         <>
           <ul className="grid gap-3">
-            {decks.map(({ deck, due, learning, cards, editable }) => (
+            {decks.map(({ deck, due, learning, cards, owned }) => (
               <li key={deck.id}>
                 <Link
                   href={`/flashcards/${deck.id}`}
@@ -92,7 +92,7 @@ export default async function FlashcardsPage() {
                     <p className="mt-1 truncate text-meta text-ink-muted">
                       {cards} {cards === 1 ? 'card' : 'cards'}
                       {deck.subject ? ` · ${deck.subject}` : ''}
-                      {!editable ? ' · shared with your class' : ''}
+                      {!owned ? ' · shared with your class' : ''}
                     </p>
                   </div>
 

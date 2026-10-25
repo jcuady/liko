@@ -33,8 +33,15 @@ export interface DeckSummary {
   due: number;
   learning: number;
   cards: number;
-  /** True when the caller may edit this deck rather than only study it. */
-  editable: boolean;
+  /**
+   * True when the caller owns this deck.
+   *
+   * A FACT, NOT A GRANT. Ownership says whose deck it is. Whether this
+   * account may WRITE a deck at all is a different question, and the matrix
+   * answers it: `flashcard:write` is `no` for a guardian. Keeping the two
+   * apart is what stops the page offering a control the server would refuse.
+   */
+  owned: boolean;
 }
 
 export interface StudyCard {
@@ -47,9 +54,20 @@ export interface DeckDetail {
   cards: StudyCard[];
   due: number;
   learning: number;
-  editable: boolean;
-  /** False for a teacher, who owns decks but has no roster row to review against. */
-  canReview: boolean;
+  /** True when the caller owns this deck. A fact, not a grant. */
+  owned: boolean;
+  /**
+   * True when there is something to review.
+   *
+   * Also a fact, not a grant. Whether this account may REVIEW is the
+   * matrix's answer: `flashcard:review` belongs to students, because a review
+   * writes a schedule row that belongs to a student, and a teacher owns no
+   * roster row. The old value re-stated that rule here as
+   * `session.role === 'student'`, which is the rule in a second place, and
+   * `rbac.ts` says of itself: "Both must consult this file, never a local
+   * copy."
+   */
+  hasCards: boolean;
 }
 
 export interface ActionResult {
@@ -147,7 +165,7 @@ export async function loadDecks(): Promise<DeckSummary[]> {
         due: counts.due,
         learning: counts.learning,
         cards: counts.total,
-        editable: deck.ownerId === session.userId,
+        owned: deck.ownerId === session.userId,
       };
     }),
   );
@@ -178,11 +196,13 @@ export async function loadDeck(deckId: string): Promise<DeckDetail | null> {
     cards: cards.map((card) => ({ card, progress: byCard.get(card.id) ?? null })),
     due: counts.due,
     learning: counts.learning,
-    editable: deck.ownerId === session.userId,
-    // A review needs a student to belong to and at least one card to show.
-    // Both are real refusals rather than display concerns: staff own no roster
-    // row, so their save would be rejected by the very policy that guards it.
-    canReview: session.role === 'student' && counts.total > 0,
+    owned: deck.ownerId === session.userId,
+    /*
+     * There are cards to review. Whether this account MAY review them is the
+     * matrix's answer, and the page asks it there, next to the controls that
+     * would perform the review.
+     */
+    hasCards: counts.total > 0,
   };
 }
 

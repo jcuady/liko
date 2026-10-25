@@ -208,3 +208,50 @@ test.describe('the flashcards page offers a new deck only to a role that can wri
     await expect(page.getByRole('button', { name: 'New deck' })).toBeVisible();
   });
 });
+
+/*
+  THE DECK PAGE, WHICH DECIDES BY TWO THINGS AT ONCE.
+
+  The deck page offers a card form and a review session, and they are gated by
+  different grants. The card form needs the ownership of the deck AND the
+  permission to write a deck; the review session needs the permission to review
+  and a deck with something in it.
+
+  This block exists because the page was changed to ask the matrix for its
+  grants rather than to infer them from ownership, and a change that narrows a
+  control can also hide one that was correct. So both halves are asserted, and
+  the positive control comes first: a student is still offered the card form on
+  the deck they own, and is still offered the review session on the deck their
+  teacher shared.
+*/
+test.describe('the deck page offers its controls to the account the grants allow', () => {
+  test('a student is offered the card form on the deck they own', async ({ page }) => {
+    await signIn(page, ACCOUNTS.student.email);
+    await page.goto('/flashcards/deck_fc_own_revision');
+    await expect(page.locator('#workspace-main')).toBeVisible();
+
+    await expect(
+      page.getByRole('button', { name: 'Add card' }),
+      'the student owns this deck and holds flashcard:write at own, so the form is theirs',
+    ).toBeVisible();
+    await expect(
+      page.getByRole('region', { name: 'Review session' }),
+      'a student holds flashcard:review at own, so the session is theirs',
+    ).toBeVisible();
+  });
+
+  test('a student is offered no card form on the deck their teacher shared', async ({ page }) => {
+    await signIn(page, ACCOUNTS.student.email);
+    await page.goto('/flashcards/deck_fc_chem_terms');
+    await expect(page.locator('#workspace-main')).toBeVisible();
+
+    await expect.soft(
+      page.getByRole('button', { name: 'Add card' }),
+      'the student holds flashcard:write at own but does not own this deck, so no card is theirs to add',
+    ).toHaveCount(0, { timeout: 4000 });
+    await expect(
+      page.getByRole('region', { name: 'Review session' }),
+      'the deck is shared into their class, so the session is still theirs to take',
+    ).toBeVisible();
+  });
+});

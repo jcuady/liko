@@ -34,6 +34,7 @@
     "verify:filters": "node scripts/verify-filters.mjs",
     "verify:actions": "node scripts/verify-actions.mjs",
     "verify:empty-states": "node scripts/verify-empty-states.mjs",
+    "verify:role-guards": "node scripts/verify-role-guards.mjs",
     "verify:rbac-routes": "node scripts/verify-rbac-routes.mjs",
     "probe:guardian": "node --env-file=.env.local scripts/probe-guardian-views.mjs"
   },
