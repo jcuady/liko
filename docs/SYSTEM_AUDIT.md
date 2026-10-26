@@ -9,6 +9,16 @@ by a command that was run, or is marked **NOT VERIFIED** with the reason.
   UI/a11y/branding), each read-only, plus direct measurement against the live
   Supabase project.
 
+> **This file is a dated snapshot and the live status is `PROJECT_STATUS.md`.**
+> Every row below carries the commit or the round it was last measured on, and
+> the figures are true of that round. They are **not** re-derived for later
+> rounds, because a historical figure edited in place stops being a claim about
+> the past and becomes a claim about the present that nobody measured. The
+> rows that have moved on since are recorded in `docs/FINISH_STATUS.md` and
+> `docs/FIX_PLAN.md`, and the current run is in `docs/evidence/gates.json`.
+> **The gate count in the row below was 24 in that round; the recorder runs 26
+> now**, and the two extra gates are `check:copy` and `verify:deck-maker`.
+
 ---
 
 ## Verification summary
