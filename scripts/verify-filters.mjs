@@ -95,6 +95,7 @@ function tsxFiles(dir) {
 
 const unwired = [];
 const unexamined = [];
+const wiredBy = { driven: 0, injected: 0, native: 0, controlled: 0 };
 const disabled = [];
 let filesVisited = 0;
 let filtersSeen = 0;
@@ -129,12 +130,16 @@ for (const file of tsxFiles(ROOT)) {
 
       if (HANDLERS.some((name) => attrs.has(name))) {
         /* driven */
+        wiredBy.driven += 1;
       } else if (injected || attrs.has('asChild')) {
         /* injected by a parent */
+        wiredBy.injected += 1;
       } else if (inForm && attrs.has('name')) {
         /* submits natively to a server action */
+        wiredBy.native += 1;
       } else if (attrs.has('value') || attrs.has('defaultValue')) {
         /* controlled */
+        wiredBy.controlled += 1;
       } else if (attrs.has('disabled') || attrs.has('readOnly')) {
         disabled.push(at);
       } else if (spread) {
@@ -198,6 +203,21 @@ if (unwired.length === 0) {
       `(${filtersSeen} filters in ${filesVisited} files)`,
   );
   console.log(`      ${unwired.length} unwired, ${unexamined.length} unexamined, ${disabled.length} disabled`);
+  /*
+   * THE BREAKDOWN, PRINTED, NOT REMEMBERED.
+   *
+   * A document once carried the split "99 drive state through an explicit
+   * handler, 29 submit natively" while the gate reported only the totals,
+   * so the split had no witness and could not be re-derived from anything.
+   * The four ways a filter can be wired are counted here so the number a
+   * reader quotes comes from the run that measured it.
+   */
+  console.log(
+    `      wired: ${wiredBy.driven} with an explicit handler, ` +
+      `${wiredBy.injected} injected by a parent, ` +
+      `${wiredBy.native} submitting natively inside a form, ` +
+      `${wiredBy.controlled} controlled`,
+  );
   process.exit(0);
 }
 
