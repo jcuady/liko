@@ -2,7 +2,7 @@
 
 Last Updated: 2026-10-26
 Current Branch: `integrate/verified-session-and-runner-fixes`
-Overall Status: **IMPLEMENTED, GATE-GREEN ON EVERYTHING THIS TEAM CONTROLS, WITH THREE THINGS ONLY THE OWNER CAN DO.** Measured 2026-10-26 at `f341d9f`, the most recent full run: **25 registered gates, 25 pass, 0 blocked, 0 fail, 0 error**, with `tree.exact: true`, `material: []`, and the build served `PurgjAcao4hxU74Cz9R7n` unchanged at both ends of the run (`build.changed: false`, `contaminated: false`). e2e is **259 passed / 0 failed** in 4.9 min, measured on that clean tree, and `probe:ai` answered the provider rather than refusing it.
+Overall Status: **IMPLEMENTED, GATE-GREEN ON EVERYTHING THIS TEAM CONTROLS, WITH FOUR THINGS LEFT AND NOT ONE OF THEM IS CODE.** Measured 2026-10-26 at `f341d9f`, the most recent full run: **25 registered gates, 25 pass, 0 blocked, 0 fail, 0 error**, with `tree.exact: true`, `material: []`, and the build served `PurgjAcao4hxU74Cz9R7n` unchanged at both ends of the run (`build.changed: false`, `contaminated: false`). e2e is **259 passed / 0 failed** in 4.9 min, measured on that clean tree, and `probe:ai` answered the provider rather than refusing it. **Three of the four need a credential or a professional signature; the fourth needs a phone in a hand** — they are listed under "Recommended Next Actions" rather than described here, so that this line cannot disagree with them.
 
 - **A blocked gate is a third answer, and it is not "nearly green".** It happened again during this round: the run at `7c7bd62` is **25 pass / 1 blocked / 0 fail** — the block was `probe:ai`, refused with `HTTP 503 — This model is currently experiencing high demand`. The recorder recorded that as `blocked`: never a pass, never a failure, because the gate measured nothing about the product. Being listed is not the same as being able to answer. Its previous real pass was kept beside it rather than overwritten, so a provider outage can neither manufacture a red suite nor hide a genuine one, and the retry 75 seconds later was a pass in 82.2s. **A run with one blocked gate is a legitimate record and a reason to re-run, not a failing suite and not a green one** — and the two must never be confused, because the difference is the whole point of having a third answer.
 - **The recorder was itself broken for the eighty-two minutes between two commits, and nothing in this project could report it.** `dc58b3b` read `E2E_PORT` at the top of the gate registry while declaring it near the bottom, so the module threw while evaluating and the recorder could not start at all. Every gate here runs through that one script, so there was no remaining witness. It is now hoisted above the array that consumes it, and `node scripts/run-gates.mjs --list` evaluates the whole module in **84ms** and runs no gate, so the tool can report on itself; the section below records the mutation that proves the probe can fail.
@@ -365,7 +365,7 @@ pricing file.
 - [ ] Have the legal text reviewed by a qualified lawyer
 - [ ] Rotate the service role key and the database password, which have been handled in a conversation
 
-**This list had drifted, and the drift was in the direction that makes a document look finished.** It carried "Authenticate with Vercel and deploy" as **unfinished** when deployment is automatic and verified, and it carried "Have the legal text reviewed by a qualified lawyer" **twice**. Both are the same failure as a stale number in a results table: a line that is never re-derived stops being a statement and becomes a decoration. The owner items are now the same three the header names, and each one says what specifically has to happen.
+**This list had drifted, and the drift was in the direction that makes a document look finished.** It carried "Authenticate with Vercel and deploy" as **unfinished** when deployment is automatic and verified, and it carried "Have the legal text reviewed by a qualified lawyer" **twice**. Both are the same failure as a stale number in a results table: a line that is never re-derived stops being a statement and becomes a decoration. The items that are left are the same four the header names, and each one says what specifically has to happen.
 
 **The registration blocker had the same shape, one level down.** `verify:app` used to address a `.test` domain, which Supabase refuses at validation before the request reaches the mail path, so the gate reported green and printed that the quota "appears to have reset" when the quota was in fact spent. The probe now asks with a routable address when the cause is open, and the answer is `429 over_email_send_rate_limit` — **the quota is still spent**. The probe was repaired because a blocker whose cause is a guess is a blocker somebody might work around instead of fix.
 
@@ -833,15 +833,15 @@ This corrects a claim carried in the recorder's exclusion reason and in this fil
 
 ## Deployment Readiness
 
-**Ready to use, with three things that need the owner and are not code.** The application builds, typechecks, lints, tests clean and is deployed. What remains is external:
+**Ready to use, with two things left on this list that are not code.** The application builds, typechecks, lints, tests clean and is deployed. What remains is external:
 
-1. The migration is applied and the live gates pass, so the SQL is proven at runtime and not only by reading it.
-2. The database is seeded and the live application renders every workspace route against real rows.
-3. Deployment is authenticated and serving.
-4. The generator's provider is on the free tier, which refuses at the provider's own rate. See blocker 8.
-5. Registration and password reset are refused by Supabase's email quota, so the two paths that need a real person to receive a message cannot be exercised until an SMTP provider is configured. See blocker 7.
+1. **DONE.** The migration is applied and the live gates pass, so the SQL is proven at runtime and not only by reading it.
+2. **DONE.** The database is seeded and the live application renders every workspace route against real rows.
+3. **DONE.** Deployment is authenticated and serving.
+4. **OPEN, and a third party's rate rather than a defect.** The generator's provider is on the free tier, which refuses at the provider's own rate. See blocker 8. The app says "out of capacity" rather than pretending otherwise, and the one live generation that did succeed produced eleven real slides.
+5. **OPEN, and a dashboard setting.** Registration and password reset are refused by Supabase's email quota, so the two paths that need a real person to receive a message cannot be exercised until an SMTP provider is configured. See blocker 7.
 
-**Point four is a provider at capacity and point five is a dashboard setting, and neither is a defect in the product.** Both are named here so that a reader knows exactly what "ready to use" excludes, rather than discovering it.
+**Point four is a provider at capacity and point five is a dashboard setting, and neither is a defect in the product.** Both are named here so that a reader knows exactly what "ready to use" excludes, rather than discovering it. The complete list of what is left, including the two that are not on this page's list, is under **Recommended Next Actions**.
 
 ## Blockers
 
@@ -895,11 +895,14 @@ into `pnpm test` or CI.
 
 ## Recommended Next Actions
 
-**Three, and none of them is code.** The first item on an earlier draft of this list was "authenticate with Vercel and deploy", which is done: the project has git integration, a push creates a deployment, and `https://liko-jcuadys-projects.vercel.app` serves this project. It was struck for the same reason `GEMINI_API_KEY` was struck from the header — a list that nobody re-checks stops being a list and becomes a wish.
+**Four, and none of them is code.** The first item on an earlier draft of this list was "authenticate with Vercel and deploy", which is done: the project has git integration, a push creates a deployment, and `https://liko-jcuadys-projects.vercel.app` serves this project. It was struck for the same reason `GEMINI_API_KEY` was struck from the header — a list that nobody re-checks stops being a list and becomes a wish.
 
-1. **Configure a custom SMTP provider on Supabase.** Until that is done nobody can register, and the signup path, the `handle_new_user` trigger and the `consent_events` write are unverified against the live database. The form and its consent gate pass in fixtures; the live signup call returns `over_email_send_rate_limit`.
+**And the count was wrong before this.** The list said "three" while the checklist above it carried four, because the fourth needs a physical device rather than a credential. **The difference matters, so it is spelled out rather than rounded down:** three of these need a credential or a professional signature, and the fourth needs a phone in a hand.
+
+1. **Configure a custom SMTP provider on Supabase.** Until that is done nobody can register, and the signup path, the `handle_new_user` trigger and the `consent_events` write are unverified against the live database. The form and its consent gate pass in fixtures; the live signup call returns `429 over_email_send_rate_limit`, measured against a routable address on 2026-10-26.
 2. **Have the legal text reviewed by a lawyer.** It describes this implementation accurately, which is the most it can do, but accuracy about the system is not the same as legal sufficiency.
 3. **Rotate the service role key and the database password before this project carries anything real.** Both have been handled in chat and written to a local `.env.local`, which is gitignored — and no commit in this repository contains a secret, which was checked rather than assumed: only `.env.example` is tracked, and no env file appears anywhere in the history. They were shared in a conversation, and that is the reason to rotate them.
+4. **Verify push delivery from a Home Screen-installed PWA.** The sweep is proven against the live database — `verify:app` proves it refuses a request with no secret, refuses a wrong secret, discloses nothing when it refuses, and prunes a synthetic endpoint rather than delivering to it. **What no test can stand in for is a browser that has actually accepted a subscription and received a push.** It needs a phone.
 
 ## Recent Work
 
