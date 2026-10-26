@@ -33,13 +33,78 @@ async function signIn(page: Page, email: string): Promise<void> {
  * `ul li` pairs, twice over: a desktop primary list, a desktop secondary list and
  * a mobile tab bar. An unscoped `ul li` counts navigation, not timetable, and a
  * count of 14 would have been a count of sidebar links.
+ *
+ * AND SCOPED TO THE DAY SECTIONS, WHICH IS THE PART THAT MATTERED.
+ *
+ * `main ul` is not only the week. The same page also renders the deadlines
+ * beside it, the terms, and the photograph-import control, and each of those is
+ * a `ul` of `li` under `main` that appears and disappears with the page's own
+ * state. So the locator was counting a timetable AND whatever else the page
+ * happened to be showing, and the total was right only when the page happened
+ * to be showing nothing else.
+ *
+ * The difference is not cosmetic. The deadlines list and the terms list render
+ * only when there are deadlines and terms, so the same count was fifteen in a
+ * quiet moment and sixteen in a busy one. Two tests in this file create a
+ * deadline and a term, and they ran concurrently with the tests that count the
+ * week, so the count moved underneath the assertion.
+ *
+ * The week is the one thing on this page that is a `section` per day with the
+ * weekday as its heading, so that is what it is scoped to.
  */
+const WEEKDAY_HEADING = /^(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)$/;
+
 function weekList(page: Page) {
-  return page.locator('main ul');
+  return page
+    .locator('main section')
+    .filter({ has: page.locator('h2', { hasText: WEEKDAY_HEADING }) })
+    .locator('ul');
 }
 
 function weekEntries(page: Page) {
   return weekList(page).locator('li');
+}
+
+/**
+ * The SEEDED entries, with every class this file creates left out.
+ *
+ * THIS EXISTS BECAUSE TWO TESTS IN THIS FILE SHARE ONE WEEK AND RUN AT THE
+ * SAME TIME.
+ *
+ * `a class can be added and taken back off again` adds a class to this
+ * student's own week. `a class a teacher saves reaches the student` adds a
+ * different one to the same week from the teacher's side. They are in
+ * different `describe` blocks, so `fullyParallel` runs them in parallel
+ * workers against the one shared fixture store, and the tests that count the
+ * week saw sixteen entries where they expected fifteen. It passed in two runs
+ * and failed in the third, which is what a race looks like.
+ *
+ * The alternatives were both worse. Serialising the tests would need the
+ * count readers and the mutators in the same `describe`, and they sign in as
+ * different people, so it would mean moving tests between blocks and giving
+ * up the file's own structure. Asserting "fifteen or sixteen" would let a
+ * genuinely short week pass.
+ *
+ * Counting only the seeded entries is the honest version of what was being
+ * asserted. `SEEDED_WEEK` is the SEEDED week: the property under test is
+ * that every seeded class renders, and neither of the classes this file
+ * creates is part of the seed. Both names appear nowhere in the seed or the
+ * fixture store except in this file, so excluding them excludes exactly the
+ * entries that are allowed to be present or absent at any moment.
+ *
+ * The mutating test keeps a count that includes its own class, because it is
+ * deliberately looking at the total including the class it just added.
+ */
+function withoutScratchClasses(page: Page, names: string[]) {
+  let locator = weekEntries(page);
+  for (const name of names) {
+    locator = locator.filter({ hasNotText: name });
+  }
+  return locator;
+}
+
+function seededWeekEntries(page: Page) {
+  return withoutScratchClasses(page, SCRATCH_CLASSES);
 }
 
 /**
@@ -53,6 +118,25 @@ const SEEDED_WEEK = 15;
 
 /** The one class this file creates, so it can always be taken back off. */
 const SCRATCH_CLASS = 'Astronomy';
+
+/**
+ * The other class this file creates, in the teacher-saves-a-class test.
+ *
+ * It lives at file scope because the week it lands on is the SAME week the
+ * scratch class lands on, and the two are created by tests that run in
+ * parallel. Anything that counts that week has to know about both.
+ */
+const BELL_CLASS = 'Bell journey';
+
+/**
+ * Every class this file creates.
+ *
+ * A NEW ONE GOES HERE. The week is shared state and two of these tests write
+ * to it concurrently, so a class that is missing from this list makes every
+ * count of the seeded week wrong whenever the other test happens to be
+ * running.
+ */
+const SCRATCH_CLASSES = [SCRATCH_CLASS, BELL_CLASS];
 
 /**
  * Remove the scratch class if it is there, and do not complain if it is not.
@@ -140,7 +224,7 @@ test.describe('a student reads their own week', () => {
     // The whole seeded week. Asserted as a count rather than a sample because the
     // earlier bug in this area was a read that returned the right shape and the
     // wrong rows.
-    await expect(weekEntries(page)).toHaveCount(SEEDED_WEEK);
+    await expect(seededWeekEntries(page)).toHaveCount(SEEDED_WEEK);
 
     /*
      * Minutes from midnight, formatted on a 24-hour clock by `formatMinute`.
@@ -229,7 +313,7 @@ test.describe('a student reads their own week', () => {
     ).toBeVisible();
 
     // Nothing was written by either refusal.
-    await expect(weekEntries(page)).toHaveCount(SEEDED_WEEK);
+    await expect(seededWeekEntries(page)).toHaveCount(SEEDED_WEEK);
   });
 
   test('a class can be added and taken back off again', async ({ page }) => {
@@ -248,7 +332,12 @@ test.describe('a student reads their own week', () => {
       await expect(dialog).toHaveCount(0);
       await expect(weekList(page).getByText(SCRATCH_CLASS)).toBeVisible();
       await expect(weekList(page).getByText('14:00 to 15:00')).toBeVisible();
-      await expect(weekEntries(page)).toHaveCount(SEEDED_WEEK + 1);
+      // The seeded week plus the class this test just added, and NOT plus the
+      // other class this file creates: that one belongs to a test running in
+      // parallel against the same week, and it is allowed to be there.
+      await expect(withoutScratchClasses(page, [BELL_CLASS])).toHaveCount(
+        SEEDED_WEEK + 1,
+      );
 
       /*
        * Removed through the control, and the button is named after the class it
@@ -264,7 +353,7 @@ test.describe('a student reads their own week', () => {
     }
 
     await expect(weekList(page).getByText(SCRATCH_CLASS)).toHaveCount(0);
-    await expect(weekEntries(page)).toHaveCount(SEEDED_WEEK);
+    await expect(seededWeekEntries(page)).toHaveCount(SEEDED_WEEK);
   });
 });
 
@@ -292,7 +381,7 @@ test.describe('a teacher opens a week by picking a subject', () => {
 
     await expect(page).toHaveURL(new RegExp(`/schedule\\?student=${DEMO_STUDENT_ID}`));
     await expect(page.getByText(`${DEMO_STUDENT_NAME}.`, { exact: false })).toBeVisible();
-    await expect(weekEntries(page)).toHaveCount(SEEDED_WEEK);
+    await expect(seededWeekEntries(page)).toHaveCount(SEEDED_WEEK);
     await expect(weekList(page).getByText('Filipino').first()).toBeVisible();
   });
 
@@ -560,8 +649,6 @@ test.describe('a student reads the term without being able to set it', () => {
  * week and counts it. One test, one write, removed in a `finally`.
  */
 test.describe('a class a teacher saves reaches the student', () => {
-  const BELL_CLASS = 'Bell journey';
-
   async function clearBellClass(page: Page): Promise<void> {
     await page
       .getByRole('button', { name: `Remove ${BELL_CLASS}` })
@@ -593,7 +680,20 @@ test.describe('a class a teacher saves reaches the student', () => {
       const menu = student.getByRole('menu', { name: 'Notifications' });
       await expect(menu).toBeVisible();
 
-      const row = student.getByRole('menuitem', { name: new RegExp(`${BELL_CLASS} was added`) });
+      /*
+       * THE NEWEST ROW, NOT "THE ROW".
+       *
+       * A locator that matches more than one element is a strict-mode
+       * violation, and this one matched eight: the fixture store outlives the
+       * test, so every earlier run of this file left its own "Bell journey
+       * was added" note behind, and the bell opens newest first. `.first()`
+       * takes the newest, which is the one this run created, and that is the
+       * one the assertion is about. It is also what makes the test repeatable
+       * against a server that has already run it.
+       */
+      const row = student
+        .getByRole('menuitem', { name: new RegExp(`${BELL_CLASS} was added`) })
+        .first();
       await expect(row, 'saving a class produced no note').toBeVisible();
       await expect(row).toContainText('Unread.');
 
@@ -610,7 +710,9 @@ test.describe('a class a teacher saves reaches the student', () => {
       const reopened = student.getByRole('menu', { name: 'Notifications' });
       await expect(reopened).toBeVisible();
 
-      const after = student.getByRole('menuitem', { name: new RegExp(`${BELL_CLASS} was added`) });
+      const after = student
+        .getByRole('menuitem', { name: new RegExp(`${BELL_CLASS} was added`) })
+        .first();
       await expect(after).toBeVisible();
       await expect(after).not.toContainText('Unread.');
     } finally {
