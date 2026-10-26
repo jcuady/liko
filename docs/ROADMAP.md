@@ -47,8 +47,10 @@
 
 - 569 unit tests across 43 files, 259 Playwright tests across 25 specs,
   production build verified
-- Four live-database gates: `db:apply`, `db:check`, `db:settle` and
-  `verify:app`. They need credentials, so they are run by hand rather than in CI
+- **Nine of the 26 gates reach the live project or the deployed site**:
+  `db:check`, `db:settle`, `probe:shape`, `probe:guardian`, `probe:files`,
+  `probe:ai`, `verify:app`, `verify:saas` and `verify:deck-maker`. They need
+  credentials or a deployment, so they are run by the recorder rather than in CI
 
 ---
 

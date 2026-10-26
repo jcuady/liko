@@ -17,12 +17,12 @@ Project: `https://ulrjitekiylgepdyijsw.supabase.co`
 | All seven workspace modules | Done, real CRUD through the seam, verified against the live database |
 | Offline write queue | Done |
 | Web push: routes, cron, service worker | Sweep proven against the live database; actual delivery still untested |
-| Migration SQL | Applied to `ulrjitekiylgepdyijsw`, idempotent, 21 tables |
+| Migration SQL | Applied to `ulrjitekiylgepdyijsw`, idempotent, **28 tables**, row level security on all 28, 52 policies |
 | Seed script | Run. Five accounts, one school, three classes, 24 students, three "Bonding Quiz" assessments carrying 24 questions |
 | Quiz maker and sheet scanning | Done. An assessment carries its questions; a marked sheet is read against the answer key, confirmed by the teacher, assigned to a required student and scored on the server |
 | Two ways to deliver one quiz | Both live. `/quiz` is the student-facing quiz, and `/assess/sheet` prints the answer sheet the scanner reads |
 | Slide editor | Done. A slide is a list of typed elements on a grid, drawn by one component in the stage, the rail and present mode. Typography, colour, alignment, theme, element add and delete, and a panel that says when the autosave landed |
-| Deck generation from a prompt | Done. A teacher describes the lesson and gets an editable deck back. Nothing the model returns is trusted: it is validated against the same closed sets the renderer draws from, and a slide that fails validation is dropped rather than rendered half-right. **Not live in production until `GEMINI_API_KEY` is set, see Step 3** |
+| Deck generation from a prompt | Done. A teacher describes the lesson and gets an editable deck back. Nothing the model returns is trusted: it is validated against the same closed sets the renderer draws from, and a slide that fails validation is dropped rather than rendered half-right. **Live in production since the key was set. One prompt produced eleven real slides** and the meter fell from 8 of 8 to 7 of 8; see Step 3 |
 | Bringing a file into a deck | Done. PDF, DOCX, TXT, Markdown and images. A scan is refused in words rather than imported empty. Proven by uploading a real PDF through the built server and asserting on the word count that comes back |
 | Git history | 31 commits on `main`, pushed, remote verified identical |
 | Deployment | **Live** at `https://liko-jcuadys-projects.vercel.app`, project `jcuadys-projects/liko`. Production build, `LIKO_DATA_MODE=supabase`, verified by signing in against live Supabase |
@@ -222,7 +222,15 @@ other variable alone does nothing in production.
 
 ## Step 3: Give the deck generator a provider key
 
-**The deck maker does nothing in production until this is done.** Without
+**DONE, AND VERIFIED IN PRODUCTION ON 2026-10-26. The rest of this step is kept
+as the record of how it was done and of what has to stay true if it is ever
+redone.** `GEMINI_API_KEY` is set as a Secret on the Vercel project. The proof
+is not that the key exists but that the deployed site works: one prompt
+produced **eleven real slides**, the meter fell from 8 of 8 to 7 of 8, and
+`pnpm verify:deck-maker` now drives the deployed deck maker end to end and
+reports **18 passed, 0 failed**.
+
+**The deck maker did nothing in production until this was done.** Without
 `GEMINI_API_KEY` the panel on `/slides` says the generator is not configured,
 names the reason, and refuses to submit. It does not pretend to be available: a
 key that exists but whose provider is out of capacity looks identical from the

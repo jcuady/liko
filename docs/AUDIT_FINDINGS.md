@@ -417,7 +417,7 @@ by execution rather than by reading a policy.
 - **Status:** CLOSED, by covering what the rule claims to cover. A new gate,
   `check:copy`, reads the parsed source and fails on an em dash or an en dash
   in any string literal, template literal or run of JSX text under `src/`. It
-  scans 281 files and 19,702 visible strings and prints the counts, so a
+  scans 281 files and 19,687 visible strings and prints the counts, so a
   scanner that had stopped working cannot be mistaken for a clean tree. It was
   mutation-proved twice: an em dash inside a string literal and an em dash
   inside raw JSX text each turn it red. `docs/DESIGN.md` now states the scope
