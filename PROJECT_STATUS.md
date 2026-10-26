@@ -585,6 +585,28 @@ Audited 2026-10-19: **all 45 routes in `src/app` were enumerated and every user-
 
 **It has now been measured working rather than argued.** The run at `fcd13f5` was the first full suite to execute with the 3319 change actually in place — the commit that introduced it had never been run, which is its own story, told below. On a `tree.exact: true` tree with the build stable at both ends, e2e reported **241 passed / 0 failed** in 4.6 minutes with no other Playwright suite in the directory. Every run since has been green on the same port, and the suite has since grown to **259 passed / 0 failed** — which is what a port that changes nothing about the product should produce.
 
+## A count that was counting more than the week, and a test that passed twice before it failed
+
+**What the run said.** The full suite at `2d661c1` on 2026-10-26 reported **258 passed, 1 failed**: `e2e/schedule.spec.ts` → "the picker is shown instead of an assumed subject" failed on `expect(weekEntries(page)).toHaveCount(15)`, having received a different number. The same suite had passed twice that afternoon. **A test that passes twice and fails on the third is a race until proven otherwise**, and the cause was not the product.
+
+**The locator was the defect, and it was older than the race.** The assertion counted `main ul li`. `main ul` is not only the week: the same page also renders the deadlines beside the week, the terms, and the photograph-import control, each of which is a `ul` of `li` under `main` and each of which appears and disappears with the page's own state. The deadlines list renders only when there are deadlines and the terms list only when there are terms, so **the same count was fifteen in a quiet moment and sixteen in a busy one**. Two tests in that file create a deadline and a term, and `fullyParallel` ran them concurrently with the tests that count the week. The count moved underneath the assertion.
+
+**So the locator now counts the week and nothing else.** The week is the one thing on the page that is a `section` per day with the weekday as its heading, so `weekList` is scoped to those sections rather than to `main`. This also fixes a latent assertion nobody had hit yet: the "no subject chosen" test asserted `weekList` was empty, and a teacher with a deadline of their own would have failed it.
+
+**The classes the file creates are excluded from the seeded count as well.** Two tests in the file write a class to the same week — `Astronomy` from the student's side and `Bell journey` from the teacher's side — and they are in different `describe` blocks, so they run in parallel against the one shared fixture store. `SEEDED_WEEK` is the SEEDED week, and neither of those classes is part of the seed, so the seeded count excludes them by name. The mutating test keeps a count that includes its own class, and excludes only the *other* test's, because that one is allowed to be there.
+
+**Proven by stress rather than by assertion.** A race that shows up once in three runs cannot be proven fixed by one green run. `npx playwright test e2e/schedule.spec.ts --repeat-each=10` runs ten copies of every test against the one shared fixture store, which is the same contention with ten times the pressure:
+
+| | Result |
+|---|---|
+| Before the fix | **12 failed**, 168 passed |
+| After excluding the scratch classes, before scoping the locator | **2 failed**, 178 passed |
+| After scoping the locator | **0 failed**, **180 passed** |
+
+**The notification locator was the other half.** `getByRole('menuitem', { name: /Bell journey was added/ })` resolved to **eight elements** and threw a strict-mode violation: the fixture store outlives the test, so every earlier run of the file left its own note behind. It now takes `.first()`, which is the newest row — the one this run created, and the one the assertion is about — and that is what makes the file repeatable against a server that has already run it.
+
+**This is the same rule this document already stated.** The Technical Debt section has said, since it was written, that the fixture workspace is one shared mutable store and **"no test may pin a shared count"**. The schedule spec pinned one. The rule was right and the spec was wrong, so the spec was changed.
+
 ## The fix that shipped with the recorder broken, and the probe that would have caught it
 
 **A commit I made and pushed had never been executed.** `dc58b3b` gave the e2e gate its own port, and in the same file it read `String(E2E_PORT)` at the top of the gate registry while declaring `const E2E_PORT = 3319` near the bottom. That is a temporal dead zone: the registry is built while the module evaluates, long before the declaration runs, so
