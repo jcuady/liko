@@ -186,6 +186,20 @@ const E2E_PORT = 3319;
  *
  * `live` marks a gate that depends on a third party, where a failure is a
  * blocked measurement rather than a broken product.
+ *
+ * `verify:deck-maker` is here because a check nobody runs is a claim with no
+ * witness. It drove the deployed site's deck maker and was correct on
+ * 2026-10-17, and by 2026-10-26 it was broken and had been broken since the
+ * day the dashboard moved from native `<select>` to Radix: it still read
+ * `locator('option')` and drove `selectOption()`, which on a Radix trigger
+ * waits for a native element that will never arrive. Nothing in the e2e suite
+ * caught it, because the suite has its own Radix-aware helper and the script
+ * is not part of that suite. The only reason it was found is that somebody
+ * re-ran it by hand, nine days later.
+ *
+ * It is `live` because it drives the deployment rather than this checkout,
+ * which is the one thing about it that a reader of the record needs to know:
+ * its result describes what is deployed, not what is committed.
  */
 const GATES = [
   { id: 'typecheck', script: 'typecheck' },
@@ -202,6 +216,7 @@ const GATES = [
   { id: 'probe:guardian', script: 'probe:guardian', server: true, env: { LIKO_VERIFY_BASE_URL: () => `http://127.0.0.1:${SERVER_PORT}` } },
   { id: 'verify:app', script: 'verify:app', server: true, env: { LIKO_VERIFY_BASE_URL: () => `http://127.0.0.1:${SERVER_PORT}` } },
   { id: 'verify:saas', script: 'verify:saas', live: true },
+  { id: 'verify:deck-maker', script: 'verify:deck-maker', live: true },
   { id: 'db:check', script: 'db:check' },
   { id: 'db:settle', script: 'db:settle' },
   { id: 'probe:files', script: 'probe:files' },

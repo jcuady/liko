@@ -51,6 +51,133 @@ async function settles(locator, timeout = 20_000) {
   }
 }
 
+/**
+ * Whether something is gone, given a moment to.
+ *
+ * Radix unmounts an open listbox asynchronously, so a control that WAS closing
+ * still answers a synchronous count in that instant. Deciding "it did not
+ * close" from a count is asking a question the DOM cannot answer yet.
+ */
+async function detached(locator, timeout = 10_000) {
+  try {
+    await locator.first().waitFor({ state: 'detached', timeout });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Driving a Radix `Select`.
+ *
+ * THE DASHBOARD MOVED FROM NATIVE `<select>` TO RADIX, AND THIS SCRIPT DID NOT
+ * FOLLOW. IT WAS BROKEN FROM THE DAY THE CONTROL CHANGED, AND NOTHING SAID SO.
+ *
+ * It used to read `locator('option')` and drive `selectOption()`. Both are
+ * gone: a Radix select is a `button[role=combobox]` plus a listbox that only
+ * exists while it is open, and Radix keeps each option's value in React
+ * context rather than in the DOM. So `locator('option')` finds nothing and
+ * `inputValue()` throws "Node is not an <input>, <textarea> or <select>
+ * element", which is what this script reported when it was last run against
+ * the deployed site.
+ *
+ * The e2e suite solved the same problem in `e2e/helpers/select.ts` and its own
+ * specs pass, but this script is not part of that suite, so nothing in the
+ * suite ever exercised it and the only thing that noticed was a human
+ * re-running a check nobody was running. The helpers below are the same
+ * mechanism written for a script that is not a Playwright test.
+ *
+ * THE POINT IS NOT THAT IT NOW PASSES. The point is that a check nobody runs
+ * is a claim with no witness, and a claim with no witness rots silently. It
+ * rotted here for nine days and the only reason it was found is that it was
+ * re-run by hand.
+ */
+const SELECT_CONTENT = '[data-slot="select-content"]';
+const SELECT_ITEM = '[data-slot="select-item"]';
+
+async function openSelect(trigger) {
+  await trigger.click();
+  const content = page.locator(SELECT_CONTENT);
+  const opened = await settles(content, 10_000);
+  if (!opened) {
+    throw new Error('the select did not open when its trigger was clicked');
+  }
+  return content;
+}
+
+async function closeSelect(content) {
+  await page.keyboard.press('Escape');
+  await detached(content, 5_000);
+}
+
+/** Every option's visible label, read without changing the selection. */
+async function optionLabels(trigger) {
+  const content = await openSelect(trigger);
+  const items = content.locator(SELECT_ITEM);
+  const count = await items.count();
+  const labels = [];
+  for (let index = 0; index < count; index += 1) {
+    labels.push((await items.nth(index).innerText()).trim());
+  }
+  await closeSelect(content);
+  return labels;
+}
+
+/** The stored slug currently selected, read from the checked item. */
+async function chosenValue(trigger) {
+  const content = await openSelect(trigger);
+  const checked = content.locator(`${SELECT_ITEM}[data-state="checked"]`);
+  const count = await checked.count();
+  const value = count === 1 ? await checked.getAttribute('data-value') : null;
+  await closeSelect(content);
+  return value ?? '';
+}
+
+/**
+ * Choose the option stored as `value`, the way a teacher does.
+ *
+ * Fails naming the slug that was not found, because "no option stored as gwa"
+ * is the difference between a stale slug and a renamed value in the app.
+ */
+async function chooseOption(trigger, value) {
+  const content = await openSelect(trigger);
+  const option = content.locator(`${SELECT_ITEM}[data-value="${value}"]`);
+
+  if ((await option.count()) === 0) {
+    const offered = await optionLabels(trigger);
+    throw new Error(
+      `the select offers no option stored as "${value}"; it offers ${offered.join(', ')}`,
+    );
+  }
+
+  await option.click();
+
+  /*
+   * A LOST POINTERDOWN FALLBACK.
+   *
+   * Radix SelectItem primes a per-instance ref on `pointerdown` and selects on
+   * `pointerup` only if that ref reads "mouse", and the ref starts as the
+   * string "touch". If the item's node is replaced between the two events the
+   * pointerup lands on a fresh instance, nothing selects, and the control stays
+   * open indefinitely. This is a defence against a verified mechanism, not a
+   * fix for a confirmed cause: `e2e/helpers/select.spec.ts` proves both halves
+   * of it directly. The assertion afterwards is unchanged, so a fallback that
+   * closed the list without selecting anything still fails.
+   */
+  if (!(await detached(page.locator(SELECT_CONTENT), 5_000))) {
+    const retry = page.locator(`${SELECT_CONTENT} ${SELECT_ITEM}[data-value="${value}"]`);
+    if ((await retry.count()) > 0) {
+      await retry.focus({ timeout: 5_000 });
+      await page.keyboard.press('Enter');
+    }
+  }
+
+  const closed = await detached(page.locator(SELECT_CONTENT), 10_000);
+  if (!closed) {
+    throw new Error('the select stayed open after choosing an option');
+  }
+}
+
 const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
 
@@ -167,7 +294,7 @@ try {
   const weight = page.getByLabel('Weight');
   check('selecting an element opens its typography controls', await settles(weight));
 
-  const options = await weight.locator('option').allInnerTexts();
+  const options = await optionLabels(weight);
   check(
     'weight is a closed set a teacher can choose from',
     options.length > 0 && options.every((text) => text.trim().length > 0),
@@ -186,9 +313,9 @@ try {
    */
   const text = elements.first().locator('p, ul').first();
   const before = await text.evaluate((node) => getComputedStyle(node).fontWeight);
-  const stored = await weight.inputValue();
+  const stored = await chosenValue(weight);
   const target = stored === 'bold' ? 'medium' : 'bold';
-  await weight.selectOption(target);
+  await chooseOption(weight, target);
 
   const expected = target === 'bold' ? '700' : '500';
   let after = before;
