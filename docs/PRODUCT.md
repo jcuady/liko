@@ -79,7 +79,7 @@ not only the marketing page. No emoji. No section-number labels.
 - Role-based access control across instructor, admin, student, and guardian
 - Workspace shell: sidebar, mobile tab bar, command palette, offline banner
 - Six module routes with working empty states, plus a working attendance screen
-- 569 unit tests across 43 files and 259 Playwright tests across 25 specs
+- 569 unit tests across 43 files and 262 Playwright tests across 26 specs
 
 ## What is next
 

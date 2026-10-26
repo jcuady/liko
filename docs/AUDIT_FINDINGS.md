@@ -420,7 +420,9 @@ by execution rather than by reading a policy.
   reporter are the tools that produced the numbers, so there is no transcription
   step between the measurement and the table above.
 - **Status:** CLOSED. Both counts were re-measured and rewritten: 569 unit tests
-  across 43 files, and 259 Playwright tests across 25 specs.
+  across 43 files, and 259 Playwright tests across 25 specs, measured on
+  2026-10-26. The suite has grown since that measurement, and
+  `PROJECT_STATUS.md` carries the current count rather than this one.
 
 ### #9 `docs/PRODUCT.md` describes a product that is materially different from the one that ships
 
@@ -480,7 +482,7 @@ by execution rather than by reading a policy.
 - **Status:** CLOSED, by covering what the rule claims to cover. A new gate,
   `check:copy`, reads the parsed source and fails on an em dash or an en dash
   in any string literal, template literal or run of JSX text under `src/`. It
-  scans 281 files and 19,687 visible strings and prints the counts, so a
+  scans 281 files and 19,699 visible strings and prints the counts, so a
   scanner that had stopped working cannot be mistaken for a clean tree. It was
   mutation-proved twice: an em dash inside a string literal and an em dash
   inside raw JSX text each turn it red. `docs/DESIGN.md` now states the scope

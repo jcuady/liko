@@ -15,7 +15,7 @@ Project: `https://ulrjitekiylgepdyijsw.supabase.co`
 | Landing page, pricing, brand | Done, audited |
 | Auth: signup, verification, reset, RBAC | Done, verified in fixture **and** Supabase mode |
 | All seven workspace modules | Done, real CRUD through the seam, verified against the live database |
-| Offline write queue | Done |
+| Offline write queue | Done, and the capture-then-replay path is proven end to end |
 | Web push: routes, cron, service worker | Sweep proven against the live database; actual delivery still untested |
 | Migration SQL | Applied to `ulrjitekiylgepdyijsw`, idempotent, **28 tables**, row level security on all 28, 52 policies |
 | Seed script | Run. Five accounts, one school, three classes, 24 students, three "Bonding Quiz" assessments carrying 24 questions |
@@ -350,18 +350,27 @@ Stated plainly so nobody is surprised later.
    is fixed, the first thing to check is that `consent_events` actually gains
    rows. A signup that succeeds while the audit table is broken is exactly the
    failure that returns nothing to catch it.
-2. **Offline attendance capture, end to end.** The outbox is wired, the replay
-   endpoint is idempotent and ownership-checked, and the online path is proven:
-   `pnpm verify:app` writes a mark, replays the same mark, confirms the row is
-   updated rather than duplicated, and confirms a forged class id is refused with
-   a 404 that the queue drops rather than retries. What is **not** demonstrated is
-   a mark captured while genuinely offline and replayed on reconnect. An attempt
-   to test that in headless Chromium via `context.setOffline` produced an
-   optimistic mark on screen but neither a queued row nor a toast, which could be
-   a harness artefact or a real defect; it was not distinguishable in the time
-   available, so the test was removed rather than shipped failing. **Check this by
-   hand**: throttle the network in DevTools, mark a register, confirm the banner
-   counts it, restore the connection, and reload.
+2. **Offline attendance capture, end to end.** **ANSWERED ON 2026-10-26, AND THE
+   ANSWER WAS "A REAL DEFECT".** This entry used to say that a mark captured
+   while genuinely offline and replayed on reconnect was **not** demonstrated,
+   because an attempt to test it in headless Chromium via `context.setOffline`
+   produced an optimistic mark on screen but neither a queued row nor a toast,
+   and it could not be distinguished from a harness artefact in the time
+   available. It was a real defect, and it was three defects stacked. A queue
+   that could not be read was reported as an empty queue, so the banner
+   rendered nothing and told the teacher nothing was waiting while a mark was
+   waiting. A page that loaded with a queued write did not send it, because the
+   only triggers were an `online` event and a thirty second poll, and the page
+   reloads itself when the service worker claims it. And a send that failed was
+   not retried soon, because the first attempt after a signal returns fails
+   while the network is still settling. All three are fixed and proved: the
+   offline-attendance spec now waits for the server's answer rather than for a
+   banner to disappear, and `e2e/outbox.spec.ts` holds the three claims with
+   four mutations that each turn a spec red. The online path was already
+   proven and is unchanged: `pnpm verify:app` writes a mark, replays the same
+   mark, confirms the row is updated rather than duplicated, and confirms a
+   forged class id is refused with a 404 that the queue drops rather than
+   retries. **There is nothing left to check by hand here.**
 3. **iOS push delivery.** It needs a Home Screen-installed PWA and a real
    subscription. No automated test can cover it. Chrome and Edge desktop are the
    reliable path.

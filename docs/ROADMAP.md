@@ -45,7 +45,7 @@
 
 **Quality**
 
-- 569 unit tests across 43 files, 259 Playwright tests across 25 specs,
+- 569 unit tests across 43 files, 262 Playwright tests across 26 specs,
   production build verified
 - **Nine of the 26 gates reach the live project or the deployed site**:
   `db:check`, `db:settle`, `probe:shape`, `probe:guardian`, `probe:files`,

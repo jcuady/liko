@@ -277,7 +277,7 @@ of rows each may read.
 # The repo's own gates (all require the credentials in .env.local)
 pnpm db:settle        # live RLS, per role, real tokens   → exit 0, 29 passed
 pnpm verify:app       # live app, per role, real refusals  → exit 0, 83 passed
-pnpm e2e              # route + control gating, per role  → exit 0, 259 passed
+pnpm e2e              # route + control gating, per role  → exit 0, 262 passed
 pnpm verify:rbac-routes # no dead route-permission rule, and the app's roles
                        # are the database's                → exit 0, 0 dead
 

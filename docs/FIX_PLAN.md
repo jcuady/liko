@@ -23,12 +23,13 @@ see both the proposal and what was actually done.
 | Slice | Status | What closed it |
 |---|---|---|
 | 1 — De-escalation window (P1, #2) | **DONE** | The service-role admin paths (`createInvite`, `listInvites`) now re-prove the caller's **current** membership role against the database instead of trusting the role copied into their cookie. `verify:app` carries four de-escalation assertions, including that a demoted administrator is refused and no credential is minted, and that the administrator can read the code again once the role is restored. Mutation-proved |
-| 2 — Make the documents say what the product does (P1 #1, P2 #4, #5, P3 #7, #8, #9) | **DONE** | `docs/ROADMAP.md`, `docs/DESIGN.md`, `docs/PRODUCT.md`, `docs/RBAC_MATRIX.md` and `docs/ARCHITECTURE.md` all corrected, and `docs/AUDIT_FINDINGS.md` now marks all ten findings **CLOSED** with the resolution that closed each |
+| 2 — Make the documents say what the product does (P1 #1, P2 #4, #5, P3 #7, #8, #9) | **DONE** | `docs/ROADMAP.md`, `docs/DESIGN.md`, `docs/PRODUCT.md`, `docs/RBAC_MATRIX.md` and `docs/ARCHITECTURE.md` all corrected, and `docs/AUDIT_FINDINGS.md` now marks all eleven findings **CLOSED** with the resolution that closed each. The eleventh was found by this repo's own gates: a register taken with no signal was never sent, and the banner said nothing was waiting |
 | 3 — Remove the dead configuration and the unused dependency (P2 #3, #6) | **DONE** | The `optimizePackageImports` block is gone from `next.config.ts` and is replaced by a comment saying why it must not come back; `simple-icons` is out of `package.json` and the lockfile with zero references left; the Phosphor trap in `docs/ARCHITECTURE.md` is in the past tense |
-| 4 — State the em-dash rule's scope (P3 #10) | **DONE, AND BEYOND THE RECOMMENDATION** | The recommendation was (a) state the scope now and (b) extend the gate later, because (b) would have been an unbounded copy edit. Both were done: `docs/DESIGN.md` states the scope, and `pnpm check:copy` now walks **every** visible string in `src/` — 281 files, 19,687 strings — with the TypeScript AST rather than a regex, and fails below floors of 150 files and 2,000 literals so a scanner that stopped working cannot pass for clean. Mutation-proved twice, once with a dash inside a string literal and once inside raw JSX text |
+| 4 — State the em-dash rule's scope (P3 #10) | **DONE, AND BEYOND THE RECOMMENDATION** | The recommendation was (a) state the scope now and (b) extend the gate later, because (b) would have been an unbounded copy edit. Both were done: `docs/DESIGN.md` states the scope, and `pnpm check:copy` now walks **every** visible string in `src/` — 281 files, 19,699 strings — with the TypeScript AST rather than a regex, and fails below floors of 150 files and 2,000 literals so a scanner that stopped working cannot pass for clean. Mutation-proved twice, once with a dash inside a string literal and once inside raw JSX text |
 | 5 — Fold the role-set equality assertion into the existing RBAC gate (P2) | **DONE** | `scripts/verify-rbac-routes.mjs` now compares the app's `ROLES` against the `check (role in (...))` constraints the migration declares, rather than adding a second script. `created_by_role` is deliberately excluded: it is a different column with a different meaning. Mutation-proved by adding a role to the app's list only |
+| 6 — The offline queue, which this plan did not have (P1 #11) | **DONE** | Found by this repo's own gates rather than by an audit. A register taken with no signal was never sent, and the banner rendered nothing while a mark was waiting, because a queue that could not be **read** was reported as an empty queue. Three faults: the read, a page that loaded with a queued write and did not send it, and a failed send that was not retried soon. `e2e/outbox.spec.ts` holds the three claims, four mutations each turn a spec red, and the offline spec waits for the server's answer rather than for a banner to disappear |
 
-**Two things this plan did not anticipate, both recorded because a plan that is
+**Three things this plan did not anticipate, all recorded because a plan that is
 only read as a list of accomplishments is not a plan.** The landing page's
 showcase was found to render a hand-built picture of the product while
 `docs/ROADMAP.md` claimed it rendered the shipping components; the code was the
@@ -37,6 +38,10 @@ one that was wrong, and it now renders `GradebookGrid`, `AttendanceGrid`,
 `scripts/verify-deck-maker-prod.mjs`, which drives the deployed site's deck
 maker, had been silently broken since the day the dashboard moved from native
 `<select>` to Radix; it was a check nobody ran, and it is a registered gate now.
+The third is the one the gates found rather than an audit: the offline queue
+promised that a mark taken with no signal would replay when the signal came
+back, and it did not, and the banner that was supposed to say so said nothing
+at all.
 
 **The current live status is `PROJECT_STATUS.md`.** The gate table in this
 document describes the run at `b104fba` on 2026-10-23 and is a snapshot of it.
