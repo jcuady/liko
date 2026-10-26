@@ -5,7 +5,8 @@
 **Foundation**
 
 - Next.js 16.4 App Router, React 19.3, Tailwind v4 with a CSS-first `@theme`
-- Viridian token set with paired dark mode, Geist type stack, motion scale
+- Viridian token set with paired dark mode, DM Sans and Manrope with Geist Mono
+  for figures, motion scale
 - ESLint 9 flat config, TypeScript strict, Vitest, Playwright
 
 **Brand**
@@ -36,14 +37,15 @@
 
 **Marketing**
 
-- Ten-section landing page, editorial split hero, two scroll narratives (sticky
-  Flow stack, horizontal Roles pan) on the one Motion runtime
-- Trust marquee using real Simple Icons glyphs, bento grid of live product
-  components, FAQ, final CTA
+- Eight-section landing page: editorial split hero, teacher levels, product
+  showcase, teacher story, install band, pricing, FAQ, final CTA
+- The product showcase renders the shipping components, not pictures of them:
+  the gradebook, the attendance grid, the lesson plans, the assessments and
+  the at-risk heatmap, all driven by one sample class
 
 **Quality**
 
-- 469 unit tests across 33 files, 156 Playwright tests across 12 specs,
+- 569 unit tests across 43 files, 259 Playwright tests across 25 specs,
   production build verified
 - Four live-database gates: `db:apply`, `db:check`, `db:settle` and
   `verify:app`. They need credentials, so they are run by hand rather than in CI
@@ -71,7 +73,7 @@ Postgres rather than an empty state.
    and a layout decision, and neither is worth doing before the product has
    users.
 
-Each module appears in the landing page hero and bento, because those render the
+Each module appears in the landing page hero and showcase, because those render the
 shipping components rather than pictures of them.
 
 ## Delivered: flashcards and spaced repetition

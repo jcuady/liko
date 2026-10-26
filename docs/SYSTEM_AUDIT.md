@@ -25,9 +25,10 @@ inheriting a word from an earlier round.
 | Lint | **PASS** | `pnpm lint`, exit 0 | round twelve |
 | Unit tests | **PASS** | `537 passed, 2 skipped`, measured in a detached worktree at `312da33` so the figure is that commit's and not the shared tree's. The commit after it changed only a client component with no unit test. | round twelve |
 | e2e | **PASS** | `256 passed (7.1m)` at `f99efe6`, the whole suite, exit 0. Up from `241` at `9604440`: six of these are the classes page controls and nine are the role controls spec, and the other four are the classes page's own. | round nineteen |
-| **Full gate** | **22 pass, 1 blocked, 0 fail, 0 error** | `pnpm gates` at `d35dbae`, recorded in `docs/evidence/gates.json`, with the build recorded as served and unchanged across the run (`0Qnm4-PMV3644a6AFODMn` at both ends), the run not contaminated, and the two changed paths both immaterial, so the commit label describes the code that was measured. The block is `probe:ai`, on a third-party **HTTP 503 "high demand"**, and it is not a product failure: the same gate was **green** in the full run at `f99efe6` twenty minutes earlier on the same product code, and the retry recorded at the same commit is green too. Three retries were blocked with that same 503 before the fourth answered, so all twenty-three gates are green at this commit across the two records, and both are kept. A blocked gate is not a pass and the recorder says so. The e2e gate passed in 280.3s with no flake, on a machine where two other projects were running their own suites: the browser worker count was sampled throughout and never exceeded the two of this run's own. | round nineteen |
-| **Static gates (controls, links, filters, actions, empty states)** | **PASS** | `verify:controls`: 162 controls in 144 files, 0 unwired, 1 inert. `verify:links`: 62 links over 44 routes, 0 broken. `verify:filters`: 131 filters, and the 3 it refuses to look at are examined by a test. `verify:actions`: 79 exported server actions, 0 dead. `verify:empty-states`: 21 dashboard pages against the 4 roles in the matrix, read out of `rbac.ts` and never copied, 0 pages tell a reader to create a class their role cannot create. Each is mutation-proved, a planted defect turns it red, and each prints the corpus it read, so a zero cannot be confused with an empty scan. | round eighteen |
-| **Role controls in the browser** | **PASS** | `e2e/role-controls.spec.ts`, 9 tests over 3 pages and 4 roles, against the local build. A student and a guardian are offered no control that `requirePermission` would refuse them, on `/grades`, `/history` and `/flashcards`, and a teacher and a student are still offered the ones they can use. A gate that reads source cannot tell a role-gated control from an ungated one, so the copy has a static gate and the controls have a browser. Mutation-proved: reverting the three gates turns 5 of the 9 red with a count for every control, and the 4 positive controls stay green. The same 21 checks now also run inside `verify:app`, against the deployed site. | round nineteen |
+| **Full gate** | **24 pass, 0 blocked, 0 fail, 0 error** | `pnpm gates` at `ac29f5c`, recorded in `docs/evidence/gates.json`, with the build recorded as served and unchanged across the run, the run not contaminated, and the tree clean, so the commit label describes the code that was measured. 24 gates, the new one among them. Measured in a detached worktree at that commit, because another process had material work in flight in the shared checkout and a suite that runs on a tree it cannot describe is not a measurement of a commit. | round twenty |
+| **Static gates (controls, links, filters, actions, empty states, role guards)** | **PASS** | `verify:controls`: 162 controls in 144 files, 0 unwired, 1 inert. `verify:links`: 62 links over 44 routes, 0 broken. `verify:filters`: 131 filters, and the 3 it refuses to look at are examined by a test. `verify:actions`: 79 exported server actions, 0 dead. `verify:empty-states`: 21 dashboard pages against the 4 roles in the matrix, read out of `rbac.ts` and never copied, 0 pages tell a reader to create a class their role cannot create. `verify:role-guards`: 38 pages, 23 permission checks, 8 guarded, 15 permitted for every role that can reach the page, 0 unguarded. Each is mutation-proved, a planted defect turns it red, and each prints the corpus it read, so a zero cannot be confused with an empty scan. | round twenty |
+| **Role guards in the source** | **PASS** | `verify:role-guards`, gate 22 of 24, new in round twenty. It reads `MATRIX` out of `rbac.ts` and each write's permission out of the `requirePermission` call in the action that performs it, walks the render tree, and names every control that a role able to reach the page cannot use. Nine house rules cover how this codebase writes a guard, and a guard written another way is reported as unguarded rather than passed unread. **The audit had closed round nineteen by claiming this could not be done**, and the claim was never tested. Nine mutations on the real tree turn the gate red for the right reason, every file restored byte for byte, and six fixtures cover the shapes a guard can take. It found one real thing: the flashcards deck page decided "you may write this deck" from "you own this deck", and ownership is not the permission. | round twenty |
+| **Role controls in the browser** | **PASS** | `e2e/role-controls.spec.ts`, 11 tests over 4 pages and 4 roles, against the local build. A student and a guardian are offered no control that `requirePermission` would refuse them, on `/grades`, `/history`, `/flashcards` and the deck page, and a teacher and a student are still offered the ones they can use. A gate that reads source cannot tell a role-gated control from an ungated one, so the copy has a static gate and the controls have a browser. Mutation-proved: reverting the three gates turns 5 of the 9 red with a count for every control, and the 4 positive controls stay green. The same 21 checks now also run inside `verify:app`, against the deployed site. | round twenty |
 | **Live app against Postgres** | **PASS** | `verify:app`, **79 passed, 0 failed**, run against the **deployed production site** at `b74680b`, not only a local build. All five accounts, every entitled route, refusals, a real attendance write that reached Postgres, cron, push, gradebook export scope, the 21 role-gated control checks, and no console or page errors on any route. | round nineteen |
 | **Deployed to production** | **PASS** | Production serves the tip of `main`, deployed by the Vercel Git integration, so **a push to `main` is a production deploy**. Read from the deployment's own build log, not inferred: `b74680b`, cloned from `main`, compiled successfully in 17.1s, 49 of 49 static pages, status Ready. Recording the sha actually read, because a pinned sha goes stale on the next push by anyone. | round nineteen |
 | **Per-role sweep of the deployed site** | **PASS** | Guardian probe against production, 5 of 5. `/grades` and `/history` each name the child the seat is linked to. | round eleven |
@@ -3003,28 +3004,147 @@ the "Full gate" row reads **22 pass, 1 blocked** and not 23. All twenty-three
 gates are green at that commit across the two records, and the row says how
 that was arrived at rather than rounding it up.
 
+### Round twenty: the gate that finds the controls on its own
+
+**THE AUDIT SAID THIS COULD NOT BE DONE, AND SAID IT WITHOUT TESTING IT.**
+Round nineteen closed with the claim that "a gate that reads source cannot tell
+a control that is role-gated from one that is not", and that sentence is the
+reason nothing in the repository looked for the next page with the defect on
+its own. It was never tested. It is also wrong, and the way to show that it is
+wrong is to build the thing and run it against the real tree.
+
+`scripts/verify-role-guards.mjs`, gate 22 of 24, reads `MATRIX` out of
+`rbac.ts` with the TypeScript compiler, reads each write's permission out of
+the `requirePermission('...')` call in the server action that performs it, and
+walks the render tree of every page for every control that performs a write
+which a role able to reach that page cannot perform.
+
+Three things are read and none of them is copied:
+
+- the matrix, out of `src/lib/auth/rbac.ts`, with `can()` implemented the way
+  the application implements it: a scope of `no` is refused, and an ownership
+  scope counts as permitted;
+- the permission, out of the action itself, so the gate cannot hold a second
+  opinion about what a write needs and drift away from it;
+- the render path, out of the components, so the guard it reads is the
+  application's own guard and not a description of one.
+
+**THE NINE HOUSE RULES, AND WHAT EACH ONE IS FOR.** A guard is a thing this
+codebase writes in nine ways, and the gate reads each of them. A guard written
+a tenth way is reported as unguarded rather than passed unread, so the gate
+fails loudly where it cannot see instead of quietly where it cannot read.
+
+1. `can(role, 'x:y')` forces `x:y`. The application's own function.
+2. A conjunction forces every permission its parts force, so
+   `mayWrite && (ownsIt || isDemo)` forces `mayWrite`'s permission.
+3. A conditional's true branch is forced by its test. Its false branch is
+   forced by nothing, because the false branch is where the readers are.
+4. A guard clause (`if (cond) return;`) forces what `cond` being FALSE forces.
+5. A React state variable is truthy only if some truthy assignment to it was
+   reachable, so it forces what all of its truthy assignments force.
+6. A prop forces what the render site passed it, and a property of an object
+   prop forces what the object literal it came from holds.
+7. A `<Dialog open={E}>` renders its content only while it is open, so
+   everything under it forces `E`. The house's own wrapper, checked against
+   `src/components/ui/dialog.tsx`.
+8. A function handed to a child as a prop runs wherever the child calls it, so
+   the child's call site decides what forces it.
+9. A component written in the same file as its parent is rendered by it, and
+   the parent's conditions reach it.
+
+**THE DECK PAGE IS WHAT IT FOUND.** The flashcards deck page decided "you may
+write this deck" from "you own this deck". Ownership is not the permission,
+and the difference was invisible until the guard was named: `editable` was
+computed on the server as `deck.ownerId === session.userId`, and the page
+offered the card form and the archive button on the strength of it.
+
+It is right today, because the owner of a deck is the account that created it
+and creating one needs `flashcard:write`. It is right until the owner is not
+the account that created it: an account that loses the permission and keeps
+the deck is offered a control the server refuses, and a refusal that reads as
+a broken product is the failure this audit exists to prevent. So the server
+now sends facts and the page asks for grants. `editable` became `owned` and
+`canReview` became `hasCards`, and the deck page computes
+`mayWrite = can(role, 'flashcard:write') && owned` and
+`mayReview = can(role, 'flashcard:review') && hasCards`.
+
+The old `canReview` also re-stated the rule in the wrong place. It was
+`session.role === 'student' && counts.total > 0`, and the role half of that
+is the matrix's rule written out in a second place, which `rbac.ts` forbids
+of itself: "Both must consult this file, never a local copy." The rules live
+in one place now, and the page that offers the control decides whether to
+offer it.
+
+**WHAT IT FOUND ON THE REST OF THE SYSTEM.** Nothing. All four pages that
+round eighteen and round nineteen fixed are guarded, and the gate says so
+because it can read those guards: the `mayCreate` local in the classes
+manager, the `mayManage` flag the classes page computes on the server and
+hands down, the `mayGrade` and `mayAssess` locals in the gradebook, the
+`mayWrite` local in the history page, and the `canWriteTerms` prop in the
+schedule panel. Thirty-eight pages, twenty-three permission checks, eight
+guarded, fifteen permitted for every role that can reach the page.
+
+**THE MUTATIONS, WHICH ARE THE POINT.** A gate that has never been seen to
+fail is a gate whose green run means nothing, so nine mutations were made on
+the real tree, each reverting one of the fixes the gate is meant to catch: the
+classes page offering "New class" again, the roster write controls again, the
+history form again, the gradebook's editable cells again, "New assessment"
+again, "New deck" again, the deck page deciding by ownership again, the deck
+page offering a review session again, and the schedule page's term controls
+again. All nine turned the gate red, each naming the permission it was
+caught on, and every file was restored from the bytes read before the
+mutation and compared by SHA-256.
+
+**THE SELF-TEST IS NOT THE SAME THING AS THE MUTATIONS.** Six fixtures
+cover an unguarded control, a control behind the application's own guard, a
+control in a child the parent renders behind the guard, the same child
+rendered with no guard, a guard that arrives as a prop, and a write every
+reachable role may perform. The fixtures are written to disk, read, and
+deleted by the gate itself, so the gate cannot be green because it looked at
+nothing.
+
+**THE INSTRUMENT HAS A BLIND SPOT AND IT IS NAMED.** The gate reads the tree,
+it does not run the application, so it cannot follow a permission that depends
+on a value it cannot trace. Where it cannot trace one it reports the control
+as unguarded, which is the safe direction: a false failure is a thing to fix,
+a false pass is a thing nobody finds. The browser check remains the
+instrument that observes the running product, and
+`e2e/role-controls.spec.ts` now covers the deck page as well, because a
+change that narrows a control can also hide one that was correct. A student is
+still offered the card form on the deck they own, and is still offered the
+review session on the deck their teacher shared.
+
+---
+
 ### Still open
 
-Three things are open. One is blocked on the tooling rather than on a
-decision, one is waiting on the owner because both of its fixes are a decision
-about other people's children, and one is a gap in the instruments rather than
-in the product.
+One thing is open, and it is blocked on the tooling rather than on a decision.
 
-**THERE IS NO GATE THAT FINDS THE CONTROLS ON ITS OWN.** Round nineteen fixed
-three pages and round eighteen one, and every one of the four was found by
-reading the pages a linked account lands on. The census in that round is
-complete because the route map in `rbac.ts` is complete, not because anything
-in the repository looks for this. A page added tomorrow with a read permission
-and a write permission would be found by a person reading it, and by nothing
-else. The copy has a gate; the controls have a browser check that names each
-control, and the two cannot be merged because a gate that reads source cannot
-tell a control that is role-gated from one that is not.
+**THE GAP IN THE INSTRUMENTS IS CLOSED, AND THE CLAIM THAT CLOSED IT WAS
+WRONG.** Round nineteen closed with the assertion that a gate reading source
+cannot tell a role-gated control from an ungated one, and with the consequence
+that nothing in the repository would look for the next page with the defect on
+its own. Round twenty built the gate, and the assertion was wrong.
+`verify:role-guards` reads the matrix out of `rbac.ts`, reads each write's
+permission out of the action that performs it, walks the render tree, and
+names every control that a role able to reach the page cannot use. The detail
+is in round twenty, including the nine mutations that prove the gate can
+fail.
 
-**The administrator's roster write still reports a success it did not
-achieve.** The interface no longer offers it, and the details are in round
-eighteen. The action itself is unchanged, because closing it means either
-widening the write policies to administrators or narrowing the matrix, and
-neither is an audit's to decide.
+**THE ADMINISTRATOR'S ROSTER WRITE STILL REPORTS A SUCCESS IT DID NOT
+ACHIEVE, AND THE DECISION BEHIND IT IS NOW MADE.** The interface no longer
+offers that path: the roster controls are shown only where the write lands.
+The action itself is unchanged, and it is unchanged because the owner was
+asked and chose to keep the surface narrow, which means neither widening the
+write policies to administrators nor narrowing the matrix. That leaves one
+thing, and it is the part the earlier rounds did not name: with both policies
+fixed, the action can still be asked to report the truth. The update in
+`src/lib/api/client.ts` filters on `owner_id = auth.uid()` and throws away
+the row count, so a zero-row update and a real one look identical to it. The
+adapter has to return how many rows matched and the action has to refuse
+when the answer is none. That is a change to one seam and one action, and it
+needs no decision about anybody's children, which is why it was not left for
+one.
 
 One thing is blocked on the tooling rather than on a decision. The detached
 verification worktree at `312da33` has been reduced to what the recoverable
@@ -3042,4 +3162,20 @@ same afternoon on it:
 
 Both refusals are deliberate. The remedy is not to route around them, so the
 directory stays until somebody removes it by hand.
+
+**AND A THIRD WAY TO FALL IN, LEARNED THE HARD WAY IN ROUND TWENTY.** Git's
+own removal follows a junction. A verification worktree was given a junction
+to the main checkout's `node_modules` so that it would not need an install of
+its own, and `git worktree remove --force` walked through that junction and
+deleted the main checkout's `node_modules/.bin`: the type checker, the
+linter, the test runner and the build all stopped existing, in the checkout
+that another process was using at the time. The launcher refuses links, so
+the repair was `pnpm rebuild`, which regenerates the shims.
+
+The rules that come out of it are short. Do not point a worktree at the
+checkout's own `node_modules`; give it an install of its own, and give it
+the hoisted linker if the worktree is going to be deleted afterwards. And
+after a removal, look at what it did to the tree you were pointing at,
+because the tool that removes a worktree is not looking at where its links
+go.
 

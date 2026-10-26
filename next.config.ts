@@ -52,17 +52,28 @@ const withSerwist = withSerwistInit({
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
-  experimental: {
-    /*
-     * The marketing page and the app shell both import named icons from the
-     * Phosphor package. Without this the barrel entry is pulled in whole and
-     * every named icon drags the rest of the set along with it. Listing the
-     * package here rewrites those named imports to their individual modules,
-     * so a server component that forgets the `/dist/ssr` entry still fails
-     * loudly at build time instead of quietly shipping the context-based one.
-     */
-    optimizePackageImports: ['@phosphor-icons/react'],
-  },
+  /*
+   * THERE IS NO `optimizePackageImports` BLOCK HERE, AND THAT IS DELIBERATE.
+   *
+   * There used to be one, naming `@phosphor-icons/react`, with a comment about
+   * the Phosphor barrel entry dragging the whole icon set into every bundle. It
+   * was the last trace of a migration this repository had otherwise completed:
+   * the product imports `lucide-react` and has done so for a long time, the
+   * package was not in `package.json`, and `node_modules/@phosphor-icons` did
+   * not exist. An optimisation for a package that is not installed is dead
+   * configuration that reads as live, and it is worse than nothing because it
+   * looks like someone thought about bundle size.
+   *
+   * The concern it described is real and is already handled, by Next.js itself:
+   * `lucide-react` is in Next's DEFAULT `optimizePackageImports` list, so named
+   * icon imports are rewritten to their individual modules without this project
+   * asking. That was verified against the installed `next` package rather than
+   * taken from memory, which is the only reason this paragraph can say so.
+   *
+   * If a new icon library is added, check Next's default list before adding a
+   * line here: an entry for a package Next already covers is a no-op, and an
+   * entry for a package that is not installed is worse.
+   */
   images: {
     formats: ['image/avif', 'image/webp'],
   },

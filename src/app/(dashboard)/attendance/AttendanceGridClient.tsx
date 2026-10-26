@@ -63,6 +63,27 @@ export function AttendanceRegister({
   });
 
   const mutation = useMutation({
+    /*
+     * `networkMode: 'always'`, AND THIS IS THE WHOLE POINT.
+     *
+     * React Query's default is `'online'`, which means a mutation is PAUSED
+     * while the browser reports no connection. Paused means `mutationFn` never
+     * runs — not that it runs and fails. So the outbox was never written to,
+     * because the code that writes to it is behind the thing that was paused,
+     * and the write existed only in React Query's memory.
+     *
+     * That is the exact opposite of what this screen promises. "Works with no
+     * signal" has to mean the mark is DURABLE while the signal is away, and
+     * durable means it is in IndexedDB, where a closed tab cannot lose it. A
+     * paused mutation is not durable: close the tab before the signal returns
+     * and the mark is gone, and the teacher was told it was saved.
+     *
+     * With `'always'` the mutation runs, `enqueueWrite` puts the row in
+     * IndexedDB before it touches the network, the network attempt fails, and
+     * the row stays there for the flush loop to replay. The order inside
+     * `enqueueWrite` is what makes this safe: write first, then send.
+     */
+    networkMode: 'always',
     mutationFn: async (payload: { marks: { studentId: string; status: AttendanceStatus }[] }) => {
       /*
        * Through the outbox, not the server action.

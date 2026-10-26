@@ -3,12 +3,12 @@
 import * as React from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from '@/lib/toast';
-import { NotebookPen, Plus } from 'lucide-react';
+import { Plus } from 'lucide-react';
 
-import { Badge, Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { FormField } from '@/components/ui/form-field';
 import { Input, Textarea } from '@/components/ui/input';
+import { LessonPlanList, readPlanField } from '@/components/product/LessonPlanList';
 import {
   Select,
   SelectContent,
@@ -38,11 +38,14 @@ import { loadLessonPlans, saveLessonPlan } from './actions';
  * an older version of this app may not have both keys, and rendering
  * `undefined` into a heading is how a planner ends up claiming a lesson has no
  * objective when it simply predates the field.
+ *
+ * THE LIST ITSELF IS NOT IN THIS FILE. It is `LessonPlanList`, shared with the
+ * landing page, so the two cannot drift apart. The accessors came with it,
+ * because a reader that renders a plan body has to read it the same way.
  */
 
 function readField(body: LessonPlanRecord['body'], key: string): string {
-  const value = body?.[key];
-  return typeof value === 'string' ? value : '';
+  return readPlanField(body, key);
 }
 
 interface Draft {
@@ -146,53 +149,10 @@ export function LessonPlanner({
           codes the lesson is meant to hit.
         </p>
       ) : (
-        <ul className="flex flex-col gap-3">
-          {rows.map((plan) => (
-            <li key={plan.id}>
-              <Card>
-                <CardHeader className="flex-row items-start justify-between gap-4 space-y-0">
-                  <div className="min-w-0">
-                    <CardTitle>{plan.title}</CardTitle>
-                    <p className="text-meta text-ink-muted">
-                      {plan.weekOf ? `Week of ${plan.weekOf}` : 'No week set'}
-                    </p>
-                  </div>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setEditing(toDraft(plan))}
-                    className="shrink-0"
-                  >
-                    <NotebookPen size={15} aria-hidden="true" />
-                    Edit
-                    <span className="sr-only"> {plan.title}</span>
-                  </Button>
-                </CardHeader>
-
-                <CardContent>
-                  <p className="text-body text-ink">
-                    <span className="font-medium">Objective. </span>
-                    {readField(plan.body, 'objective') || 'Not recorded.'}
-                  </p>
-                  {readField(plan.body, 'activities') ? (
-                    <p className="mt-2 whitespace-pre-line text-body text-ink-muted">
-                      {readField(plan.body, 'activities')}
-                    </p>
-                  ) : null}
-                  {plan.standardCodes.length > 0 ? (
-                    <ul className="mt-3 flex flex-wrap gap-1.5">
-                      {plan.standardCodes.map((code) => (
-                        <li key={code}>
-                          <Badge tone="neutral">{code}</Badge>
-                        </li>
-                      ))}
-                    </ul>
-                  ) : null}
-                </CardContent>
-              </Card>
-            </li>
-          ))}
-        </ul>
+        <LessonPlanList
+          plans={rows}
+          onEdit={(plan) => setEditing(toDraft(plan))}
+        />
       )}
 
       {editing ? (

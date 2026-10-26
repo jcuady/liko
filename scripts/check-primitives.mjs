@@ -54,12 +54,6 @@ const ALLOWED = [
     file: join('components', 'product', 'GradebookGrid.tsx'),
     reason: 'an inline-editing cell with its own compact metrics and a ref',
   },
-  {
-    file: join('app', '(marketing)', 'components', 'landing', 'WorkspaceMock.tsx'),
-    reason:
-      'the landing page mocks the product, and this mock is styled by the design ' +
-      "stylesheet's own .student-table rules so it matches the design pixel for pixel",
-  },
 ];
 
 const CONTROLS = [

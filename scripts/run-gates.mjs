@@ -194,6 +194,7 @@ const GATES = [
   { id: 'check:sql', script: 'check:sql' },
   { id: 'check:redaction', script: 'check:redaction' },
   { id: 'check:primitives', script: 'check:primitives' },
+  { id: 'check:copy', script: 'check:copy' },
   { id: 'e2e', script: 'e2e', env: { PORT: String(E2E_PORT) } },
   { id: 'check:responsive', script: 'check:responsive', server: true },
   { id: 'check:behaviour', script: 'check:behaviour', server: true },

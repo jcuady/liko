@@ -7,12 +7,12 @@ The system of record for LIKO's visual language. Everything here lives in
 ## Brief read
 
 B2B SaaS landing page for education professionals. Premium and calm. Tailwind
-v4 with Geist, restrained motion, and two scroll-narrative set pieces.
+v4 with DM Sans and Manrope, restrained motion, and a tabbed product showcase.
 
 **Dials:** `DESIGN_VARIANCE 7` · `MOTION_INTENSITY 6` · `VISUAL_DENSITY 3`
 
 Variance is high enough to forbid a centred hero and to require distinct layout
-families. Motion intensity is high enough to justify two pinned narratives but not
+families. Motion intensity is high enough to justify a reveal on scroll but not
 a continuous-motion page. Density is deliberately low: the reference this builds
 from uses a great deal of whitespace, and matching its rhythm requires it.
 
@@ -178,14 +178,17 @@ One radius system, no exceptions: `--radius-sm 8px` for chips, `--radius-md
 
 ## Typography
 
-**Geist** and **Geist Mono**, self-hosted through `next/font` with
-`display: 'swap'`, exposed as `--font-sans` and `--font-mono`.
+**DM Sans** for the interface, **Manrope** for display, and **Geist Mono** for
+tabular figures, self-hosted through `next/font` with `display: 'swap'` and
+exposed as `--font-sans`, `--font-display` and `--font-mono`.
 
 Söhne is named in the brand specification but is a paid Klim licence that cannot
-be fetched from npm. Geist is the closest open neo-grotesk. **Swapping in a
-licensed Söhne later means editing two imports in `src/app/layout.tsx` and
-nothing else**, because every component reads the token rather than a font
-family directly.
+be fetched from npm. DM Sans and Manrope are the open substitutes the brand
+direction settled on; Geist Mono is kept for the one thing the brand
+specification did not replace, numbers that have to line up in a column.
+**Swapping in a licensed Söhne later means editing three imports in
+`src/app/layout.tsx` and nothing else**, because every component reads the
+token rather than a font family directly.
 
 | Class | Size / leading / tracking | Use |
 |---|---|---|
@@ -235,11 +238,10 @@ exactly the moment a user is watching most closely.
 ### The library split
 
 **`motion`** handles all UI state, layout transitions, hover physics, viewport
-reveals, and both landing-page scroll narratives: the Flow sticky stack and the
-Roles horizontal pan.
+reveals, and the landing page's tabbed product showcase.
 
 There is exactly one animation runtime on `/`. It used to be two, GSAP +
-ScrollTrigger for the two narratives and Motion for everything else, which put
+ScrollTrigger for two scroll narratives and Motion for everything else, which put
 two full runtimes in the same page chunk: the GSAP chunks came to 50 KB and
 94 KB before compression and the `/` route carried both. Pinning is native
 `position: sticky` now rather than JS scroll pinning, which is also why
@@ -320,13 +322,38 @@ Target is **WCAG 2.2 AA**, with the hero copy at AAA.
 - Hand-built div "screenshots" of the product
 - More than one eyebrow per three sections
 
+### What enforces each ban
+
+A ban with no check behind it is a preference, and a preference is allowed to
+drift. These are the checks that hold them, so a future reader knows which of
+them are load-bearing:
+
+| Ban | Enforced by | Scope |
+|---|---|---|
+| Em dashes in visible copy | `check:copy` | Every string literal, template literal and run of JSX text under `src/`. Comments are out of scope: this repository writes long explanatory comments and they use em dashes, which is correct English and not visible to a reader. |
+| Section-number eyebrows | `check:copy` and the landing spec | The eyebrow is a topic word, never a number. |
+| Hand-built div "screenshots" of the product | `check:primitives` | The workspace mock cannot hand-build a table, a select or a textarea, because the product's own primitive gate covers the marketing page as well. It renders `GradebookGrid`, `AttendanceGrid`, `AtRiskHeatmap`, `LessonPlanList` and `AssessmentCardList`, the same files the dashboard routes render. |
+
+The em-dash ban used to be enforced by an end-to-end test that walked the text
+nodes of the marketing page and nowhere else, so the one rule that had a check
+was checked on the one page nobody reads twice. `check:copy` reads the parsed
+source instead, so it sees every string the app can show, including the ones
+behind a role and behind an empty state that only an empty database reaches.
+
+The mock's exemption from the primitive gate went the other way. It used to be
+allowed to hand-build its own table, on the grounds that it was styled by the
+design stylesheet's own `.student-table` rules, which is how it looked at the
+time. It is now the product's own `GradebookGrid`, the exemption was dead, and
+it has been removed, so the mock cannot drift back into a picture.
+
 ### Known deviation
 
-The landing page runs an eyebrow on all seven sections, which breaks the
-"one eyebrow per three sections" rule above. The supplied reference image sets
-the topic-label-above-headline rhythm and the approved plan called for it, so the
-rule yields to the reference here. The labels are topic words, never section
-numbers, which is the part of the rule that actually protects the design.
+The landing page runs a topic label on six of its eight sections, which breaks
+the "one eyebrow per three sections" rule above. The supplied reference image
+sets the topic-label-above-headline rhythm and the approved plan called for it,
+so the rule yields to the reference here. The labels are topic words, never
+section numbers, which is the part of the rule that actually protects the
+design.
 
 ## Photography
 

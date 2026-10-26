@@ -2,15 +2,32 @@
 
 import * as React from 'react';
 import Image from 'next/image';
-import { BarChart3, LayoutDashboard, Presentation, ScanLine } from 'lucide-react';
+import { BarChart3, ClipboardCheck, LayoutDashboard, Presentation, ScanLine } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
+import { GradebookGrid } from '@/components/product/GradebookGrid';
+import { AtRiskHeatmap } from '@/components/product/AtRiskHeatmap';
+import { AttendanceGrid, AttendanceLegend } from '@/components/product/AttendanceGrid';
+import { LessonPlanList } from '@/components/product/LessonPlanList';
+import { AssessmentCardList } from '@/components/product/AssessmentCardList';
 import {
+  SAMPLE_ASSESSMENTS,
+  SAMPLE_ATTENDANCE,
+  SAMPLE_ATTENDANCE_STUDENTS,
   SAMPLE_CLASS,
+  SAMPLE_COLUMNS,
+  SAMPLE_GRADE_CELLS,
+  SAMPLE_GRADEBOOK_STUDENTS,
+  SAMPLE_HEATMAP,
+  SAMPLE_NAMES_BY_ID,
+  SAMPLE_PLANS,
+  SAMPLE_QUESTIONS_BY_ASSESSMENT,
   SAMPLE_STUDENTS,
   SHOWCASE_TABS,
+  attendanceCounts,
   classAverage,
   needsSupport,
+  riskCounts,
   type SampleTab,
 } from './sample-class';
 
@@ -29,37 +46,40 @@ import {
  * build with no backend and are deliberately not ported: LIKO has a real
  * workspace behind `/overview`, and a second one that pretends to be it would be
  * a false claim about the product on the page that sells it.
+ *
+ * BUT IT IS THE PRODUCT'S OWN COMPONENTS. Every panel below is the component
+ * the app ships, given the sample class and nothing else. An earlier version of
+ * this file hand-built a table, a bar chart and a lesson card to look like the
+ * product, and `docs/ROADMAP.md` said the landing page renders the shipping
+ * components rather than pictures of them. It did not, and the two cannot both
+ * be true. The components are the shipping ones now: `GradebookGrid`,
+ * `AttendanceGrid`, `AtRiskHeatmap`, `LessonPlanList` and `AssessmentCardList`,
+ * the same files the dashboard routes render.
+ *
+ * WHY THAT MATTERS BEYOND HONESTY. A hand-built picture is a second
+ * implementation of a screen that already exists, and it drifts: the picture
+ * kept showing a support threshold of 80 while the heatmap under it, once it
+ * was the real one, used the product's own rule. The panels here read the same
+ * derived figures, so the class average, the support count and the risk grid
+ * cannot disagree with each other or with the product.
  */
 
 const TAB_ICONS: Record<SampleTab, typeof LayoutDashboard> = {
   gradebook: LayoutDashboard,
+  attendance: ClipboardCheck,
   lessons: Presentation,
   quizzes: ScanLine,
   insights: BarChart3,
 };
 
-function SampleAvatar({ initials }: { initials: string }) {
+function PanelHeading({ title, sub }: { title: string; sub: string }) {
   return (
-    <span
-      aria-hidden="true"
-      className="flex size-[23px] flex-none items-center justify-center rounded-full bg-accent-subtle text-[8px] font-semibold text-accent"
-    >
-      {initials}
-    </span>
-  );
-}
-
-function GradeTag({ grade }: { grade: number }) {
-  const support = grade < 80;
-  return (
-    <span
-      className={cn(
-        'rounded-[4px] px-[7px] py-1 text-[9px]',
-        support ? 'bg-surface-sunken text-warning' : 'bg-accent-subtle text-accent',
-      )}
-    >
-      {support ? 'Needs support' : 'On track'}
-    </span>
+    <div className="mb-4 flex items-center justify-between gap-4">
+      <div>
+        <p className="text-[18px] font-semibold leading-tight">{title}</p>
+        <p className="mt-1 text-[10px] text-ink-muted">{sub}</p>
+      </div>
+    </div>
   );
 }
 
@@ -75,120 +95,124 @@ function MiniStat({ label, value, note }: { label: string; value: string; note?:
   );
 }
 
+/**
+ * How the class average is described, derived rather than asserted.
+ *
+ * A caption that says "Looking good" next to a class average is a claim about
+ * a number, and the number changes when the sample does. The threshold is here
+ * so the caption cannot survive a change to the marks.
+ */
+function averageNote(average: number): string {
+  if (average >= 85) return 'Looking good';
+  if (average >= 75) return 'Holding steady';
+  return 'Worth a look';
+}
+
 function GradebookPanel() {
-  const support = needsSupport(SAMPLE_STUDENTS);
+  const average = classAverage(SAMPLE_STUDENTS);
+  const support = needsSupport();
 
   return (
     <>
-      <div className="mb-4 flex items-center justify-between gap-4">
-        <div>
-          <p className="text-[18px] font-semibold leading-tight">A good day to make a difference.</p>
-          <p className="mt-1 text-[10px] text-ink-muted">
-            Here is how your {SAMPLE_CLASS.level} {SAMPLE_CLASS.section} class is doing.
-          </p>
-        </div>
-      </div>
+      <PanelHeading
+        title="A good day to make a difference."
+        sub={`Here is how your ${SAMPLE_CLASS.level} ${SAMPLE_CLASS.section} class is doing.`}
+      />
 
       <div className="mb-5 grid grid-cols-3 gap-3">
         <MiniStat label="Students" value={String(SAMPLE_STUDENTS.length)} note={SAMPLE_CLASS.level} />
+        <MiniStat label="Class average" value={`${average}%`} note={averageNote(average)} />
         <MiniStat
-          label="Class average"
-          value={`${classAverage(SAMPLE_STUDENTS)}%`}
-          note="Looking good"
+          label="Need a little support"
+          value={String(support.length)}
+          note="Worth a check"
         />
-        <MiniStat label="Need a little support" value={String(support.length)} note="Worth a check" />
       </div>
 
-      <table className="w-full border-collapse text-[10px]">
-        <caption className="sr-only">
-          Sample marks for the fictional {SAMPLE_CLASS.level} {SAMPLE_CLASS.section} class
-        </caption>
-        <thead>
-          <tr>
-            <th
-              scope="col"
-              className="bg-surface-sunken px-1.5 py-2 text-left text-[9px] font-medium text-ink-muted"
-            >
-              Student name
-            </th>
-            <th
-              scope="col"
-              className="bg-surface-sunken px-1.5 py-2 text-left text-[9px] font-medium text-ink-muted"
-            >
-              {SAMPLE_CLASS.subject}
-            </th>
-            <th
-              scope="col"
-              className="bg-surface-sunken px-1.5 py-2 text-left text-[9px] font-medium text-ink-muted"
-            >
-              Progress
-            </th>
-            <th
-              scope="col"
-              className="hidden bg-surface-sunken px-1.5 py-2 text-left text-[9px] font-medium text-ink-muted sm:table-cell"
-            >
-              Last activity
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          {SAMPLE_STUDENTS.map((student) => (
-            <tr key={student.name} className="border-b border-border">
-              <td className="px-1.5 py-2">
-                <span className="flex items-center gap-2">
-                  <SampleAvatar initials={student.initials} />
-                  {student.name}
-                </span>
-              </td>
-              <td className="tabular px-1.5 py-2">{student.grade}%</td>
-              <td className="px-1.5 py-2">
-                <GradeTag grade={student.grade} />
-              </td>
-              <td className="hidden px-1.5 py-2 text-ink-muted sm:table-cell">Today</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <GradebookGrid
+        students={SAMPLE_GRADEBOOK_STUDENTS}
+        columns={SAMPLE_COLUMNS}
+        cells={SAMPLE_GRADE_CELLS}
+        maxScoreFor={() => 100}
+        compact
+      />
+    </>
+  );
+}
+
+function AttendancePanel() {
+  const counts = attendanceCounts();
+
+  return (
+    <>
+      <PanelHeading
+        title="Mark the room in a minute."
+        sub={`Who is here for ${SAMPLE_CLASS.level} ${SAMPLE_CLASS.section} today.`}
+      />
+
+      <div className="mb-5 grid grid-cols-3 gap-3">
+        <MiniStat label="Present" value={String(counts.present)} note="On time" />
+        <MiniStat label="Late" value={String(counts.late)} note="In a hurry" />
+        <MiniStat label="Absent" value={String(counts.absent)} note="Noted" />
+      </div>
+
+      <AttendanceGrid students={SAMPLE_ATTENDANCE_STUDENTS} marks={SAMPLE_ATTENDANCE} compact />
+
+      <div className="mt-4 border-t border-border pt-3">
+        <AttendanceLegend compact />
+      </div>
+    </>
+  );
+}
+
+function LessonsPanel() {
+  return (
+    <>
+      <PanelHeading
+        title="A lesson worth looking forward to."
+        sub="Start with a topic. Make it your own."
+      />
+
+      <LessonPlanList plans={SAMPLE_PLANS} compact />
+    </>
+  );
+}
+
+function QuizzesPanel() {
+  return (
+    <>
+      <PanelHeading
+        title="One quiz. Any classroom."
+        sub="From a paper handout to an online activity."
+      />
+
+      <AssessmentCardList
+        assessments={SAMPLE_ASSESSMENTS}
+        questionsByAssessment={SAMPLE_QUESTIONS_BY_ASSESSMENT}
+        compact
+      />
     </>
   );
 }
 
 function InsightsPanel() {
-  const support = needsSupport(SAMPLE_STUDENTS);
+  const counts = riskCounts();
+  const support = needsSupport();
 
   return (
     <>
-      <div className="mb-4 flex items-center justify-between gap-4">
-        <div>
-          <p className="text-[18px] font-semibold leading-tight">See the student behind the score.</p>
-          <p className="mt-1 text-[10px] text-ink-muted">
-            {SAMPLE_CLASS.level} {SAMPLE_CLASS.section} {SAMPLE_CLASS.subject} performance
-          </p>
-        </div>
-        <BarChart3 size={22} className="flex-none text-accent" aria-hidden="true" />
-      </div>
+      <PanelHeading
+        title="See the student behind the score."
+        sub={`${SAMPLE_CLASS.level} ${SAMPLE_CLASS.section} ${SAMPLE_CLASS.subject} performance`}
+      />
 
       <div className="mb-5 grid grid-cols-3 gap-3">
         <MiniStat label="Class average" value={`${classAverage(SAMPLE_STUDENTS)}%`} />
-        <MiniStat label="On track" value={String(SAMPLE_STUDENTS.length - support.length)} />
-        <MiniStat label="Needs support" value={String(support.length)} />
+        <MiniStat label="On track" value={String(counts.onTrack)} />
+        <MiniStat label="Needs support" value={String(counts.watch + counts.atRisk)} />
       </div>
 
-      <div className="flex h-[140px] items-end gap-5 pt-4">
-        {SAMPLE_STUDENTS.map((student) => (
-          <div
-            key={student.name}
-            className="flex h-full flex-1 flex-col items-center justify-end gap-1.5"
-          >
-            <strong className="tabular text-[9px]">{student.grade}%</strong>
-            <div
-              className="w-full rounded-t-[3px] border-t-[3px] border-accent bg-accent-subtle"
-              style={{ height: `${student.grade}%` }}
-            />
-            <span className="text-[9px] text-ink-muted">{student.name.split(' ')[0]}</span>
-          </div>
-        ))}
-      </div>
+      <AtRiskHeatmap cells={SAMPLE_HEATMAP} namesById={SAMPLE_NAMES_BY_ID} compact />
 
       <p className="mt-5 rounded-[5px] bg-accent-subtle p-3.5 text-[12px] leading-relaxed">
         <strong>A little attention goes a long way.</strong>
@@ -197,83 +221,6 @@ function InsightsPanel() {
           ? `${support.map((student) => student.name.split(' ')[0]).join(' and ')} could benefit from a one on one review before the next assessment.`
           : 'No students are currently flagged for extra support.'}
       </p>
-    </>
-  );
-}
-
-function LessonsPanel() {
-  return (
-    <>
-      <div className="mb-4 flex items-center justify-between gap-4">
-        <div>
-          <p className="text-[18px] font-semibold leading-tight">A lesson worth looking forward to.</p>
-          <p className="mt-1 text-[10px] text-ink-muted">Start with a topic. Make it your own.</p>
-        </div>
-        <Presentation size={22} className="flex-none text-accent" aria-hidden="true" />
-      </div>
-
-      <div className="grid gap-3 sm:grid-cols-2">
-        <div className="rounded-[5px] border border-border px-3 py-2">
-          <span className="text-[9px] text-ink-muted">Lesson topic</span>
-          <p className="mt-1 text-[12px]">The Solar System</p>
-        </div>
-        <div className="rounded-[5px] border border-border px-3 py-2">
-          <span className="text-[9px] text-ink-muted">Teaching level</span>
-          <p className="mt-1 text-[12px]">{SAMPLE_CLASS.level}</p>
-        </div>
-      </div>
-
-      <div className="forest-panel mt-4 rounded-[6px] p-6">
-        <span className="text-[10px] text-highlight">
-          {SAMPLE_CLASS.level} to Grade 7, slide 1
-        </span>
-        <p className="my-2.5 font-display text-[22px] font-semibold">The Solar System</p>
-        <p className="text-[12px] leading-relaxed opacity-80">
-          Learning objective: identify the key ideas in the solar system and connect them
-          to everyday life.
-        </p>
-        <p className="mt-3 text-[12px] opacity-80">
-          Explore, then discuss, then practice, then reflect, then review.
-        </p>
-      </div>
-    </>
-  );
-}
-
-function QuizzesPanel() {
-  return (
-    <>
-      <div className="mb-4 flex items-center justify-between gap-4">
-        <div>
-          <p className="text-[18px] font-semibold leading-tight">One quiz. Any classroom.</p>
-          <p className="mt-1 text-[10px] text-ink-muted">
-            From a paper handout to an online activity.
-          </p>
-        </div>
-        <ScanLine size={22} className="flex-none text-accent" aria-hidden="true" />
-      </div>
-
-      <ol className="mt-1 grid list-none gap-2.5 p-0 text-[12px] leading-relaxed">
-        {[
-          'Print the quiz as a paper handout, or run it online with the class.',
-          'Scan the completed paper against the answer key to get the marks.',
-        ].map((step, index) => (
-          <li key={step} className="rounded-[5px] border border-border p-3">
-            <span className="font-semibold">{index + 1}.</span> {step}
-          </li>
-        ))}
-      </ol>
-
-      <div className="mt-4 grid gap-2.5 sm:grid-cols-2">
-        <div className="rounded-[5px] border border-border p-3">
-          <span className="text-[9px] text-ink-muted">Format</span>
-          <p className="mt-1 text-[12px]">Printable or online</p>
-        </div>
-        <div className="rounded-[5px] border border-border p-3">
-          <span className="text-[9px] text-ink-muted">Marking</span>
-          <p className="mt-1 text-[12px]">Scored against the answer key</p>
-        </div>
-      </div>
     </>
   );
 }
@@ -294,6 +241,7 @@ function QuizzesPanel() {
 
 const PANELS: Record<SampleTab, () => React.JSX.Element> = {
   gradebook: GradebookPanel,
+  attendance: AttendancePanel,
   lessons: LessonsPanel,
   quizzes: QuizzesPanel,
   insights: InsightsPanel,
@@ -379,7 +327,7 @@ export function WorkspaceMock({
         </aside>
       )}
 
-      <div className="min-w-0 flex-1 px-4 py-5 sm:px-6">
+      <div className="mock-content min-w-0 flex-1 overflow-hidden px-4 py-5 sm:px-6">
         <div className="flex items-center justify-between border-b border-border pb-3 text-[9px] text-ink-muted">
           <span>My workspace / {SHOWCASE_TABS.find((item) => item.id === tab)?.nav}</span>
           <span className="hidden sm:inline">{SAMPLE_CLASS.schoolYear}</span>

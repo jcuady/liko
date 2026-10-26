@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import Link from 'next/link';
-import { ArrowUpRight, BarChart3, LayoutDashboard, Presentation, ScanLine } from 'lucide-react';
+import { ArrowUpRight, BarChart3, ClipboardCheck, LayoutDashboard, Presentation, ScanLine } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { SHOWCASE_TABS, type SampleTab } from './sample-class';
@@ -22,6 +22,7 @@ import { WorkspaceMock } from './WorkspaceMock';
 
 const TAB_ICONS: Record<SampleTab, typeof LayoutDashboard> = {
   gradebook: LayoutDashboard,
+  attendance: ClipboardCheck,
   lessons: Presentation,
   quizzes: ScanLine,
   insights: BarChart3,

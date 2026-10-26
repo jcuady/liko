@@ -5,7 +5,6 @@ import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
 import { Printer } from 'lucide-react';
 
-import { Badge, Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   Select,
   SelectContent,
@@ -14,11 +13,11 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { NewAssessmentDialog } from '@/components/product/NewAssessmentDialog';
+import { AssessmentCardList } from '@/components/product/AssessmentCardList';
 import { queryKeys } from '@/lib/query/keys';
 import type { AssessmentRecord, QuestionRecord } from '@/lib/api/types';
 import { idFormatOf } from '@/lib/api/types';
 
-import { ASSESSMENT_TYPES } from './options';
 import { QuestionBuilder } from './QuestionBuilder';
 import { ScanSheet } from './ScanSheet';
 
@@ -29,9 +28,10 @@ import { ScanSheet } from './ScanSheet';
  * An assessment is now selected rather than merely listed. It had to be, because
  * a question set and a scan both belong to exactly one assessment, and with a
  * list and no selection there was nothing for either to attach to.
+ *
+ * THE CARD IS NOT IN THIS FILE. It is `AssessmentCardList`, shared with the
+ * landing page so the two cannot drift apart.
  */
-
-const TYPE_LABELS = new Map(ASSESSMENT_TYPES.map((type) => [type.value, type.label]));
 
 export function AssessmentList({
   classes,
@@ -63,7 +63,6 @@ export function AssessmentList({
     staleTime: 30_000,
   });
 
-  const weightTotal = rows.reduce((total, row) => total + row.weight, 0);
   const active = rows.find((row) => row.id === assessmentId) ?? null;
   const activeQuestions = active ? (questionsByAssessment[active.id] ?? []) : [];
 
@@ -109,65 +108,12 @@ export function AssessmentList({
             : 'No assessments in this class yet. Create one and it becomes a column in the gradebook.'}
         </p>
       ) : (
-        <Card>
-          <CardHeader className="flex-row items-start justify-between gap-4 space-y-0">
-            <div>
-              <CardTitle>Assessments</CardTitle>
-              <p className="text-meta text-ink-muted" aria-live="polite">
-                {rows.length} {rows.length === 1 ? 'assessment' : 'assessments'}, weights
-                totalling {Math.round(weightTotal)}%.
-                {weightTotal > 0 && Math.round(weightTotal) !== 100
-                  ? ' Term totals only mean something once that reaches 100.'
-                  : ''}
-              </p>
-            </div>
-          </CardHeader>
-
-          <CardContent>
-            <ul className="flex flex-col gap-2">
-              {rows.map((row) => {
-                const isActive = row.id === assessmentId;
-                const count = questionsByAssessment[row.id]?.length ?? 0;
-                return (
-                  <li key={row.id}>
-                    <button
-                      type="button"
-                      onClick={() => setAssessmentId(isActive ? '' : row.id)}
-                      aria-expanded={isActive}
-                      aria-controls="assessment-detail"
-                      className={
-                        isActive
-                          ? 'flex w-full flex-wrap items-center justify-between gap-3 rounded-[12px] border border-accent bg-accent-subtle px-4 py-3 text-left transition-colors duration-150 ease-[cubic-bezier(0.32,0.72,0,1)]'
-                          : 'flex w-full flex-wrap items-center justify-between gap-3 rounded-[12px] border border-border bg-surface-sunken px-4 py-3 text-left transition-colors duration-150 ease-[cubic-bezier(0.32,0.72,0,1)] hover:border-border-strong'
-                      }
-                    >
-                      <span className="min-w-0">
-                        <span className="block text-[0.9375rem] font-medium text-ink">
-                          {row.title}
-                        </span>
-                        <span className="block text-meta text-ink-muted">
-                          {TYPE_LABELS.get(row.type) ?? row.type} · out of {row.maxScore} · weight{' '}
-                          {row.weight}%
-                          {row.dueOn ? ` · due ${row.dueOn}` : ''}
-                        </span>
-                      </span>
-                      <span className="flex items-center gap-2">
-                        <Badge tone={count > 0 ? 'success' : 'warning'}>
-                          {count > 0 ? `${count} question${count === 1 ? '' : 's'}` : 'No questions'}
-                        </Badge>
-                        {row.standardCodes.map((code) => (
-                          <Badge key={code} tone="neutral">
-                            {code}
-                          </Badge>
-                        ))}
-                      </span>
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-          </CardContent>
-        </Card>
+        <AssessmentCardList
+          assessments={rows}
+          questionsByAssessment={questionsByAssessment}
+          selectedId={assessmentId}
+          onSelect={(id) => setAssessmentId(id === assessmentId ? '' : id)}
+        />
       )}
 
       {active ? (

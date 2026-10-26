@@ -1297,6 +1297,189 @@ async function verifyAttendanceEndpoint() {
   }
 }
 
+/**
+ * A write through the service key.
+ *
+ * `read` and `remove` cover the other two directions. This one exists for the
+ * de-escalation check, which has to change a role the way an administrator's
+ * action would — in the database — and deliberately NOT through the
+ * administrator's own session, because going through that session is the thing
+ * being measured.
+ */
+async function serviceWrite(path, method, body) {
+  const response = await fetch(`${REST}/${path}`, {
+    method,
+    headers: {
+      apikey: SERVICE,
+      Authorization: `Bearer ${SERVICE}`,
+      'Content-Type': 'application/json',
+      Prefer: 'return=representation',
+    },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) {
+    throw new Error(`service ${method} ${path} answered ${response.status}: ${await response.text()}`);
+  }
+  const text = await response.text();
+  return text ? JSON.parse(text) : null;
+}
+
+/**
+ * A demoted administrator loses their administrator's reach on the next request.
+ *
+ * WHY THIS EXISTS. The session cookie carries a copy of the role taken when it
+ * was signed, and it is valid for seven days. The DATABASE never trusted that
+ * copy — every RLS policy reads `memberships.role` — but two paths read
+ * invitations through the SERVICE ROLE, which ignores RLS, and their only check
+ * was the permission matrix reading the cookie. So between a demotion and the
+ * next sign-in, an invitation was a credential the demoted administrator could
+ * still read and still mint.
+ *
+ * WHAT IS MEASURED. The role is changed in the database and the session is NOT
+ * re-signed, which is exactly what happens when an administrator demotes a
+ * colleague: the colleague's browser keeps the cookie it already had. Same
+ * browser, same cookie, next request.
+ *
+ * THE CONTROLS ARE WHAT MAKE IT MEAN SOMETHING. The same session reads the
+ * invitation before the demotion and again after the role is put back, so an
+ * empty list in the middle cannot be a broken page, an empty seed or a
+ * permission that never worked. It is the demotion, and only the demotion.
+ *
+ * AND IT PUTS EVERYTHING BACK. The probe invitation is deleted and the
+ * membership's role is restored in a `finally`, and the role is also restored
+ * at the START, so a run that was killed halfway leaves nothing broken for the
+ * next one to inherit. A gate that can leave a live administrator demoted is a
+ * gate nobody should run.
+ */
+async function verifyDeEscalation() {
+  console.log('De-escalation');
+
+  const auth = `${(process.env.NEXT_PUBLIC_SUPABASE_URL || '').replace(/\/$/, '')}/auth/v1`;
+  const { users } = await (
+    await fetch(`${auth}/admin/users`, {
+      headers: { apikey: SERVICE, Authorization: `Bearer ${SERVICE}` },
+    })
+  ).json();
+  const admin = users.find((user) => user.email === 'dev@liko.test');
+  if (!admin) throw new Error('dev@liko.test does not exist; run the seed first');
+
+  const [membership] = await read(
+    `memberships?user_id=eq.${admin.id}&status=eq.active&select=id,org_id,role`,
+  );
+  if (!membership) throw new Error('the administrator has no active membership; run the seed first');
+
+  /*
+   * Self-heal first. If a previous run was killed between the demotion and the
+   * restore, the account is still an instructor, and the scenario below has
+   * nothing to demote. Putting the role back here means an interrupted run
+   * costs one extra request rather than a broken administrator.
+   */
+  if (membership.role !== 'admin') {
+    await serviceWrite(`memberships?id=eq.${membership.id}`, 'PATCH', { role: 'admin' });
+    console.log(
+      `        (the membership was "${membership.role}" on arrival, so it was restored before the check)`,
+    );
+  }
+
+  /*
+   * A credential to read, so the refusal has something to refuse. The seeded
+   * project has no invitation rows, so without this the console's empty list
+   * would be indistinguishable from a refused read.
+   */
+  const probeEmail = 'deescalation-probe@liko.test';
+  const minted = 'demoted-attempt@liko.test';
+  await remove(`organization_invites?email=eq.${probeEmail}`);
+  await serviceWrite('organization_invites', 'POST', {
+    org_id: membership.org_id,
+    email: probeEmail,
+    role: 'instructor',
+    code: 'DEMOTE01',
+    created_by: admin.id,
+    expires_at: new Date(Date.now() + 7 * 24 * 3600 * 1000).toISOString(),
+  });
+
+  const browser = await chromium.launch();
+  try {
+    const context = await browser.newContext();
+    await seedConsent(context);
+    const page = await context.newPage();
+    await signIn(page, 'dev@liko.test');
+
+    /*
+     * THE INVITATIONS LIVE BEHIND A TAB, AND THE DEFAULT TAB IS "PEOPLE".
+     *
+     * The first version of this check looked for the invitation on the page as
+     * it loaded and found nothing, and the second assertion — that the demoted
+     * administrator cannot see it — PASSED, because a thing that is not on the
+     * page is not visible to anybody. A check that cannot fail is worse than
+     * no check, and this one was passing for the wrong reason. The control in
+     * front of it is what caught it, which is the entire reason the control is
+     * there.
+     */
+    const openInvites = async () => {
+      await page.getByRole('tab', { name: 'Invites' }).click();
+      await page.getByText('No invitations yet.').waitFor({ state: 'visible', timeout: 20_000 }).catch(
+        () => undefined,
+      );
+    };
+
+    // ---- the control: the administrator can read the credential ----------
+    await page.goto(`${BASE}/admin`, { waitUntil: 'domcontentloaded' });
+    await settle(page);
+    await openInvites();
+    check(
+      'an administrator can read an invitation code',
+      (await page.getByText(probeEmail).count()) > 0,
+      'the probe invitation was not on the page',
+    );
+
+    // ---- the demotion. The session is NOT re-signed. ---------------------
+    await serviceWrite(`memberships?id=eq.${membership.id}`, 'PATCH', { role: 'instructor' });
+
+    await page.goto(`${BASE}/admin`, { waitUntil: 'domcontentloaded' });
+    await settle(page);
+    await openInvites();
+    check(
+      'a demoted administrator cannot read an invitation code',
+      (await page.getByText(probeEmail).count()) === 0 &&
+        (await page.getByText('No invitations yet.').count()) > 0,
+      `the credential was still shown: ${(await page.getByText(probeEmail).count()) > 0}`,
+    );
+
+    // ---- and cannot mint one ---------------------------------------------
+    const before = (await read(`organization_invites?org_id=eq.${membership.org_id}&select=id`)).length;
+    await page.getByPlaceholder('colleague@school.test').fill(minted);
+    await page.getByRole('button', { name: 'Create invitation' }).click();
+    const refusal = page.getByText(/Only an administrator of this school/);
+    await refusal.waitFor({ state: 'visible', timeout: 20_000 }).catch(() => undefined);
+    const after = (await read(`organization_invites?org_id=eq.${membership.org_id}&select=id`)).length;
+    check(
+      'a demoted administrator is refused, and no credential was minted',
+      (await refusal.count()) > 0 && after === before,
+      `refusal shown: ${(await refusal.count()) > 0}; invitation rows ${before} before, ${after} after`,
+    );
+
+    // ---- the control: put the role back, and it works again --------------
+    await serviceWrite(`memberships?id=eq.${membership.id}`, 'PATCH', { role: 'admin' });
+    await page.goto(`${BASE}/admin`, { waitUntil: 'domcontentloaded' });
+    await settle(page);
+    await openInvites();
+    check(
+      'an administrator can read it again once the role is restored',
+      (await page.getByText(probeEmail).count()) > 0,
+      'the credential was still hidden after the role was restored',
+    );
+  } finally {
+    await browser.close();
+    await serviceWrite(`memberships?id=eq.${membership.id}`, 'PATCH', { role: 'admin' }).catch(
+      () => undefined,
+    );
+    await remove(`organization_invites?email=eq.${probeEmail}`);
+    await remove(`organization_invites?email=eq.${minted}`);
+  }
+  console.log('');
+}
+
 async function main() {
   for (const name of ['NEXT_PUBLIC_SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY']) {
     if (!process.env[name]) {
@@ -1356,6 +1539,13 @@ async function main() {
   } catch (error) {
     failures += 1;
     console.log(`  FAIL  the attendance endpoint could not be checked: ${error.message}`);
+  }
+
+  try {
+    await verifyDeEscalation();
+  } catch (error) {
+    failures += 1;
+    console.log(`  FAIL  the de-escalation check could not run: ${error.message}`);
   }
 
   try {

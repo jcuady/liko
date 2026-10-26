@@ -30,8 +30,21 @@ export async function getSession(): Promise<SessionPayload | null> {
    *
    * Scoped to fixture mode on purpose. `findUserById` in `supabase` mode calls
    * the Auth admin API, which would turn this into an extra network round trip
-   * on every page load. In production the same effect comes from Supabase
-   * refreshing the token, which is the correct place for it.
+   * on every page load.
+   *
+   * IT USED TO SAY THAT "IN PRODUCTION THE SAME EFFECT COMES FROM SUPABASE
+   * REFRESHING THE TOKEN", AND THAT WAS NOT TRUE. Supabase refreshing its own
+   * access token does not re-mint this application's `liko_session` cookie,
+   * because that cookie is signed by `LIKO_SESSION_SECRET` and carries its own
+   * `role` claim. Nothing re-signed it, so the copy could be seven days stale.
+   *
+   * The database was never affected — every RLS policy reads `memberships.role`
+   * — but the application layer is what `requirePermission` reads, and two
+   * paths use the service role, which ignores RLS. Those two paths now re-prove
+   * the caller's CURRENT membership role against the database before they use
+   * it (`supabaseAdminOrgFor` in `src/lib/api/client.ts`), so a demotion takes
+   * effect on the next request. The permission matrix here still reads the
+   * cookie, because it is the cheap check that decides whether to look at all.
    *
    * WHICH IS WHY THE SUPABASE BRANCH REFUSES AN ID THAT CANNOT BE REAL. It is
    * the one place a cookie is read without a second source to check it against.

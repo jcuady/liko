@@ -484,7 +484,7 @@ production.
 ### Two traps in this codebase that cost real time
 
 **Server components import icons from the package root, like everything else.**
-This used to be a trap. Phosphor's plain entry pulls a React context into the
+This used to be a trap. Phosphor's plain entry pulled a React context into the
 server bundle, and a server component importing it failed at build time with
 `createContext is not a function` during page-data collection, naming neither
 the file nor the import. The workaround was `@phosphor-icons/react/dist/ssr`

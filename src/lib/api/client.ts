@@ -13,6 +13,7 @@ import {
 import { createSupabaseAdmin, createSupabaseServerClient } from '@/lib/supabase/server';
 import { newInviteCode, inviteExpiry } from '@/lib/security/invite-code';
 import { scoreAnswers } from '@/lib/omr/omr';
+import { riskFromScores } from '@/lib/risk';
 import { DataError, mapSupabaseError } from './errors';
 import type {
   AssessmentRecord,
@@ -863,8 +864,17 @@ const supabaseAdapter: WorkspaceData = {
         .is('archived_at', null),
       supabase
         .from('grades')
-        .select('student_id, score, max_score, assessments!inner(class_id)')
-        .eq('assessments.class_id', classId),
+        .select('student_id, score, max_score, graded_at, assessments!inner(class_id)')
+        .eq('assessments.class_id', classId)
+        /*
+         * THE ORDER IS LOAD-BEARING. The heat cell's delta is the mean minus the
+         * FIRST mark, which only means "the change since the first assessment"
+         * if the first mark really is the earliest one. Without the order the
+         * database decides which row lands first, so the same class could show
+         * two different deltas on two different deploys, and nothing would say
+         * why.
+         */
+        .order('graded_at', { ascending: true }),
     ]);
 
     const byStudent = new Map<string, number[]>();
@@ -879,14 +889,11 @@ const supabaseAdapter: WorkspaceData = {
 
     return ((students ?? []) as Row[]).map((row) => {
       const scores = byStudent.get(str(row.id)) ?? [];
-      const average = scores.length
-        ? scores.reduce((sum, value) => sum + value, 0) / scores.length
-        : 0;
-      const delta = scores.length >= 2 ? average - scores[0] : 0;
+      const risk = riskFromScores(scores);
       return {
         studentId: str(row.id),
-        level: average >= 70 ? ('on-track' as const) : average >= 55 ? ('watch' as const) : ('at-risk' as const),
-        delta: Number(delta.toFixed(1)),
+        level: risk.level,
+        delta: Number(risk.delta.toFixed(1)),
       };
     });
   },
@@ -1941,7 +1948,7 @@ const supabaseAdapter: WorkspaceData = {
   },
 
   async listInvites(userId) {
-    const org = await supabaseOrgFor(userId);
+    const org = await supabaseAdminOrgFor(userId);
     if (!org) return [];
 
     /*
@@ -1951,6 +1958,12 @@ const supabaseAdapter: WorkspaceData = {
      * them. That leaves reading them an administrator action, which is what the
      * calling action checks for, and this row filter is what keeps that check
      * from being the only thing standing between two tenants.
+     *
+     * AND THE ADMINISTRATOR IS RE-PROVED HERE, AGAIN THE DATABASE. The calling
+     * action's permission check reads the role copied into the signed cookie,
+     * which a demotion does not touch for seven days. The service role ignores
+     * RLS, so the database would never refuse this read on its own — the
+     * membership's CURRENT role is the only thing that can.
      */
     const admin = await createSupabaseAdmin();
     if (!admin) {
@@ -1971,7 +1984,7 @@ const supabaseAdapter: WorkspaceData = {
   },
 
   async createInvite(userId, input) {
-    const org = await supabaseOrgFor(userId);
+    const org = await supabaseAdminOrgFor(userId);
     if (!org) throw new DataError('NOT_FOUND', 'This account has no organisation yet.');
 
     /*
@@ -1980,6 +1993,13 @@ const supabaseAdapter: WorkspaceData = {
      * administrator action that the calling action has already checked, not a
      * thing the browser may do for itself. `org_id` and `created_by` come from
      * the resolved organisation and the session, never from the request.
+     *
+     * "THE CALLING ACTION HAS ALREADY CHECKED" IS NOT THE WHOLE STORY. That
+     * check reads the role copied into the signed cookie, which a demotion does
+     * not touch for seven days, and the service role ignores RLS. So the
+     * membership's CURRENT role is what gates this write, resolved by
+     * `supabaseAdminOrgFor` above — otherwise a demoted administrator could mint
+     * a new credential for the school for a week after losing the job.
      */
     const admin = await createSupabaseAdmin();
     if (!admin) {
@@ -3501,18 +3521,31 @@ async function requireClient() {
 }
 
 /**
- * The organisation the caller belongs to.
+ * The organisation the caller belongs to, and the role they hold in it.
  *
  * Every tenancy write goes through this rather than taking an org id from the
  * caller, so a crafted request cannot address another school's members. A
  * suspended membership resolves to null, which is what makes suspending someone
  * actually take effect on their next request.
+ *
+ * THE ROLE COMES BACK WITH IT, and that is the point of this function's
+ * existence rather than of `supabaseOrgFor`. The role in the session cookie is
+ * a copy taken when it was signed, and it stays valid for seven days. Reading
+ * the membership here reads the role as it is NOW, from the row the database
+ * trusts. A demoted administrator therefore loses the row the cookie still
+ * claims, on their next request rather than at their next sign-in.
+ *
+ * The read is through the CALLER's own session, so RLS decides what it sees:
+ * the `own membership` policy admits exactly the caller's own rows, and the
+ * embedded organisation has to pass its own policy too.
  */
-async function supabaseOrgFor(userId: string): Promise<OrgRecord | null> {
+async function supabaseMembershipFor(
+  userId: string,
+): Promise<{ org: OrgRecord; role: Role } | null> {
   const supabase = await requireClient();
   const { data, error } = await supabase
     .from('memberships')
-    .select('org_id, organizations(' + ORG_COLUMNS + ')')
+    .select('role, organizations(' + ORG_COLUMNS + ')')
     .eq('user_id', userId)
     .eq('status', 'active')
     // Most recent first, and this is load-bearing rather than cosmetic. A person
@@ -3525,8 +3558,49 @@ async function supabaseOrgFor(userId: string): Promise<OrgRecord | null> {
     .maybeSingle();
   if (error) throw mapSupabaseError(error);
 
-  const org = (data as { organizations: Row } | null)?.organizations;
-  return org ? mapOrg(org) : null;
+  const row = data as { role: Role; organizations: Row } | null;
+  const org = row?.organizations;
+  if (!org || !row) return null;
+  return { org: mapOrg(org), role: row.role };
+}
+
+async function supabaseOrgFor(userId: string): Promise<OrgRecord | null> {
+  const membership = await supabaseMembershipFor(userId);
+  return membership ? membership.org : null;
+}
+
+/**
+ * The organisation the caller belongs to, proven to be one they may ADMINISTER.
+ *
+ * WHY THIS EXISTS AND WHY IT IS NOT THE SAME AS `supabaseOrgFor`.
+ *
+ * Three paths read or write through the SERVICE ROLE, which ignores RLS:
+ * `listInvites`, `createInvite`, and the `profiles.role` half of
+ * `setMemberRole`. For the third one the ordering already protects it — the
+ * membership write goes through the caller's own session first, so RLS refuses
+ * it and the function never reaches the service-role write.
+ *
+ * The two invite paths have no such guard. Their only check was
+ * `requirePermission('org:manage')` in the calling action, and that reads the
+ * role copied into the signed cookie. So an administrator who was demoted kept
+ * `org:manage` for the remaining life of that cookie — seven days — and an
+ * invite row is a CREDENTIAL: with the service role, reading the school's
+ * invite codes or minting a new one was not refused by the database, because the
+ * database was never asked.
+ *
+ * So the check that matters happens here, against the membership row rather
+ * than the cookie. A demotion takes effect on the next request.
+ */
+async function supabaseAdminOrgFor(userId: string): Promise<OrgRecord | null> {
+  const membership = await supabaseMembershipFor(userId);
+  if (!membership) return null;
+  if (membership.role !== 'admin') {
+    throw new DataError(
+      'FORBIDDEN',
+      'Only an administrator of this school can do that. Your access was changed, so it takes effect now.',
+    );
+  }
+  return membership.org;
 }
 
 // ---------------------------------------------------------------------------

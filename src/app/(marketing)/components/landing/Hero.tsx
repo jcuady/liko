@@ -61,7 +61,13 @@ export function Hero() {
       </div>
 
       <div className="hero-product">
-        <WorkspaceMock className="h-[340px] md:h-[420px]" />
+        {/*
+          * No fixed height. The mock is as tall as its panel needs, because the
+          * panel is now the product's own components and their height is not
+          * ours to choose. A fixed height clipped the last row of the
+          * gradebook by eleven pixels.
+          */}
+        <WorkspaceMock />
 
         <div className="floating-label first">
           <span className="avatar" aria-hidden="true">

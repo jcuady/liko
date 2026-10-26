@@ -2,6 +2,7 @@ import 'server-only';
 
 import { sendPushToUser, type PushSummary } from './send';
 import { createSupabaseAdmin } from '@/lib/supabase/server';
+import { WATCH_MIN_PERCENT } from '@/lib/risk';
 
 /**
  * The at-risk sweep.
@@ -12,10 +13,16 @@ import { createSupabaseAdmin } from '@/lib/supabase/server';
  * points cannot drift apart: Vercel's cron only issues GET on the Hobby plan,
  * and both verbs must produce identical results.
  *
- * THE THRESHOLD IS NOT INVENTED HERE. `getHeatmap()` in `src/lib/api/client.ts`
- * already classifies a student as at risk below 55 percent mean, and its own
- * comment asks that the rule live in one place so the heatmap and the alert
- * cannot disagree. `AT_RISK_MEAN_PERCENT` is that same boundary.
+ * THE THRESHOLD IS NOT INVENTED HERE, AND IT IS NOT A COPY EITHER. The rule
+ * that classifies a student as at risk lives in `src/lib/risk.ts`, and this
+ * module reads its boundary from there. `getHeatmap()` in
+ * `src/lib/api/client.ts` calls the same module for the same classification, so
+ * the heatmap and the alert cannot disagree about who is at risk.
+ *
+ * This file used to carry its own `55` and a comment saying it was "that same
+ * boundary". It was the same NUMBER, copied, and nothing in the repository
+ * could tell the difference between the same number and the same rule. The
+ * constant below is the shared one under a name that reads better here.
  *
  * WHY ONE ALERT PER TEACHER AND NOT PER STUDENT. A teacher with nine slipping
  * students should get one notification they can act on, not nine banners. The
@@ -35,8 +42,15 @@ import { createSupabaseAdmin } from '@/lib/supabase/server';
 
 type Row = Record<string, unknown>;
 
-/** Same boundary the heatmap uses for its `at-risk` level. */
-export const AT_RISK_MEAN_PERCENT = 55;
+/**
+ * Same boundary the heatmap uses for its `at-risk` level.
+ *
+ * The shared constant, under the name that reads better at the call site. It is
+ * exported rather than inlined because the value is quoted in this file's
+ * documentation and in `docs/RBAC_MATRIX.md`, and one name for it is better
+ * than three.
+ */
+export const AT_RISK_MEAN_PERCENT = WATCH_MIN_PERCENT;
 
 /** Absences in the attendance window that count as a pattern rather than a bad day. */
 export const ABSENCE_THRESHOLD = 2;

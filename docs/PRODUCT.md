@@ -62,24 +62,29 @@ with no signal. That has to work, queue, and sync.
 ## Voice
 
 Plain, concrete, and specific. Banned verbs: elevate, seamless, unleash,
-next-gen, revolutionize, supercharge. No em dashes in visible copy. No emoji. No
-section-number labels.
+next-gen, revolutionize, supercharge. No em dashes in visible copy, anywhere:
+`check:copy` reads the parsed source and fails on an em dash or an en dash in
+any string the app can show, so the rule covers the screens a teacher uses and
+not only the marketing page. No emoji. No section-number labels.
 
 ## What is built now
 
-- Production landing page with ten sections and two scroll narratives
-- Complete design system: Viridian token set, Geist type, motion scale
+- Production landing page with eight sections, whose product showcase renders
+  the shipping components rather than pictures of them
+- Complete design system: Viridian token set, DM Sans and Manrope with Geist
+  Mono for figures, motion scale
 - PWA: manifest, generated icons, Serwist service worker, offline fallback
 - Authentication: register, sign in, reset password, email verification,
   rate limiting, CSRF origin checks
 - Role-based access control across instructor, admin, student, and guardian
 - Workspace shell: sidebar, mobile tab bar, command palette, offline banner
 - Six module routes with working empty states, plus a working attendance screen
-- 44 unit tests and three Playwright suites
+- 569 unit tests across 43 files and 259 Playwright tests across 25 specs
 
 ## What is next
 
-The six MVP modules, in this order: roster and attendance, lesson planner,
-assessment builder, gradebook, at-risk heatmap, report-card export. The API seam
-is defined and fixture-backed, so each module is a vertical slice rather than a
-rewrite.
+Report-card export. The other five MVP modules are shipped and live: roster
+and attendance, lesson planner, assessment builder, gradebook, and the at-risk
+heatmap. `docs/ROADMAP.md` records all six as delivered, with report cards
+deliberately deferred because they need a PDF pipeline and a layout decision
+rather than another screen.

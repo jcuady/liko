@@ -152,7 +152,25 @@ async function attempt(record: OutboxEntry): Promise<Response | null> {
     await recordFailure(record, `server ${response.status}`);
     return response;
   } catch {
-    // Offline. The row stays and the next flush retries it.
+    /*
+     * Offline, or the request never left. The row stays and the next flush
+     * retries it.
+     *
+     * AND THE QUEUE SAYS SO. This branch used to return without notifying,
+     * which meant the depth the banner reports was always the depth from the
+     * last time something happened to notify it. A teacher who took a register
+     * with no signal was shown "Offline. 0 changes queued on this device" with
+     * a change sitting in the queue, and the only way to read that banner is
+     * "your tap did not register" -- which is the one thing the screen promised
+     * it would not do.
+     *
+     * The notification belongs HERE and not after the put in `enqueueWrite`,
+     * because this is the only branch where a write becomes durable *and*
+     * unsent. Notifying after the put would also announce the brief moment
+     * where an online write is in the queue on its way to the server, so every
+     * register would flash a syncing banner for a write that was never late.
+     */
+    notify();
     return null;
   }
 }
