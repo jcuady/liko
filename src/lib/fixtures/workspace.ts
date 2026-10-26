@@ -1,5 +1,4 @@
 import type {
-  AttendanceStatus,
   ClassRoom,
   HeatCell,
   Stat,
@@ -40,21 +39,6 @@ export const stats: Stat[] = [
   { label: 'Needs review', value: '7', delta: -2 },
   { label: 'Avg. grade', value: '84.2', delta: 3.1 },
 ];
-
-/**
- * Attendance for today. States are deliberately mixed so every visual state is
- * present in the hero miniature rather than only the happy one.
- */
-export const attendance: Record<string, AttendanceStatus> = {
-  'stu_001': 'present',
-  'stu_002': 'present',
-  'stu_003': 'late',
-  'stu_004': 'present',
-  'stu_005': 'absent',
-  'stu_006': 'present',
-  'stu_007': 'present',
-  'stu_008': 'excused',
-};
 
 /**
  * At-risk ramp. `delta` is the grade-point change over the last six weeks; the

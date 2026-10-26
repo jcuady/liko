@@ -66,6 +66,25 @@ export function OfflineBanner() {
 
   return (
     <div
+      /*
+       * A STABLE HOOK, AND NOT ONLY FOR THE TESTS.
+       *
+       * This banner is the outbox's own view of the queue, so it is on screen
+       * exactly when the device is offline OR there is something left to send.
+       * A caller that needs to know "is the queue empty" cannot ask that by
+       * wording, because the wording changes the moment the browser comes back
+       * online: offline it says "X is queued on this device", online it says
+       * "Syncing N queued changes". A locator on the text therefore stops
+       * matching at the moment the queue is still full.
+       *
+       * `role="status"` is no use as a hook either: Radix renders toasts with
+       * `role="status"` too, so anything watching for a status region is
+       * watching for toasts as well.
+       *
+       * `data-slot` is the codebase's own convention for this, and it is what
+       * `select-content`, `select-item` and `notification-badge` already use.
+       */
+      data-slot="offline-banner"
       role="status"
       aria-live="polite"
       className={cn(

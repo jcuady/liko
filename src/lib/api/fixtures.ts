@@ -28,7 +28,6 @@ import {
   secondClassStudents,
 } from '@/lib/fixtures/workspace-seed';
 import {
-  attendance,
   heatmap,
   stats,
   students as fixtureStudents,
@@ -859,7 +858,30 @@ export const fixtures: WorkspaceData = {
 
   async getAttendance(_userId, classId, date) {
     guard('getAttendance');
-    return store.attendance.get(seededKey(classId, date)) ?? attendance;
+    /*
+     * NO FALLBACK, AND THE FALLBACK THAT WAS HERE WAS A DIVERGENCE.
+     *
+     * This used to read `store.attendance.get(key) ?? attendance`, where
+     * `attendance` is the static mixed-state map from `fixtures/workspace.ts`.
+     * That map was written for the landing page's miniature — its own comment
+     * says so — and the miniature now renders `sample-class.ts` instead. What
+     * the fallback was left doing was answering for a date the store has no
+     * register for, which the Supabase adapter does NOT do: it returns the
+     * rows and nothing else, so a date with no register is empty and every
+     * student reads "not set".
+     *
+     * So the fixture showed a teacher a register full of marks for a date
+     * that does not exist, and the first write to that date REPLACED that
+     * invented register with one real row, which made every other student's
+     * mark vanish. The e2e suite could therefore have passed against a
+     * register the product would never show, and the one spec that writes to
+     * an unseeded date is the one that noticed.
+     *
+     * A fixture that disagrees with production is worse than no fixture,
+     * because every assertion made against it is a claim about a product
+     * that does not exist. This one now says what production says.
+     */
+    return store.attendance.get(seededKey(classId, date)) ?? {};
   },
 
   /*

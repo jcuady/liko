@@ -49,9 +49,36 @@ function markCell(page: Page) {
   return page.locator('button[aria-label^="Set attendance for"]').first();
 }
 
-/** The banner that reports what is still on the device. */
+/** The banner that reports what is still on the device, in its OFFLINE wording. */
 function queuedBanner(page: Page) {
-  return page.locator('[role="status"]').filter({ hasText: /queued on this device/i }).first();
+  return page.locator('[data-slot="offline-banner"]').filter({ hasText: /queued on this device/i }).first();
+}
+
+/**
+ * THE BANNER, WHATEVER IT SAYS.
+ *
+ * THIS IS THE FIX, AND THE OLD WAIT WAS A WAIT THAT MEANT NOTHING.
+ *
+ * The old wait looked for the banner's OFFLINE wording and asserted it was
+ * gone. But that wording disappears the moment the browser comes back online,
+ * because the banner switches to "Syncing 1 queued change" — so the wait was
+ * satisfied the instant the device reconnected, while the queue was still
+ * full. The test then reloaded and read the register, and the reload's read
+ * could be served BEFORE the replay's write had committed. When it was, the
+ * teacher saw the original mark and the test failed with a message about
+ * attendance rather than about a race.
+ *
+ * It passed on most runs because the replay is usually faster than the
+ * reload, and it failed on the run where it was not. A wait that is satisfied
+ * by the wrong event is not a slow test, it is a test that measures nothing.
+ *
+ * The banner is the outbox's own view of the queue, and it is on screen
+ * exactly when the device is offline OR something is still to send. So
+ * "the banner is gone" is the one condition that means "the queue is empty and
+ * the device is back", which is the thing the replay has to have happened for.
+ */
+function outboxBanner(page: Page) {
+  return page.locator('[data-slot="offline-banner"]');
 }
 
 /** What a cell says the mark is now. */
@@ -114,7 +141,7 @@ test.describe('offline attendance capture', () => {
      */
     await expect(async () => {
       await page.evaluate(() => window.dispatchEvent(new Event('online'))).catch(() => undefined);
-      await expect(queuedBanner(page)).toHaveCount(0);
+      await expect(outboxBanner(page)).toHaveCount(0);
     }).toPass({ timeout: 30_000 });
 
     // --- and the only way this can be true is if it reached the server ---
