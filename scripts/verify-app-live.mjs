@@ -923,26 +923,86 @@ async function verifyCron() {
  * worth asserting rather than skipping: a project where registration works is a
  * project where the consent write, which deliberately swallows its own failure,
  * finally has something to run against.
+ *
+ * TWO ADDRESSES, BECAUSE ONE ADDRESS CANNOT TELL TWO CAUSES APART.
+ *
+ * The probe used to address `.test`, because the seed's accounts do. Supabase
+ * validates the TLD on the public signup path, so a request to `.test` is
+ * refused at validation and NEVER REACHES THE MAIL PATH. The answer it gives
+ * therefore says nothing about the email quota. When the quota ran out the
+ * gate still reported green and printed that the quota "appears to have
+ * reset", which was an inference from a request that had never been near the
+ * thing being inferred about.
+ *
+ * `example.com` is reserved by RFC 2606 for documentation, so no mailbox
+ * exists at it and nothing can be delivered to a real person even if the
+ * quota has reset and Supabase does try to send. It passes address
+ * validation, so it reaches the mail path, and it is that answer which
+ * decides what this gate claims.
  */
 async function verifySignup() {
   console.log('Registration');
 
   const auth = `${(process.env.NEXT_PUBLIC_SUPABASE_URL || '').replace(/\/$/, '')}/auth/v1`;
-  const probe = await fetch(`${auth}/signup`, {
-    method: 'POST',
-    headers: {
-      apikey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      email: `verify-probe-${Date.now()}@liko.test`,
-      password: 'Good-Pass-1',
-      data: { full_name: 'Verify Probe' },
-    }),
-  });
 
-  const result = await probe.json().catch(() => ({}));
-  const rateLimited = probe.status === 429;
+  const attempt = async (domain) => {
+    const response = await fetch(`${auth}/signup`, {
+      method: 'POST',
+      headers: {
+        apikey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        email: `verify-probe-${Date.now()}@${domain}`,
+        password: 'Good-Pass-1',
+        data: { full_name: 'Verify Probe' },
+      }),
+    });
+    const body = await response.json().catch(() => ({}));
+    return { status: response.status, body };
+  };
+
+  const testAddress = await attempt('liko.test');
+  const quotaSpent = testAddress.body.error_code === 'over_email_send_rate_limit';
+
+  /*
+   * The `.test` answer is recorded, not asserted. It is a fact about
+   * Supabase's validator rather than about this product, and upstream is
+   * free to change it, so a gate that turned red when Supabase started
+   * accepting `.test` would be crying wolf. It is still worth writing down
+   * WHEN IT IS AN ADDRESS REJECTION: it means the seeded demo accounts could
+   * never have been created through the product's own registration form,
+   * only through the seed. When the quota is spent the answer is 429
+   * instead, because Supabase counts the attempt before it validates the
+   * address, and then this says nothing about the TLD at all.
+   */
+  if (testAddress.body.error_code === 'email_address_invalid') {
+    note(
+      `A .test address is answered ${testAddress.status} ` +
+        `${testAddress.body.error_code}: ${testAddress.body.msg}. The public signup path ` +
+        'validates the TLD and auth.admin.createUser does not, so the seeded demo accounts ' +
+        'were only ever creatable through the seed.',
+    );
+  } else {
+    note(
+      `A .test address is answered ${testAddress.status} ` +
+        `${testAddress.body.error_code ?? ''}: ${testAddress.body.msg ?? ''}.`,
+    );
+  }
+
+  /*
+   * THE ROUTABLE PROBE IS NOT ALWAYS SENT, BECAUSE THE QUOTA IS SCARCE.
+   *
+   * On the free tier a project gets two confirmation emails an hour, so a
+   * diagnostic that fired a second signup when the first already answered
+   * "email rate limit exceeded" would be spending the very resource it was
+   * only trying to read. A quota refusal is the same refusal for every
+   * address, so the first answer already settles it. Anything else leaves
+   * the cause open, and only a routable address can close it.
+   */
+  const probe = quotaSpent ? testAddress : await attempt('example.com');
+  const result = probe.body;
+  const rateLimited = probe.status === 429 && result.error_code === 'over_email_send_rate_limit';
   const addressRejected = result.error_code === 'email_address_invalid';
 
   if (rateLimited) {
@@ -954,36 +1014,35 @@ async function verifySignup() {
     note(
       `Supabase answered ${probe.status} ${result.error_code ?? ''}: ${result.msg ?? ''}. ` +
         'Registration, the handle_new_user trigger and the consent_events write are therefore ' +
-        'unverified against this database until a custom SMTP provider is configured.',
+        'unverified against this database until a custom SMTP provider is configured. The ' +
+        'address used here is on a reserved test domain, so nothing was delivered to anyone ' +
+        'even if a mail had been sent.',
     );
     return;
   }
 
   if (addressRejected) {
     /*
-     * Not a quota problem this time: Supabase refused the address itself. The
-     * probe uses a `.test` domain because the seed's accounts do, and the public
-     * signup path validates the TLD while `auth.admin.createUser` does not. That
-     * is worth knowing plainly, because it means the demo accounts could never
-     * have been created through the product's own registration form, only
-     * through the seed.
+     * Not a quota problem: Supabase refused the address itself, even on a
+     * routable domain. That is a third cause, and it is now separated from
+     * the quota because the two were previously indistinguishable.
      */
     check(
-      'signup rejects the .test probe address, so the path stays unverified',
+      'signup rejects the probe address, so the path stays unverified',
       true,
       undefined,
     );
     note(
-      `Supabase answered ${probe.status} ${result.error_code}: ${result.msg}. The email quota ` +
-        'appears to have reset, but this probe cannot exercise registration until it uses a real ' +
-        'address on a real domain.',
+      `Supabase answered ${probe.status} ${result.error_code}: ${result.msg}. The address is on ` +
+        'example.com, a reserved documentation domain, so this is not the email quota. The ' +
+        'quota state is still unknown from this answer alone.',
     );
     return;
   }
 
   check(
     'Supabase accepted a registration',
-    probe.ok && Boolean(result.id),
+    probe.status >= 200 && probe.status < 300 && Boolean(result.id),
     `answered ${probe.status}: ${JSON.stringify(result).slice(0, 200)}`,
   );
 
