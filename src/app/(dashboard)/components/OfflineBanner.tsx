@@ -4,6 +4,7 @@ import * as React from 'react';
 
 import { cn } from '@/lib/utils';
 import {
+  currentSummary,
   pendingSummary,
   startAutoFlush,
   subscribeToOutbox,
@@ -24,8 +25,22 @@ import {
  */
 export function OfflineBanner() {
   const [online, setOnline] = React.useState(true);
-  const [queued, setQueued] = React.useState(0);
-  const [latest, setLatest] = React.useState<string | null>(null);
+  /*
+   * THE STATE STARTS AT THE OUTBOX'S LAST READING, NOT AT ZERO.
+   *
+   * React can throw this component away and build it again, and a banner that
+   * starts at zero claims that nothing is waiting until it has read the queue
+   * for itself. On 2026-10-26 that is exactly what happened: the count went 1,
+   * then 0, then 1 again across a reload, with the queued row never deleted,
+   * and the 0 was a lie produced by a component that had just mounted.
+   *
+   * So the banner starts from what the outbox last saw. The outbox keeps that
+   * in its module, which outlives any component, and a banner that mounts can
+   * read it synchronously instead of guessing.
+   */
+  const [queued, setQueued] = React.useState(() => currentSummary().count);
+  const [latest, setLatest] = React.useState<string | null>(() => currentSummary().latest);
+  const [readable, setReadable] = React.useState(() => currentSummary().readable);
 
   React.useEffect(() => {
     const update = () => setOnline(navigator.onLine);
@@ -44,7 +59,17 @@ export function OfflineBanner() {
 
     const refresh = () => {
       void pendingSummary().then((summary) => {
-        if (active) {
+        if (!active) return;
+        setReadable(summary.readable);
+        /*
+         * THE COUNT IS ONLY TAKEN FROM A READING THAT WORKED.
+         *
+         * A failed read keeps the count the banner last saw. Overwriting it
+         * with zero is what turned a storage error into "your register is
+         * safe", and the banner's own comment below says that is the one
+         * answer that must never be given.
+         */
+        if (summary.readable) {
           setQueued(summary.count);
           setLatest(summary.count === 1 ? summary.latest : null);
         }
@@ -61,6 +86,34 @@ export function OfflineBanner() {
       stopFlush();
     };
   }, []);
+
+  /*
+   * A QUEUE THAT COULD NOT BE READ IS NOT AN EMPTY QUEUE.
+   *
+   * This is the branch that was missing, and its absence is what made the
+   * 2026-10-26 failure a failure rather than a slow test. The banner rendered
+   * nothing when the count was zero, and a failed read produced a count of
+   * zero, so a storage error looked exactly like a teacher with nothing
+   * waiting: no banner, no warning, and a register that was never sent.
+   *
+   * So when the queue cannot be read, the banner says so, and it says how much
+   * it last knew was waiting. Silence is the answer that makes a teacher
+   * believe their work is safe.
+   */
+  if (!readable) {
+    return (
+      <div
+        data-slot="offline-banner"
+        role="status"
+        aria-live="polite"
+        className="flex items-center justify-center gap-2 px-4 py-2 text-[0.8125rem] font-medium bg-warning-subtle text-warning"
+      >
+        {queued > 0
+          ? `${queued} change${queued === 1 ? '' : 's'} may still be waiting, and this device cannot check the queue.`
+          : 'This device cannot check whether every change has been sent.'}
+      </div>
+    );
+  }
 
   if (online && queued === 0) return null;
 

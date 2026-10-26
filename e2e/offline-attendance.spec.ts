@@ -24,6 +24,17 @@ import { expect, test, type Page } from '@playwright/test';
  * holds afterwards. If the replay never happened, the reload would show the
  * original status and this test would fail. That is the control, and it is
  * built into the assertion rather than asserted separately.
+ *
+ * WHAT WAS STILL NOT PROVEN, AND WHAT IT COST. This spec failed on 2026-10-26
+ * with the register reading "not set" after a replay that had been reported as
+ * done. The trace of that run is what found the real defect, and the real
+ * defect was in the WAIT rather than in the write: the wait watched for the
+ * banner to be absent, and the banner goes absent when the queue cannot be
+ * READ as well as when the queue is empty. A failed read had been reported as
+ * an empty queue, so the wait was satisfied by a storage error and the test
+ * read a register the server had never been told about. The wait now watches
+ * the server's answer instead, and the banner no longer lies when it cannot
+ * read the queue.
  */
 
 /** The order a single tap walks a mark round. Copied from `AttendanceGrid`. */
@@ -128,6 +139,18 @@ test.describe('offline attendance capture', () => {
     await expect(queuedBanner(page)).toContainText(`Attendance for ${date}`);
 
     // --- and comes back ---
+    /*
+     * THE LISTENER IS REGISTERED BEFORE THE SIGNAL COMES BACK.
+     *
+     * The browser fires its own `online` event the moment it reconnects, and
+     * the replay can be finished before the next line of this test is reached.
+     * A listener set up afterwards would miss the one response that matters.
+     */
+    const replayed = page.waitForResponse(
+      (response) => response.url().includes('/api/attendance') && response.status() === 200,
+      { timeout: 30_000 },
+    );
+
     await context.setOffline(false);
     /*
      * The browser can reload the page when the service worker regains control,
@@ -136,13 +159,38 @@ test.describe('offline attendance capture', () => {
      * survive a reload, because a teacher who closes the tab on a train has to
      * come back to a register that is still waiting.
      *
-     * So the reconnect is signalled repeatedly until the queue actually drains,
-     * rather than signalled once and assumed to have landed.
+     * So the reconnect is signalled as well as waited for, rather than
+     * signalled once and assumed to have landed.
      */
-    await expect(async () => {
-      await page.evaluate(() => window.dispatchEvent(new Event('online'))).catch(() => undefined);
-      await expect(outboxBanner(page)).toHaveCount(0);
-    }).toPass({ timeout: 30_000 });
+    await page.evaluate(() => window.dispatchEvent(new Event('online'))).catch(() => undefined);
+
+    /*
+     * THE WAIT THAT MEANS WHAT IT SAYS.
+     *
+     * The old wait watched for the banner to be ABSENT. That is satisfied by
+     * three different things: the queue emptied, the queue could not be read,
+     * and the banner was not on the page at all. Only the first of them means
+     * the write was sent, and on 2026-10-26 the second of them is what
+     * happened. The banner was gone because a failed read had been reported as
+     * an empty queue, the test read the register, and the mark was not there
+     * because the server had never been told about it.
+     *
+     * So this waits for the thing the test is actually about: the server
+     * answering the replayed write. The route commits the mark before it
+     * answers, so a 200 means the register holds the mark, and the reload
+     * below can only read what the server has.
+     */
+    await replayed.then(
+      () => undefined,
+      () => {
+        throw new Error(
+          'the queued mark never reached the server: /api/attendance did not answer 200 after the signal returned',
+        );
+      },
+    );
+
+    // With the queue empty, the banner has nothing left to report.
+    await expect(outboxBanner(page)).toHaveCount(0);
 
     // --- and the only way this can be true is if it reached the server ---
     await page.reload();

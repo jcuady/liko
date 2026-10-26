@@ -169,6 +169,69 @@ by execution rather than by reading a policy.
   stated rather than fixed: every other permission still reads the cookie, so
   for the page layer the window is still seven days.
 
+### #11 A register taken with no signal was never sent, and the banner said there was nothing waiting
+
+- **Severity:** P1
+- **Location:** `src/lib/outbox/index.ts` ·
+  `src/app/(dashboard)/components/OfflineBanner.tsx` · `e2e/offline-attendance.spec.ts`
+- **Category:** DATA / UI
+- **Observed:** the offline-attendance spec failed in the full gate run of
+  2026-10-26 with the register reading `not set` after a replay that had been
+  reported as done. The Playwright trace of that run is the evidence, and it
+  shows three separate faults stacked on top of each other.
+
+  **First, the queue could be read as empty when it could not be read at all.**
+  `pendingSummary()` caught every error and returned `{ count: 0 }`, and the
+  banner renders nothing when the count is zero. The trace shows the banner
+  counting `1`, then `0`, then `1` again across a reload, with the queued row
+  never deleted. A count that goes 1 to 0 to 1 with the row still in IndexedDB
+  is a read that failed and was reported as an empty queue.
+
+  **Second, a page that loaded with a queued write did not send it.** The only
+  things that started a flush were an `online` event and a thirty second poll.
+  The trace shows the page reloading itself as the service worker claimed it,
+  one millisecond after the reconnect, so the `online` event had already been
+  and gone by the time the new page was asking about the queue.
+
+  **Third, a send that failed was not tried again soon.** The trace shows the
+  first attempt after the signal returned failing with `net::ERR_FAILED`, which
+  is what the first request does while the network is still settling, and the
+  next attempt was the thirty second poll away.
+
+  The banner's own comment says the opposite of what it did: *"a banner that
+  says '0 changes queued' while a change is queued is worse than no banner,
+  because it tells the teacher their tap did not register."* That is exactly
+  what a failed read produced.
+
+- **Expected:** a queue that cannot be read says so, a page that loads with
+  something to send sends it, and a send that failed is tried again while the
+  teacher is still looking at the register.
+- **Repro:**
+  1. `npx playwright test e2e/offline-attendance.spec.ts` against a build with
+     the reconnect happening immediately after the tap: the replay never
+     reaches the server.
+  2. Read `src/lib/outbox/index.ts`: `pendingSummary()`'s catch returns
+     `{ count: 0 }`, and `startAutoFlush()` had no flush on load and no ladder.
+  3. The trace of the failing run: `test-results/run-2026-10-26T18-59-12-668Z/…/trace.zip`.
+- **Evidence:** the trace's network log, which shows every `POST /api/attendance`
+  answered `net::ERR_FAILED` and no later attempt; the trace's frame snapshots,
+  which show the banner count going 1, 0, 1; the source, cited above.
+- **Instrument validated:** four mutations, each breaking one repair and each
+  turning a spec red. Reporting a failed read as a readable empty queue turns
+  the honesty spec red. Removing the flush on load turns the reload spec red.
+  Removing the wake-up turns the retry spec red. Removing the ladder turns the
+  retry spec red as well, which is what separates the two.
+- **Status:** CLOSED. `pendingSummary()` now returns a reading that says
+  whether the queue could be read at all, the banner keeps the count it last
+  saw when a read fails and says in words that it cannot check the queue, the
+  last reading is kept in the outbox module so a banner that remounts cannot
+  claim nothing is waiting, a failed open no longer poisons the queue for the
+  life of the page, the flush loop runs once on load and wakes itself when a
+  write is left unsent, and a failed send is retried on a ladder that starts at
+  two seconds. `e2e/outbox.spec.ts` holds the three claims, and the
+  offline-attendance spec now waits for the server's answer rather than for a
+  banner to disappear.
+
 ---
 
 ## P2 — Medium
