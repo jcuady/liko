@@ -35,9 +35,10 @@ inheriting a word from an earlier round.
 | Lint | **PASS** | `pnpm lint`, exit 0 | round twelve |
 | Unit tests | **PASS** | `537 passed, 2 skipped`, measured in a detached worktree at `312da33` so the figure is that commit's and not the shared tree's. The commit after it changed only a client component with no unit test. | round twelve |
 | e2e | **PASS** | `256 passed (7.1m)` at `f99efe6`, the whole suite, exit 0. Up from `241` at `9604440`: six of these are the classes page controls and nine are the role controls spec, and the other four are the classes page's own. | round nineteen |
-| **Full gate** | **26 pass, 0 blocked, 0 fail, 0 error** | `pnpm gates` at `87b2637`, recorded in `docs/evidence/gates.json`, with the build recorded as served and unchanged across the run (`lSUn1b9-Dfiq2wNsZIxtP` at both ends), the run not contaminated, and the tree clean, so the commit label describes the code that was measured. 26 gates, the role guards among them. Round twenty's own measurement was **24 pass, 0 blocked, 0 fail, 0 error** at `ac29f5c`, in a detached worktree at that commit, because another process had material work in flight in the shared checkout and a suite that runs on a tree it cannot describe is not a measurement of a commit. | round twenty |
+| **Full gate** | **27 pass, 0 blocked, 0 fail, 0 error** `pnpm gates` at `613ef4d`, recorded in `docs/evidence/gates.json`, with the build recorded as served and unchanged across the run (`gKeXqPplgCMKHRsLn3Mm1` at both ends), the run not contaminated, and the tree clean, so the commit label describes the code that was measured. 27 gates, the role guards and the date zones among them. round twenty-one |
 | **Static gates (controls, links, filters, actions, empty states, role guards)** | **PASS** | `verify:controls`: 162 controls in 144 files, 0 unwired, 1 inert. `verify:links`: 62 links over 44 routes, 0 broken. `verify:filters`: 131 filters, and the 3 it refuses to look at are examined by a test. `verify:actions`: 79 exported server actions, 0 dead. `verify:empty-states`: 21 dashboard pages against the 4 roles in the matrix, read out of `rbac.ts` and never copied, 0 pages tell a reader to create a class their role cannot create. `verify:role-guards`: 38 pages, 23 permission checks, 8 guarded, 15 permitted for every role that can reach the page, 0 unguarded. Each is mutation-proved, a planted defect turns it red, and each prints the corpus it read, so a zero cannot be confused with an empty scan. | round twenty |
 | **Role guards in the source** | **PASS** | `verify:role-guards`, gate 22 of 24, new in round twenty. It reads `MATRIX` out of `rbac.ts` and each write's permission out of the `requirePermission` call in the action that performs it, walks the render tree, and names every control that a role able to reach the page cannot use. Nine house rules cover how this codebase writes a guard, and a guard written another way is reported as unguarded rather than passed unread. **The audit had closed round nineteen by claiming this could not be done**, and the claim was never tested. Nine mutations on the real tree turn the gate red for the right reason, every file restored byte for byte, and six fixtures cover the shapes a guard can take. It found one real thing: the flashcards deck page decided "you may write this deck" from "you own this deck", and ownership is not the permission. | round twenty |
+| **Dates in one zone** | **PASS** | `verify:dates`, gate 25 of 27, new in round twenty-one. It reads every date the application formats and insists the zone and the locale are pinned, because a date rendered in the runtime's zone is rendered twice, once by the server and once by the browser, and the server runs in UTC while the browser runs in the reader's zone. The live check found that on `/slides`: a deck edited at 20:58 UTC is the 26th in UTC and the 27th in Manila, and the page reported a hydration error. Six fixtures cover the shapes a formatting call can take. `src/lib/dates.ts` is the house way to do it, and the zone it takes is the institution's, read once by the dashboard shell. | round twenty-one |
 | **Role controls in the browser** | **PASS** | `e2e/role-controls.spec.ts`, 11 tests over 4 pages and 4 roles, against the local build. A student and a guardian are offered no control that `requirePermission` would refuse them, on `/grades`, `/history`, `/flashcards` and the deck page, and a teacher and a student are still offered the ones they can use. A gate that reads source cannot tell a role-gated control from an ungated one, so the copy has a static gate and the controls have a browser. Mutation-proved: reverting the three gates turns 5 of the 9 red with a count for every control, and the 4 positive controls stay green. The same 21 checks now also run inside `verify:app`, against the deployed site. | round twenty |
 | **Live app against Postgres** | **PASS** | `verify:app`, **79 passed, 0 failed**, run against the **deployed production site** at `b74680b`, not only a local build. All five accounts, every entitled route, refusals, a real attendance write that reached Postgres, cron, push, gradebook export scope, the 21 role-gated control checks, and no console or page errors on any route. | round nineteen |
 | **Deployed to production** | **PASS** | Production serves the tip of `main`, deployed by the Vercel Git integration, so **a push to `main` is a production deploy**. Read from the deployment's own build log, not inferred: `b74680b`, cloned from `main`, compiled successfully in 17.1s, 49 of 49 static pages, status Ready. Recording the sha actually read, because a pinned sha goes stale on the next push by anyone. | round nineteen |
@@ -3126,9 +3127,101 @@ review session on the deck their teacher shared.
 
 ---
 
+### Round twenty-one: the page that threw on the way in
+
+**THE ONLY DEFECT IN THIS AUDIT THAT ONLY PRODUCTION SHOWED.** Every gate in
+this repository had been green for nineteen rounds, and every e2e run had been
+green, and every local run had been green. The live check against the deployed
+site found something no local run could: `/slides` reported a hydration error
+and the page reported **82 passed, 1 failed**.
+
+The failure was a console error on one route for one account, and it was
+React error 418, which is the mismatch between what the server rendered and
+what the browser wanted to render. The whole of it was a date.
+
+**A DATE IS RENDERED TWICE, AND THE TWO RENDERS WERE IN DIFFERENT ZONES.** The
+server runs in UTC. The browser runs in the reader's zone. A timestamp near
+midnight falls on one day in one and on the next day in the other. The
+production deck that broke it was edited at `2026-10-26T20:58:24Z`: the 26th
+in UTC, the 27th in Manila. So the server wrote "edited 26 Oct 2026" and the
+browser wanted "edited 27 Oct 2026", and React said so.
+
+**WHY NO LOCAL RUN COULD SEE IT, AND WHY THAT MATTERS.** The local server and
+the local browser are in the same zone, so the two renders agreed. The defect
+was a function of the clock, and every measurement this repository had ever
+taken was on one side of it. It was found by the one instrument that looks at
+the deployed site from a machine in a different zone from the server, which is
+the same shape as the "the demo's today was the server's day" defect the
+flashcard round found by accident.
+
+The evidence is not a guess. The production deck table was read, and the
+timestamps were rendered in both zones:
+
+    SHIFTS  2026-10-26T20:58:24Z  utc=26 Oct 2026  manila=27 Oct 2026
+    same    2026-10-19T15:59:12Z  utc=19 Oct 2026  manila=19 Oct 2026
+    same    2026-10-11T12:31:48Z  utc=11 Oct 2026  manila=11 Oct 2026
+
+One of five, and the one that broke. The other four were the same day in both
+zones, which is why the page was intermittently wrong and why a reader would
+have seen it as a page that sometimes throws.
+
+**THE FIX, AND WHY THE ZONE IS THE INSTITUTION'S.** A date is now rendered in
+one fixed zone and one fixed locale. `src/lib/dates.ts` is the house way to
+do it: it pins the locale, it takes the zone as an argument, and it never
+falls back to the runtime's zone. The zone is the institution's, because the
+day a lesson happened is the school's day, and the institution already has a
+field for it: `OrgProfile.timezone`, an IANA zone, editable by the
+administrator and seeded as `Europe/London`.
+
+The dashboard shell reads that zone once and hands it down through a context,
+so a page added tomorrow cannot forget to, because it does not choose the
+zone. A server component that renders a date asks `tenantTimeZone()` for it,
+for the same reason: a server-rendered date cannot be a hydration error, but
+it can still be the wrong day.
+
+**AND A CALENDAR DAY IS NOT AN INSTANT.** A term that starts on the ninth of
+January starts on the ninth of January in every zone. The old code read
+`YYYY-MM-DD` as midnight in the reader's zone, which is how a term that begins
+on the ninth becomes a term that begins on the eighth for anybody west of
+Greenwich. A calendar day is now read as a calendar day, at noon UTC, which is
+the same day in every zone a school might be in.
+
+**THE GATE, WHICH IS THE POINT.** `verify:dates`, gate 25 of 27, reads every
+date the application formats and insists that the zone and the locale are
+pinned. Six fixtures, written to disk and read back, cover a date with no
+zone, a date with the runtime's locale, a date with a zone and a pinned
+locale, a formatter built with a zone, a date whose locale comes from a
+constant, and a date whose locale is the runtime written out. A gate with no
+fixture cannot be shown to fail.
+
+The gate found two things when it was first run, and one of them was in code
+written minutes earlier: a shorthand `{ timeZone }` in an options object that
+the gate's first version could not read, and a number formatted with
+`toLocaleString`, which is not a date and has no zone. Both were answered
+rather than argued with: the gate learned the shorthand, and the number is
+now formatted with `Intl.NumberFormat`, which is what it is.
+
+**THE ARCHIVE ACTIONS NOW TELL THE TRUTH.** The other thing this round closed
+is the item the audit had said was waiting on the owner, and it turned out not
+to be. `archiveClass` and `archiveStudent` reported "Class archived." over a
+class that was still there: the write is filtered on ownership, a zero-row
+update is not an error in Postgres, and the action threw the row count away.
+
+The owner was asked and chose to keep the surface narrow, which means neither
+widening the write policies nor narrowing the matrix. With both policies
+fixed, the action can still be asked to report the truth, and that is the part
+the earlier rounds did not name: the permission says the caller may write a
+class, the row says whether this one is theirs, and both are asked. The store
+returns whether it archived anything, and the action says "That class is not
+yours to archive." when it did not. No decision about anybody's children was
+needed for that, which is why it was not left for one.
+
+---
+
 ### Still open
 
 One thing is open, and it is blocked on the tooling rather than on a decision.
+Nothing in the product is open.
 
 **THE GAP IN THE INSTRUMENTS IS CLOSED, AND THE CLAIM THAT CLOSED IT WAS
 WRONG.** Round nineteen closed with the assertion that a gate reading source
@@ -3141,20 +3234,16 @@ names every control that a role able to reach the page cannot use. The detail
 is in round twenty, including the nine mutations that prove the gate can
 fail.
 
-**THE ADMINISTRATOR'S ROSTER WRITE STILL REPORTS A SUCCESS IT DID NOT
-ACHIEVE, AND THE DECISION BEHIND IT IS NOW MADE.** The interface no longer
-offers that path: the roster controls are shown only where the write lands.
-The action itself is unchanged, and it is unchanged because the owner was
-asked and chose to keep the surface narrow, which means neither widening the
-write policies to administrators nor narrowing the matrix. That leaves one
-thing, and it is the part the earlier rounds did not name: with both policies
-fixed, the action can still be asked to report the truth. The update in
-`src/lib/api/client.ts` filters on `owner_id = auth.uid()` and throws away
-the row count, so a zero-row update and a real one look identical to it. The
-adapter has to return how many rows matched and the action has to refuse
-when the answer is none. That is a change to one seam and one action, and it
-needs no decision about anybody's children, which is why it was not left for
-one.
+**THE ADMINISTRATOR'S ROSTER WRITE NO LONGER REPORTS A SUCCESS IT DID NOT
+ACHIEVE.** The interface stopped offering that path in round eighteen, the
+owner chose to keep the surface narrow, and round twenty-one closed the
+action itself. The write is filtered on `owner_id = auth.uid()`, a zero-row
+update is not an error in Postgres, and the action was throwing the row count
+away, so "Class archived." was said over a class that was still there. The
+store now returns whether it archived anything and the action refuses when it
+did not: "That class is not yours to archive." The permission says the caller
+may write a class, the row says whether this one is theirs, and the answer
+reported is what happened rather than what was hoped for.
 
 One thing is blocked on the tooling rather than on a decision. The detached
 verification worktree at `312da33` has been reduced to what the recoverable
