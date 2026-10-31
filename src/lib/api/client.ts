@@ -234,12 +234,21 @@ export interface WorkspaceData {
     userId: string,
     input: { name: string; code: string; level: ClassLevel; meetsPerWeek: number },
   ): Promise<ClassRecord>;
-  archiveClass(userId: string, classId: string): Promise<void>;
+  /**
+   * Archives a class the caller owns.
+   *
+   * FALSE when nothing was archived, and that is not an error case. The write
+   * is filtered on ownership, so a caller who does not own the class updates
+   * zero rows, and Postgres does not call a zero-row update an error. The
+   * count is the only thing that tells a real archive from a refused one, so
+   * it is carried back rather than thrown away.
+   */
+  archiveClass(userId: string, classId: string): Promise<boolean>;
   createStudent(
     userId: string,
     input: Omit<StudentRecord, 'id' | 'ownerId' | 'archivedAt'>,
   ): Promise<StudentRecord>;
-  archiveStudent(userId: string, studentId: string): Promise<void>;
+  archiveStudent(userId: string, studentId: string): Promise<boolean>;
   createAssessment(
     userId: string,
     input: Omit<
@@ -1441,12 +1450,19 @@ const supabaseAdapter: WorkspaceData = {
 
   async archiveClass(userId, classId) {
     const supabase = await requireClient();
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from('classes')
       .update({ archived_at: new Date().toISOString() })
       .eq('id', classId)
-      .eq('owner_id', userId);
+      .eq('owner_id', userId)
+      /*
+       * `select` asks for the rows the update actually touched. Without it
+       * the answer is an error or nothing, and a caller who does not own the
+       * class gets the same answer as one who does.
+       */
+      .select('id');
     throwIf(error);
+    return (data ?? []).length > 0;
   },
 
   async createStudent(userId, input) {
@@ -1474,12 +1490,14 @@ const supabaseAdapter: WorkspaceData = {
 
   async archiveStudent(userId, studentId) {
     const supabase = await requireClient();
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from('students')
       .update({ archived_at: new Date().toISOString() })
       .eq('id', studentId)
-      .eq('owner_id', userId);
+      .eq('owner_id', userId)
+      .select('id');
     throwIf(error);
+    return (data ?? []).length > 0;
   },
 
   async createAssessment(userId, input) {

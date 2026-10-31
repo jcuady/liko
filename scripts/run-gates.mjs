@@ -226,6 +226,7 @@ const GATES = [
   { id: 'verify:actions', script: 'verify:actions' },
   { id: 'verify:empty-states', script: 'verify:empty-states' },
   { id: 'verify:role-guards', script: 'verify:role-guards' },
+  { id: 'verify:dates', script: 'verify:dates' },
   { id: 'verify:rbac-routes', script: 'verify:rbac-routes' },
   { id: 'probe:ai', script: 'probe:ai', live: true },
 ];

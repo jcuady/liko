@@ -160,7 +160,7 @@ export async function importDocument(form: FormData): Promise<ImportResult> {
     const words = extracted.text.split(/\s+/).filter(Boolean).length;
     const count = `${words} ${words === 1 ? 'word' : 'words'}`;
     const truncation = extracted.truncated
-      ? ` It was longer than ${MAX_EXTRACTED_CHARS.toLocaleString('en-GB')} characters, so only the first part was read.`
+      ? ` It was longer than ${new Intl.NumberFormat('en-GB').format(MAX_EXTRACTED_CHARS)} characters, so only the first part was read.`
       : '';
 
     return {

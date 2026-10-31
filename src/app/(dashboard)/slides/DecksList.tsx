@@ -21,8 +21,10 @@ import {
 import { EmptyState } from '@/components/ui/feedback';
 import { FormField } from '@/components/ui/form-field';
 import { Input, Textarea } from '@/components/ui/input';
+import { formatDay } from '@/lib/dates';
 import type { DeckRecord } from '@/lib/api/types';
 
+import { useTenantZone } from '../components/TenantZone';
 import { archiveDeckAction, createDeckAction, updateDeckAction } from './actions';
 
 /**
@@ -36,14 +38,24 @@ import { archiveDeckAction, createDeckAction, updateDeckAction } from './actions
 
 type DeckSummary = DeckRecord & { slideCount: number };
 
-function when(iso: string): string {
-  const parsed = new Date(iso);
-  if (Number.isNaN(parsed.getTime())) return '';
-  return parsed.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+/*
+ * WHY THE ZONE IS AN ARGUMENT AND NOT THE RUNTIME'S.
+ *
+ * This list is rendered twice, once by the server and once by the browser,
+ * and a date rendered in the runtime's own zone is rendered in two different
+ * zones. The server runs in UTC and the browser runs in the reader's zone, so
+ * a deck edited at 20:58 UTC is the 26th in one and the 27th in the other,
+ * and the page reports a hydration error. The live check found exactly that
+ * on this page. The zone is the institution's, and it is the same on both
+ * sides.
+ */
+function when(iso: string, timeZone: string): string {
+  return formatDay(iso, timeZone);
 }
 
 export function DecksList({ decks }: { decks: DeckSummary[] }) {
   const router = useRouter();
+  const timeZone = useTenantZone();
   const [open, setOpen] = React.useState(false);
   const [title, setTitle] = React.useState('');
   const [description, setDescription] = React.useState('');
@@ -194,7 +206,7 @@ export function DecksList({ decks }: { decks: DeckSummary[] }) {
                     <Badge tone="neutral">
                       {deck.slideCount} {deck.slideCount === 1 ? 'slide' : 'slides'}
                     </Badge>
-                    <span>edited {when(deck.updatedAt)}</span>
+                    <span>edited {when(deck.updatedAt, timeZone)}</span>
                   </p>
 
                   <div className="flex flex-wrap items-center gap-2">

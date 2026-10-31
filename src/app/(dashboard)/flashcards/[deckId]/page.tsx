@@ -7,6 +7,8 @@ import { PageHeader } from '../../components/PageHeader';
 import { EmptyState } from '@/components/ui/feedback';
 import { requirePagePermission } from '@/lib/auth/guards';
 import { can } from '@/lib/auth/rbac';
+import { formatDay } from '@/lib/dates';
+import { tenantTimeZone } from '@/lib/tenant-zone';
 
 import { AddCardForm } from './AddCardForm';
 import { ArchiveDeckButton } from './ArchiveDeckButton';
@@ -67,6 +69,13 @@ export default async function DeckPage({ params }: { params: Promise<{ deckId: s
   const mayWrite = can(session.role, 'flashcard:write') && owned;
   const mayReview = can(session.role, 'flashcard:review') && hasCards;
 
+  /*
+   * THE INSTITUTION'S ZONE. A date rendered on the server is rendered once,
+   * so it cannot be a hydration error, but it can still be the wrong day: the
+   * server runs in UTC and the day a card was due is the school's day.
+   */
+  const timeZone = await tenantTimeZone(session.userId);
+
   return (
     <div className="mx-auto max-w-[52rem]">
       <Link
@@ -123,7 +132,7 @@ export default async function DeckPage({ params }: { params: Promise<{ deckId: s
               <p className="mt-1 text-meta text-ink-muted">{card.back}</p>
               {progress && progress.status !== 'new' ? (
                 <p className="mt-2 text-meta text-ink-subtle">
-                  {progress.status} · due {new Date(progress.dueAt).toLocaleDateString()}
+                  {progress.status} · due {formatDay(progress.dueAt, timeZone)}
                 </p>
               ) : null}
             </li>

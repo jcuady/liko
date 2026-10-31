@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Badge, Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { FormField } from '@/components/ui/form-field';
 import { Input } from '@/components/ui/input';
+import { formatDay } from '@/lib/dates';
 import {
   Select,
   SelectContent,
@@ -52,6 +53,7 @@ import {
   updateOrgAction,
   updateSeatLimitAction,
 } from './actions';
+import { useTenantZone } from '../components/TenantZone';
 
 /**
  * The administration console.
@@ -266,10 +268,17 @@ function readNumber(value: string): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-function shortDate(iso: string): string {
-  const parsed = new Date(iso);
-  if (Number.isNaN(parsed.getTime())) return '';
-  return parsed.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+/**
+ * WHY THE ZONE IS AN ARGUMENT AND NOT THE RUNTIME'S.
+ *
+ * A date rendered in the runtime's own zone is rendered twice, once by the
+ * server and once by the browser, and the two disagree whenever the server
+ * and the reader are in different zones near midnight. React notices, and
+ * reports a hydration error. The zone is the institution's, and it is the
+ * same on both sides.
+ */
+function shortDate(iso: string, timeZone: string): string {
+  return formatDay(iso, timeZone);
 }
 
 function Stat({ label, value, hint }: { label: string; value: string; hint: string }) {
@@ -305,6 +314,7 @@ export function AdminConsole({
   matrix: MatrixRow[];
 }) {
   const router = useRouter();
+  const timeZone = useTenantZone();
   const active = members.filter((member) => member.status === 'active');
   const admins = active.filter((member) => member.role === 'admin');
 
@@ -539,7 +549,7 @@ export function AdminConsole({
                           {suspended ? <Badge tone="warning">Suspended</Badge> : null}
                         </p>
                         <p className="mt-0.5 truncate text-meta text-ink-muted">
-                          {member.email} · joined {shortDate(member.joinedAt)}
+                          {member.email} · joined {shortDate(member.joinedAt, timeZone)}
                         </p>
                       </div>
 
@@ -689,7 +699,7 @@ export function AdminConsole({
                   <p className="text-meta text-ink-muted">
                     Send them to the join page and enter this code. It works once, it is for{' '}
                     {issued.email}, and it expires in {INVITE_TTL_DAYS} days
-                    {issued.expiresAt ? `, on ${shortDate(issued.expiresAt)}` : ''}. Issuing another
+                    {issued.expiresAt ? `, on ${shortDate(issued.expiresAt, timeZone)}` : ''}. Issuing another
                     one does not replace this one.
                   </p>
                 </div>
@@ -735,8 +745,8 @@ export function AdminConsole({
 
                         <p className="shrink-0 text-meta text-ink-muted">
                           {status === 'accepted'
-                            ? `Joined ${shortDate(row.acceptedAt ?? row.createdAt)}`
-                            : `Expires ${shortDate(row.expiresAt)}`}
+                            ? `Joined ${shortDate(row.acceptedAt ?? row.createdAt, timeZone)}`
+                            : `Expires ${shortDate(row.expiresAt, timeZone)}`}
                         </p>
                       </li>
                     );
@@ -880,7 +890,7 @@ export function AdminConsole({
               </FormField>
 
               <p className="text-meta text-ink-muted">
-                Identifier {org.slug}, created {shortDate(org.createdAt)}.
+                Identifier {org.slug}, created {shortDate(org.createdAt, timeZone)}.
               </p>
 
               <div className="flex justify-end">

@@ -2,6 +2,7 @@
 
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
+import { formatCalendarDayShort } from '@/lib/dates';
 import { useMutation } from '@tanstack/react-query';
 import { ArrowRight } from 'lucide-react';
 import { toast } from '@/lib/toast';
@@ -25,11 +26,17 @@ import { beginQuiz } from './actions';
  * submitted sees that they submitted.
  */
 
+/**
+ * WHY THE DAY IS NOT CONVERTED TO AN INSTANT. `dueOn` is a calendar day, the
+ * day the quiz is due, and a calendar day belongs to no zone in particular.
+ * Reading it as midnight in the reader's zone and writing it back in the
+ * reader's zone gives the right answer for the reader and a different answer
+ * for the server, and the two renders disagree.
+ */
 function dueText(dueOn: string | null): string | null {
   if (!dueOn) return null;
-  const date = new Date(`${dueOn}T00:00:00`);
-  if (Number.isNaN(date.getTime())) return null;
-  return `Due ${date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}`;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dueOn.trim())) return null;
+  return `Due ${formatCalendarDayShort(dueOn)}`;
 }
 
 export function QuizList({ quizzes }: { quizzes: StudentQuizSummary[] }) {

@@ -107,13 +107,30 @@ export async function createClass(input: {
   return { ok: true, message: `${name} created.` };
 }
 
+/**
+ * Archives a class.
+ *
+ * WHY THE STORE IS ASKED WHETHER IT ARCHIVED ANYTHING. The write is filtered
+ * on ownership, so a caller who does not own the class updates zero rows, and
+ * Postgres does not call a zero-row update an error. An action that reported
+ * "Class archived." over a class that was still there was reporting a success
+ * it had not achieved, and the interface cannot tell the two apart, because
+ * the interface only offers the control where the write lands.
+ *
+ * The permission says the caller may write a class. The row says whether this
+ * one is theirs. Both are asked, and the answer is the truth about what
+ * happened rather than what was hoped for.
+ */
 export async function archiveClass(classId: string): Promise<RosterResult> {
   const session = await requirePermission('class:write');
   if (!classId) return { ok: false, message: 'That class could not be archived.' };
 
   try {
     const store = await data();
-    await store.archiveClass(session.userId, classId);
+    const archived = await store.archiveClass(session.userId, classId);
+    if (!archived) {
+      return { ok: false, message: 'That class is not yours to archive.' };
+    }
   } catch {
     return { ok: false, message: 'That class could not be archived. Try again.' };
   }
@@ -476,13 +493,23 @@ function generateTemporaryPassword(): string {
   return all.join('');
 }
 
+/**
+ * Archives a student from a roster.
+ *
+ * The same truth as the class archive above: the write is filtered on
+ * ownership, and a zero-row update is not an error, so the store is asked
+ * whether it archived anything and the answer is what is reported.
+ */
 export async function archiveStudent(studentId: string): Promise<RosterResult> {
   const session = await requirePermission('class:write');
   if (!studentId) return { ok: false, message: 'That student could not be archived.' };
 
   try {
     const store = await data();
-    await store.archiveStudent(session.userId, studentId);
+    const archived = await store.archiveStudent(session.userId, studentId);
+    if (!archived) {
+      return { ok: false, message: 'That student is not yours to archive.' };
+    }
   } catch {
     return { ok: false, message: 'That student could not be archived. Try again.' };
   }

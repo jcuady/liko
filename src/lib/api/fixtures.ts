@@ -949,9 +949,13 @@ export const fixtures: WorkspaceData = {
 
   async archiveClass(_userId, classId) {
     guard('archiveClass');
-    store.classes = store.classes.map((row) =>
-      row.id === classId ? { ...row, archivedAt: new Date().toISOString() } : row,
-    );
+    let archived = false;
+    store.classes = store.classes.map((row) => {
+      if (row.id !== classId) return row;
+      archived = true;
+      return { ...row, archivedAt: new Date().toISOString() };
+    });
+    return archived;
   },
 
   async createStudent(_userId, input) {
@@ -968,9 +972,13 @@ export const fixtures: WorkspaceData = {
 
   async archiveStudent(_userId, studentId) {
     guard('archiveStudent');
-    store.students = store.students.map((row) =>
-      row.id === studentId ? { ...row, archivedAt: new Date().toISOString() } : row,
-    );
+    let archived = false;
+    store.students = store.students.map((row) => {
+      if (row.id !== studentId) return row;
+      archived = true;
+      return { ...row, archivedAt: new Date().toISOString() };
+    });
+    return archived;
   },
 
   async createAssessment(_userId, input) {

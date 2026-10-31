@@ -25,6 +25,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { formatCalendarDayShort, formatCalendarDayWithWeekday, formatDayWithWeekday, formatTime } from '@/lib/dates';
 import type { CalendarEventRecord, TermRecord } from '@/lib/api/types';
 
 import {
@@ -34,6 +35,7 @@ import {
   saveTermAction,
   type SaveResult,
 } from './events';
+import { useTenantZone } from '../components/TenantZone';
 
 /**
  * Deadlines and the term they sit inside.
@@ -63,9 +65,17 @@ const FIELD_ID = 'calendar-event';
 /**
  * A date, written the way a person says it.
  *
- * Not `toISOString`, because that converts to UTC and can move an all-day item
- * to the day before for anyone west of Greenwich. The input gave a local date and
- * the list reads a local date.
+ * TWO KINDS OF DATE AND THEY ARE NOT THE SAME THING. A term's start and end
+ * are calendar days: `2026-01-09` is the ninth of January, and it is the
+ * ninth of January in every zone. An event's start is an instant, and an
+ * instant belongs to a zone. So a calendar day is read as a calendar day and
+ * an instant is read in the institution's zone, and the two are never mixed.
+ *
+ * The zone is the institution's rather than the runtime's, because this panel
+ * is rendered twice, once by the server and once by the browser, and the
+ * server runs in UTC while the browser runs in the reader's zone. An event at
+ * 20:58 UTC is the 26th in one and the 27th in the other, and the page
+ * reports a hydration error.
  *
  * `withYear` exists because a TERM is the one thing here that routinely crosses
  * a calendar year. "Aug 3 to Jan 18" with no years is not ambiguous to a
@@ -73,15 +83,15 @@ const FIELD_ID = 'calendar-event';
  * term that began last August or the one beginning next. A deadline is read
  * against today, so the year is noise there and it is left off.
  */
-function readableDate(iso: string, withYear = false): string {
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return iso;
-  return date.toLocaleDateString(undefined, {
-    weekday: 'short',
-    day: 'numeric',
-    month: 'short',
-    ...(withYear ? { year: 'numeric' } : {}),
-  });
+function readableDate(value: string, timeZone: string, withYear = false): string {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value.trim())) {
+    return withYear
+      ? formatCalendarDayWithWeekday(value)
+      : formatCalendarDayShort(value);
+  }
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return formatDayWithWeekday(value, timeZone);
 }
 
 /**
@@ -110,6 +120,7 @@ export function CalendarExtrasPanel({
   canWriteTerms: boolean;
 }) {
   const router = useRouter();
+  const timeZone = useTenantZone();
   const [message, setMessage] = React.useState<string | null>(null);
   const [open, setOpen] = React.useState(false);
   const [termOpen, setTermOpen] = React.useState(false);
@@ -162,8 +173,8 @@ export function CalendarExtrasPanel({
             <p className="text-body text-ink">
               <span className="font-semibold">{terms[0]?.name}</span>{' '}
               <span className="text-ink-muted">
-                {readableDate(terms[0]?.startsOn ?? '', true)} to{' '}
-                {readableDate(terms[0]?.endsOn ?? '', true)}
+                {readableDate(terms[0]?.startsOn ?? '', timeZone, true)} to{' '}
+                {readableDate(terms[0]?.endsOn ?? '', timeZone, true)}
               </span>
             </p>
             {canWriteTerms && terms[0] ? (
@@ -227,8 +238,8 @@ export function CalendarExtrasPanel({
                 <div className="min-w-0">
                   <p className="text-body font-semibold text-ink">{event.title}</p>
                   <p className="text-meta text-ink-muted">
-                    {readableDate(event.startsAt)}
-                    {event.allDay ? '' : `, ${new Date(event.startsAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}`}
+                    {readableDate(event.startsAt, timeZone)}
+                    {event.allDay ? '' : `, ${formatTime(event.startsAt, timeZone)}`}
                     {' · '}
                     {KINDS.find((kind) => kind.value === event.kind)?.label ?? event.kind}
                   </p>

@@ -8,7 +8,15 @@
  * Kept in `lib` rather than beside the component because it is pure arithmetic
  * with no React in it, and a function that cannot be tested without a DOM is a
  * function that does not get tested.
+ *
+ * WHY THE ZONE IS AN ARGUMENT. The date a count falls on is a day in the
+ * institution's zone, not a day in whichever zone the reader's browser happens
+ * to be in, and not a day in whichever zone the server happens to be in. The
+ * two are different, and a date rendered differently by the two is a page that
+ * reports a hydration error.
  */
+
+import { DATE_LOCALE, DEFAULT_TIME_ZONE } from './dates';
 
 const MINUTE = 60;
 const HOUR = 60 * MINUTE;
@@ -22,7 +30,11 @@ const CUTOFF = WEEK;
  * `now` is an argument rather than a lookup so the boundaries can be pinned in
  * a test. Callers with no reason to care pass nothing and get the current time.
  */
-export function relativeTime(iso: string, now: Date = new Date()): string {
+export function relativeTime(
+  iso: string,
+  now: Date = new Date(),
+  timeZone: string = DEFAULT_TIME_ZONE,
+): string {
   const then = new Date(iso);
   if (Number.isNaN(then.getTime())) return iso;
 
@@ -46,9 +58,10 @@ export function relativeTime(iso: string, now: Date = new Date()): string {
     return `${days} ${days === 1 ? 'day' : 'days'} ago`;
   }
 
-  return then.toLocaleDateString(undefined, {
+  return then.toLocaleDateString(DATE_LOCALE, {
     day: 'numeric',
     month: 'short',
     year: 'numeric',
+    timeZone,
   });
 }

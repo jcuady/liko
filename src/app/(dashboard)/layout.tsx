@@ -3,9 +3,11 @@ import { redirect } from 'next/navigation';
 import { LikoLogo } from '@/components/brand/LikoLogo';
 import { data } from '@/lib/api/client';
 import { requireSession } from '@/lib/auth/guards';
+import { DEFAULT_TIME_ZONE } from '@/lib/dates';
 import type { NotificationRecord } from '@/lib/api/types';
 import { Sidebar, MobileTabBar } from './components/Navigation';
 import { OfflineBanner } from './components/OfflineBanner';
+import { TenantZoneProvider } from './components/TenantZone';
 import { UserMenu } from './components/UserMenu';
 import { CommandPalette } from './components/CommandPalette';
 import { NotificationBell } from './components/NotificationBell';
@@ -34,15 +36,32 @@ export default async function DashboardLayout({
    * read, and never takes the shell down with it.
    */
   let notifications: NotificationRecord[] = [];
+  let zone = DEFAULT_TIME_ZONE;
   try {
     const store = await data();
     notifications = await store.listNotifications(session.userId);
+    /*
+     * THE INSTITUTION'S ZONE, READ ONCE FOR THE WHOLE DASHBOARD.
+     *
+     * A date rendered in the browser's own zone is rendered twice, and the
+     * server and the browser disagree whenever a timestamp near midnight
+     * falls on different days in the two zones. That disagreement is a
+     * hydration error, and the live check found one on `/slides`: a deck
+     * edited at 20:58 UTC is the 26th in UTC and the 27th in Manila.
+     *
+     * So the zone is fixed before anything is rendered, and it is fixed for
+     * every page at once. A page added tomorrow cannot forget to, because it
+     * does not choose the zone.
+     */
+    const org = await store.getOrg(session.userId);
+    zone = org?.profile.timezone ?? DEFAULT_TIME_ZONE;
   } catch {
     notifications = [];
   }
 
   return (
-    <div className="flex min-h-[100dvh] flex-col lg:flex-row">
+    <TenantZoneProvider zone={zone}>
+      <div className="flex min-h-[100dvh] flex-col lg:flex-row">
       <a
         href="#workspace-main"
         className="sr-only-focusable left-4 top-4 z-50 rounded-[8px] bg-accent px-4 py-2.5 text-[0.9375rem] font-medium text-on-accent"
@@ -91,6 +110,7 @@ export default async function DashboardLayout({
       </div>
 
       <MobileTabBar role={session.role} />
-    </div>
+      </div>
+    </TenantZoneProvider>
   );
 }
