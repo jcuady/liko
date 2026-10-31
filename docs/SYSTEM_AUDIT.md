@@ -3220,8 +3220,10 @@ needed for that, which is why it was not left for one.
 
 ### Still open
 
-One thing is open, and it is blocked on the tooling rather than on a decision.
-Nothing in the product is open.
+Nothing is open in the product and nothing is open in the instruments. One
+path is unverified rather than open: the registration path, which the
+Supabase email quota refuses from this database, and that is a dashboard
+setting rather than a defect. Its row in the verification summary says so.
 
 **THE GAP IN THE INSTRUMENTS IS CLOSED, AND THE CLAIM THAT CLOSED IT WAS
 WRONG.** Round nineteen closed with the assertion that a gate reading source
@@ -3245,13 +3247,11 @@ did not: "That class is not yours to archive." The permission says the caller
 may write a class, the row says whether this one is theirs, and the answer
 reported is what happened rather than what was hoped for.
 
-One thing is blocked on the tooling rather than on a decision. The detached
-verification worktree at `312da33` has been reduced to what the recoverable
-delete is allowed to touch, and what is left is a pnpm `node_modules`: a farm
-of directory junctions pointing back into the tree it sits in. It is listed in
-`.gitignore` as `.stale-verify-312da33/` so it cannot be committed, and it
-needs deleting by hand. The reason is worth writing down so nobody spends the
-same afternoon on it:
+**AND THE LAST THING THAT WAS OPEN IS GONE.** The detached verification
+worktree at `312da33` had been reduced to a pnpm `node_modules` that was a farm
+of 1,837 directory junctions, and the recoverable delete refused it for two
+reasons that were written down here so nobody would spend the same afternoon
+on it:
 
 - The Windows Recycle Bin **copies** a tree before recycling it, and copying a
   junction whose target is inside the same tree recurses. The API reports
@@ -3259,8 +3259,32 @@ same afternoon on it:
 - The launcher **refuses to recycle a reparse point at all**, by design, and
   says so: "refuses link-like paths and did not recycle this link object".
 
-Both refusals are deliberate. The remedy is not to route around them, so the
-directory stays until somebody removes it by hand.
+Both refusals are deliberate, and the first one is about the LINKS and the
+second one is about the FILES, and only the second is a reason to leave
+anything behind. Removing the links first turned the delete from "a tree the
+launcher refuses" into "a tree the launcher can copy": `rmdir` on a junction
+is the operation Windows' own RemoveDirectory performs on a reparse point,
+and it removes the link and leaves the target alone. Three attempts took the
+tree from 597 MB to 367 to 123, and the fourth took the rest, and the whole of
+it is now in the Recycle Bin rather than in the repository.
+
+So the third way to fall in, which round twenty learned the hard way, is the
+same refusal seen from the other side. Git's own removal follows a junction,
+and the recoverable delete refuses one, so between them a worktree that points
+at the checkout's own `node_modules` is a trap in both directions. A
+verification worktree was given such a junction, and `git worktree remove
+--force` walked through it and deleted the main checkout's
+`node_modules/.bin`: the type checker, the linter, the test runner and the
+build all stopped existing, in the checkout another process was using at the
+time. The launcher refuses links, so the repair was `pnpm rebuild`, which
+regenerates the shims.
+
+The rules that come out of it are short. Do not point a worktree at the
+checkout's own `node_modules`; give it an install of its own, and give it
+the hoisted linker if the worktree is going to be deleted afterwards. And
+after a removal, look at what it did to the tree you were pointing at,
+because the tool that removes a worktree is not looking at where its links
+go.
 
 **AND A THIRD WAY TO FALL IN, LEARNED THE HARD WAY IN ROUND TWENTY.** Git's
 own removal follows a junction. A verification worktree was given a junction
