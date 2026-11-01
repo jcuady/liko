@@ -183,9 +183,22 @@ register form against the live project.
 In the Supabase dashboard, under Authentication, add a custom SMTP provider
 (SendGrid, Resend, Postmark) and point Auth at it. Raising the plan works too.
 
-Until that is done, the signup path, the `handle_new_user` trigger and the
-`consent_events` write are **unverified against the live database**. Sign-in is
-verified, because it needs no email.
+**Measured on 2026-11-01, so nobody has to take this on trust.** `pnpm verify:app`
+asks the signup path and the password reset path and both answer
+`429 over_email_send_rate_limit`, and the password reset answer comes from an
+account that exists, so it is the allowance refusing and not the address being
+wrong.
+
+Until that is done, the sending of the mail is **unverified against the live
+database**. The `handle_new_user` trigger and the `consent_events` write are not:
+`db:settle` creates an account against the live project and proves both. Sign-in
+is verified, because it needs no email.
+
+**There is a second reason to do this, and it is not a feature reason.** While
+the allowance is spent, the provider's public auth endpoints answer differently
+for an address that has an account than for one that does not, so the list of
+registered addresses is disclosed to anyone holding the public anon key, which
+ships in the browser bundle. `docs/SECURITY.md` has the measurements.
 
 ### The way out while the quota lasts: confirm accounts at creation
 
@@ -341,15 +354,19 @@ code.
 Stated plainly so nobody is surprised later.
 
 1. **The signup path.** Blocked, not merely untested. Supabase's built-in email
-   quota is exhausted on this project, so `signUp` never returns a user. That
-   leaves three things that only run during registration unproven against the
-   live database: `signUp` itself, the `handle_new_user` trigger, and the
-   `consent_events` write. All three are exercised in fixture mode and all three
-   are straightforward. What makes this more than a coverage gap is that
-   `recordConsent` swallows its own failure by design, so once the email provider
-   is fixed, the first thing to check is that `consent_events` actually gains
-   rows. A signup that succeeds while the audit table is broken is exactly the
-   failure that returns nothing to catch it.
+   quota is exhausted on this project, so `signUp` never returns a user, and
+   **the cause is now measured rather than inferred**: `pnpm verify:app` asks the
+   signup path and the password reset path, and both answer
+   `429 over_email_send_rate_limit`. **Two of the three things that only run
+   during registration are proven against the live database**: `db:settle`
+   creates an account and proves the `handle_new_user` trigger fires and the
+   `consent_events` row is written. What is left is the sending of the mail, and
+   the form's own submission against the live project. **There is a second
+   reason to do this, and it is not a feature reason**: while the allowance is
+   spent, the provider's public auth endpoints answer differently for an address
+   that has an account than for one that does not, so the registration list is
+   disclosed to anyone holding the public anon key, which ships in the browser
+   bundle. `docs/SECURITY.md` has the measurements.
 2. **Offline attendance capture, end to end.** **ANSWERED ON 2026-10-26, AND THE
    ANSWER WAS "A REAL DEFECT".** This entry used to say that a mark captured
    while genuinely offline and replayed on reconnect was **not** demonstrated,
