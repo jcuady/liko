@@ -54,13 +54,23 @@ export default async function VerifyEmailPage({
         <p className="measure mt-3 text-[0.9375rem] text-ink-muted">{error}</p>
       ) : (
         <p className="measure mt-3 text-[0.9375rem] text-ink-muted">
-          We sent a verification link to your email address. Open it to activate
-          your workspace.
+          If that address is new to us, we sent a verification link to it. Open
+          it to activate your workspace.
         </p>
       )}
 
       {!error ? <ResendVerificationForm /> : null}
 
+      {/*
+       * TWO WAYS FORWARD, AND THE SECOND ONE IS THE ONE THAT MATTERS.
+       *
+       * Somebody who already has an account and registers again is sent to
+       * this page by a signup the provider answered with a success and a user
+       * object it never persisted, so no mail is coming. The only link that
+       * used to be here sent them back to the register form, which repeats the
+       * dead end. Saying "sign in" gives them the way out without saying
+       * whether their address is the one that is already registered.
+       */}
       <p className="mt-8 text-[0.875rem] text-ink-subtle">
         Wrong address?{' '}
         <Link
@@ -68,6 +78,14 @@ export default async function VerifyEmailPage({
           className="font-medium text-accent underline-offset-4 hover:underline"
         >
           Start again
+        </Link>
+        {' · '}
+        Already have an account?{' '}
+        <Link
+          href="/login"
+          className="font-medium text-accent underline-offset-4 hover:underline"
+        >
+          Sign in
         </Link>
       </p>
     </div>

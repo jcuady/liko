@@ -277,6 +277,59 @@ async function remove(path) {
   });
 }
 
+/*
+ * THE ADDRESS THE SIGNUP PROBE USES.
+ *
+ * Two requirements that fight each other. The address must be one Supabase's
+ * validator accepts, or the probe never reaches the mail path; and it must be
+ * on a domain that cannot receive mail, so that nothing is delivered to a
+ * person even if a mail is sent.
+ *
+ * `liko.test` satisfies the second and fails the first: the public signup path
+ * refuses the reserved TLD, while the password grant and
+ * `auth.admin.createUser` accept it, so the seeded demo accounts were only
+ * ever creatable through the seed. `example.com` satisfied both until
+ * 2026-11-01, when Supabase answered it `400 email_address_invalid` and the
+ * assumption this file used to state expired upstream.
+ *
+ * Until a domain is found that satisfies both, the probe uses `liko.test` and
+ * can therefore report the allowance's state but not the mail path. It says
+ * so, rather than pretending the two are one measurement.
+ */
+const SIGNUP_PROBE_DOMAIN = 'liko.test';
+
+/**
+ * Finds an account by address through the service key.
+ *
+ * Needed because a signup whose MAIL fails still leaves the account behind,
+ * and the response carries no id when that happens. The account is therefore
+ * looked up rather than assumed, so the probe can report what happened
+ * instead of what it hoped happened.
+ */
+async function findUserByEmail(email) {
+  const response = await fetch(`${AUTH}/admin/users?page=1&per_page=200`, {
+    headers: { apikey: SERVICE, Authorization: `Bearer ${SERVICE}` },
+  });
+  if (!response.ok) return null;
+  const users = (await response.json().catch(() => ({}))).users ?? [];
+  if (!Array.isArray(users)) return null;
+  const found = users.find((user) => user.email === email);
+  return found ? { id: found.id } : null;
+}
+
+/**
+ * Deletes an account, which takes its profile row with it: `profiles.id`
+ * references `auth.users (id) on delete cascade`.
+ *
+ * A probe that leaves an account behind is not a probe.
+ */
+async function deleteAuthUser(id) {
+  await fetch(`${AUTH}/admin/users/${id}`, {
+    method: 'DELETE',
+    headers: { apikey: SERVICE, Authorization: `Bearer ${SERVICE}` },
+  });
+}
+
 /**
  * Pre-answers the consent cookie.
  *
@@ -916,44 +969,58 @@ async function verifyCron() {
 }
 
 /**
- * The register form, against the live project.
+ * THE REGISTER FORM AND THE PASSWORD RESET, AGAINST THE LIVE PROJECT.
  *
- * This is expected to be blocked on a Supabase project whose built-in email
- * quota is spent, because signup needs to send a confirmation link. That is
- * worth asserting rather than skipping: a project where registration works is a
- * project where the consent write, which deliberately swallows its own failure,
- * finally has something to run against.
+ * THIS IS A BLOCKER, AND THE POINT OF THE PROBE IS TO SAY WHICH BLOCKER.
  *
- * TWO ADDRESSES, BECAUSE ONE ADDRESS CANNOT TELL TWO CAUSES APART.
+ * Registration needs to send a confirmation link, and Supabase refuses to send
+ * while the project's email send allowance is spent. A spent allowance is a
+ * fact about this Supabase project and not about the product, and the
+ * product's half of it is already done: `classifySignupFailure` maps a 429 to
+ * `SIGNUP_RATE_LIMITED`, and the register form then says the confirmation
+ * email could not be sent just now, instead of telling the person to check a
+ * form that was already right.
  *
- * The probe used to address `.test`, because the seed's accounts do. Supabase
- * validates the TLD on the public signup path, so a request to `.test` is
- * refused at validation and NEVER REACHES THE MAIL PATH. The answer it gives
- * therefore says nothing about the email quota. When the quota ran out the
- * gate still reported green and printed that the quota "appears to have
- * reset", which was an inference from a request that had never been near the
- * thing being inferred about.
+ * THREE THINGS MEASURED ON 2026-11-01, EACH OF WHICH CHANGED THIS PROBE.
  *
- * `example.com` is reserved by RFC 2606 for documentation, so no mailbox
- * exists at it and nothing can be delivered to a real person even if the
- * quota has reset and Supabase does try to send. It passes address
- * validation, so it reaches the mail path, and it is that answer which
- * decides what this gate claims.
+ * 1. THE LIMITER IS CHECKED BEFORE THE ADDRESS IS VALIDATED. The evidence
+ *    record shows a `.test` address refused at validation, with no mail sent,
+ *    and the probe immediately after it refused by the limiter. So the
+ *    limiter's answer is the first answer, and one address can tell a refusal
+ *    from an exhaustion only because of that ordering.
+ *
+ * 2. THE ALLOWANCE IS SPENT BY THE ATTEMPT, NOT BY THE MAIL. The run at
+ *    05:57:48Z was admitted twice and sent nothing, and three minutes later
+ *    the allowance was spent with nothing else in between. A refused attempt
+ *    costs nothing; an admitted one costs exactly one.
+ *
+ * 3. SO THE OLD PROBE SPENT THE ALLOWANCE IT WAS READING, AND THEN REPORTED
+ *    THE EXHAUSTION IT HAD JUST CAUSED. It sent a second, routable attempt
+ *    whenever the first was admitted, which is exactly when a token was
+ *    available to spend. The second attempt took the last token, answered 429,
+ *    and the probe called that "signup is BLOCKED by the Supabase email
+ *    quota". An instrument that manufactures the finding it reports is worse
+ *    than no instrument, so there is now ONE attempt per path.
+ *
+ * WHAT THIS PROBE COSTS. Nothing while the allowance is spent, one attempt
+ * when it is not. That is the floor for anything that reads this state: a
+ * refusal is free and an admission is not.
  */
 async function verifySignup() {
   console.log('Registration');
 
   const auth = `${(process.env.NEXT_PUBLIC_SUPABASE_URL || '').replace(/\/$/, '')}/auth/v1`;
+  const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-  const attempt = async (domain) => {
+  const attempt = async (email) => {
     const response = await fetch(`${auth}/signup`, {
       method: 'POST',
       headers: {
-        apikey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+        apikey: anon,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        email: `verify-probe-${Date.now()}@${domain}`,
+        email,
         password: 'Good-Pass-1',
         data: { full_name: 'Verify Probe' },
       }),
@@ -962,103 +1029,164 @@ async function verifySignup() {
     return { status: response.status, body };
   };
 
-  const testAddress = await attempt('liko.test');
-  const quotaSpent = testAddress.body.error_code === 'over_email_send_rate_limit';
-
   /*
-   * The `.test` answer is recorded, not asserted. It is a fact about
-   * Supabase's validator rather than about this product, and upstream is
-   * free to change it, so a gate that turned red when Supabase started
-   * accepting `.test` would be crying wolf. It is still worth writing down
-   * WHEN IT IS AN ADDRESS REJECTION: it means the seeded demo accounts could
-   * never have been created through the product's own registration form,
-   * only through the seed. When the quota is spent the answer is 429
-   * instead, because Supabase counts the attempt before it validates the
-   * address, and then this says nothing about the TLD at all.
-   */
-  if (testAddress.body.error_code === 'email_address_invalid') {
-    note(
-      `A .test address is answered ${testAddress.status} ` +
-        `${testAddress.body.error_code}: ${testAddress.body.msg}. The public signup path ` +
-        'validates the TLD and auth.admin.createUser does not, so the seeded demo accounts ' +
-        'were only ever creatable through the seed.',
-    );
-  } else {
-    note(
-      `A .test address is answered ${testAddress.status} ` +
-        `${testAddress.body.error_code ?? ''}: ${testAddress.body.msg ?? ''}.`,
-    );
-  }
-
-  /*
-   * THE ROUTABLE PROBE IS NOT ALWAYS SENT, BECAUSE THE QUOTA IS SCARCE.
+   * ONE ATTEMPT ON THE SIGNUP PATH.
    *
-   * On the free tier a project gets two confirmation emails an hour, so a
-   * diagnostic that fired a second signup when the first already answered
-   * "email rate limit exceeded" would be spending the very resource it was
-   * only trying to read. A quota refusal is the same refusal for every
-   * address, so the first answer already settles it. Anything else leaves
-   * the cause open, and only a routable address can close it.
+   * The old probe sent a second one, and the second one is what spent the
+   * allowance the probe was reading. One attempt is enough, because the
+   * limiter is asked first and its answer says which of the three states this
+   * project is in.
    */
-  const probe = quotaSpent ? testAddress : await attempt('example.com');
+  const address = `verify-probe-${Date.now()}@${SIGNUP_PROBE_DOMAIN}`;
+  const probe = await attempt(address);
   const result = probe.body;
-  const rateLimited = probe.status === 429 && result.error_code === 'over_email_send_rate_limit';
-  const addressRejected = result.error_code === 'email_address_invalid';
 
-  if (rateLimited) {
-    check(
-      'signup is BLOCKED by the Supabase email quota, which is a dashboard setting',
-      true,
-      undefined,
-    );
-    note(
-      `Supabase answered ${probe.status} ${result.error_code ?? ''}: ${result.msg ?? ''}. ` +
-        'Registration, the handle_new_user trigger and the consent_events write are therefore ' +
-        'unverified against this database until a custom SMTP provider is configured. The ' +
-        'address used here is on a reserved test domain, so nothing was delivered to anyone ' +
-        'even if a mail had been sent.',
-    );
-    return;
-  }
+  const refusedByAllowance =
+    probe.status === 429 && result.error_code === 'over_email_send_rate_limit';
+  const refusedByValidator = result.error_code === 'email_address_invalid';
+  const accepted = probe.status >= 200 && probe.status < 300;
 
-  if (addressRejected) {
-    /*
-     * Not a quota problem: Supabase refused the address itself, even on a
-     * routable domain. That is a third cause, and it is now separated from
-     * the quota because the two were previously indistinguishable.
-     */
-    check(
-      'signup rejects the probe address, so the path stays unverified',
-      true,
-      undefined,
-    );
-    note(
-      `Supabase answered ${probe.status} ${result.error_code}: ${result.msg}. The address is on ` +
-        'example.com, a reserved documentation domain, so this is not the email quota. The ' +
-        'quota state is still unknown from this answer alone.',
-    );
-    return;
-  }
-
+  /*
+   * THE ONE CHECK HERE THAT CAN FAIL.
+   *
+   * Which cause it was, is a note, and a note cannot fail. What is asserted
+   * is that the answer is a cause this gate knows how to name. The old probe
+   * had it the other way round: every branch passed a literal `true`, so an
+   * answer the gate did not understand was reported as a clean registration.
+   * A provider change would have turned into a green suite.
+   */
   check(
-    'Supabase accepted a registration',
-    probe.status >= 200 && probe.status < 300 && Boolean(result.id),
+    'the signup path answered a cause this gate can name',
+    refusedByAllowance || refusedByValidator || accepted,
     `answered ${probe.status}: ${JSON.stringify(result).slice(0, 200)}`,
   );
 
-  if (result.id) {
-    const consent = await read(`consent_events?user_id=eq.${result.id}&select=subject,source`);
-    const subjects = Array.isArray(consent) ? consent.map((c) => c.subject).sort() : [];
-    check(
-      'and the consent audit rows were written',
-      subjects.join(',') === 'privacy,terms',
-      `got ${JSON.stringify(subjects)}`,
+  if (refusedByAllowance) {
+    note(
+      'the cause is the project email send allowance, which is a dashboard setting. ' +
+        'Registration, the handle_new_user trigger and the consent_events write stay ' +
+        'unverified against this database until a custom SMTP provider is configured.',
     );
-    await remove(`consent_events?user_id=eq.${result.id}`);
-    await fetch(`${auth}/admin/users/${result.id}`, {
-      method: 'DELETE',
-      headers: { apikey: SERVICE, Authorization: `Bearer ${SERVICE}` },
-    });
+    note(
+      `Supabase answered ${probe.status} ${result.error_code}: ${result.msg}. A refused attempt ` +
+        'spends nothing, so this answer describes the allowance as it was BEFORE this probe ' +
+        'rather than something this probe caused.',
+    );
+  } else if (refusedByValidator) {
+    /*
+     * TWO FINDINGS IN ONE ANSWER, AND THE OLD PROBE REPORTED ONLY ONE.
+     *
+     * The limiter admitted this attempt, so the allowance was NOT exhausted at
+     * that moment, and the validator refused the address, which is a fact
+     * about Supabase rather than about this project. The old note called the
+     * quota state unknown, when the probe had been holding the answer all
+     * along and discarding it.
+     */
+    note(
+      'the allowance admitted the attempt and the validator refused the address itself, so the ' +
+        'allowance was NOT exhausted at that moment and the mail path stays unverified: no ' +
+        'address this probe can use reaches it.',
+    );
+    note(
+      `Supabase answered ${probe.status} ${result.error_code}: ${result.msg}. The limiter is ` +
+        'checked before the address is validated, which is why this answer says anything about ' +
+        'the allowance at all.',
+    );
+  } else {
+    /*
+     * THE ACCOUNT MAY EXIST EVEN WHEN THE RESPONSE CARRIES NO ID, because a
+     * signup whose MAIL fails still leaves the account behind. So the account
+     * is looked up by address before anything is claimed, and it is deleted
+     * afterwards whatever the answer was.
+     */
+    const created = result.id ? { id: result.id } : await findUserByEmail(address);
+    check(
+      'the public signup path created an account',
+      Boolean(created),
+      `answered ${probe.status}: ${JSON.stringify(result).slice(0, 200)}`,
+    );
+
+    if (created) {
+      /*
+       * THE TRIGGER, THROUGH THE PUBLIC PATH.
+       *
+       * `handle_new_user` runs on every insert into auth.users, so a profile
+       * row for the new account is the witness that it fired. `db:settle`
+       * proves the same trigger through the admin path, and this proves it
+       * through the path a real person's signup takes, which is the one the
+       * admin path bypasses.
+       *
+       * The old check here asked for `consent_events` rows, which a raw API
+       * signup cannot produce: those are written by the register FORM's server
+       * action, and this probe calls the API directly. It had never run, so it
+       * had never been wrong either, and it was one allowance token away from
+       * failing the whole gate for a reason that was not about the product.
+       */
+      const profile = await read(`profiles?id=eq.${created.id}&select=id,email`);
+      check(
+        'and the trigger wrote its profile row',
+        Array.isArray(profile) && profile.length === 1 && profile[0].email === address,
+        `got ${JSON.stringify(profile)}`,
+      );
+
+      await deleteAuthUser(created.id);
+      note(
+        `Supabase answered ${probe.status}. The account was removed again, and its profile row ` +
+          'with it.',
+      );
+    }
+  }
+
+  /*
+   * THE PASSWORD RESET, ON THE SAME ALLOWANCE.
+   *
+   * The status document says the reset path is blocked by the same quota. That
+   * was an inference: nothing in this file ever asked. It is asked now.
+   *
+   * WITH AN ADDRESS THAT HAS AN ACCOUNT, because GoTrue answers 200 for an
+   * address it cannot find, without sending anything and without consulting
+   * the allowance. A fresh address would have measured the wrong thing
+   * entirely. Every seeded account is on `liko.test`, which has no mailbox,
+   * so a recovery link cannot reach a person even when one is sent.
+   */
+  console.log('Password reset');
+
+  const reset = await fetch(`${auth}/recover`, {
+    method: 'POST',
+    headers: {
+      apikey: anon,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ email: 'maya@liko.test' }),
+  });
+  const resetBody = await reset.json().catch(() => ({}));
+  const resetRefused =
+    reset.status === 429 && resetBody.error_code === 'over_email_send_rate_limit';
+  const resetAdmitted = reset.status >= 200 && reset.status < 300;
+
+  check(
+    'the password reset path answered a cause this gate can name',
+    resetRefused || resetAdmitted,
+    `answered ${reset.status}: ${JSON.stringify(resetBody).slice(0, 200)}`,
+  );
+
+  if (resetRefused) {
+    note(
+      'the cause is the same email send allowance, so a password reset is blocked for the same ' +
+        'reason a registration is.',
+    );
+    note(
+      `Supabase answered ${reset.status} ${resetBody.error_code}: ${resetBody.msg}. A reset costs ` +
+        'one attempt when it is admitted and nothing when it is refused, so this probe does not ' +
+        'spend the allowance it is reading.',
+    );
+  } else {
+    note(
+      'the allowance admitted the reset. The recovery link was sent to an address with no ' +
+        'mailbox, so nothing was delivered to anyone and whether the mail itself arrives cannot ' +
+        'be observed from here.',
+    );
+    note(`Supabase answered ${reset.status}.`);
   }
 }
 

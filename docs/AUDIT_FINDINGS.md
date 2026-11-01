@@ -1,24 +1,26 @@
 # Audit Findings
 
-**Last updated:** 2026-10-26 (every finding closed; the text below is the 2026-10-23
-record, kept as written, with a resolution line added to each finding)
-**Repo:** LIKO @ `b104fba` (branch `integrate/verified-session-and-runner-fixes`)
-**Auditor scope:** read-only. No application source, config, migration, or test file
-was modified by this audit. The four files under `docs/` are the only writes.
+**Last updated:** 2026-11-01 (findings 12 to 14 added from a second audit round;
+the text of findings 1 to 11 is the 2026-10-23 record, kept as written, with a
+resolution line added to each finding)
+**Repo:** LIKO @ `3780c2a` (branch `integrate/verified-session-and-runner-fixes`)
+**Auditor scope:** read-only for the first round. The second round changed code,
+tests and documents, and each finding says which.
 
-**All ten findings are closed.** The findings are recorded as the audit found
-them on 2026-10-23; the resolution under each one says what closed it and how
-that was proved. One of them changed the code rather than the document, which
-is what the project had decided for it: the roadmap is the specification of
-what the product is supposed to be, so when the code and the roadmap disagreed,
-the code was wrong.
+**Thirteen of the fourteen findings are closed. One is open, and it is owner-side.**
+The findings are recorded as each audit found them; the resolution under each one
+says what closed it and how that was proved. Several of them changed the code
+rather than the document, which is what the project had decided for it: the
+roadmap and the status document are the specification of what the product is
+supposed to be, so when the code and the document disagreed, the code was
+wrong.
 
 **Severity key:** P0 = data loss, auth bypass, money error, or a primary workflow
 impossible · P1 = a real feature broken or unreachable for a real class of user ·
 P2 = degraded but usable, or inconsistent with the design system · P3 = polish, copy,
 minor a11y.
 
-**Counts: 0 P0 · 2 P1 · 4 P2 · 4 P3. All ten closed as of 2026-10-26.**
+**Counts: 0 P0 · 5 P1 · 5 P2 · 4 P3. Thirteen closed, one open (finding 13).**
 
 ---
 
@@ -232,6 +234,109 @@ by execution rather than by reading a policy.
   offline-attendance spec now waits for the server's answer rather than for a
   banner to disappear.
 
+### #12 The diagnostic spent the allowance it was reading, and then reported the exhaustion it had just caused
+
+- **Severity:** P1
+- **Location:** `scripts/verify-app-live.mjs` · `PROJECT_STATUS.md` (the registration
+  blocker narrative, as it read)
+- **Category:** TOOLING / DOC
+- **Observed:** `verify:app` is the gate that measures the live registration path, and
+  it used to send a second signup attempt whenever the first was admitted. The email
+  allowance is spent by the *attempt*, not by the mail, so the second attempt took
+  the last token and answered `429 over_email_send_rate_limit`, and the gate reported
+  that as "signup is BLOCKED by the Supabase email quota".
+
+  The evidence is in the record itself. The run of 2026-11-01T05:57:48Z was admitted
+  twice, both answers `400 email_address_invalid`, no mail sent in either case, and
+  three minutes later the allowance was spent with nothing else in between. The runs
+  either side of it read `signup is BLOCKED by the Supabase email quota`. **The gate
+  had spent the allowance and was reporting its own spending as a property of the
+  project.**
+
+  The repair had a second half. The probe was first pointed at `example.com` on the
+  reasoning that a reserved documentation domain passes validation and has no
+  mailbox. On 2026-11-01 Supabase answered it `400 email_address_invalid`, so the
+  reasoning had expired upstream, and the probe went on spending a scarce attempt to
+  learn a fact it could not use.
+
+- **Expected:** an instrument that measures a scarce resource does not spend it, and
+  a blocker whose cause is a guess is not reported as a measurement.
+- **Repro:**
+  1. Read `docs/evidence/gates.json` for the run at `2026-11-01T05:57:48Z` and the
+     runs either side of it. The recorded tails carry the two `400`s and then the
+     `BLOCKED` verdict.
+  2. Ask the project what the allowance says at that moment:
+     `POST {SUPABASE_URL}/auth/v1/signup` with any address on a domain that cannot
+     receive mail answers `429 over_email_send_rate_limit`.
+  3. Read the probe as it stood: it sent a second attempt whenever the first was
+     admitted, and the second attempt's answer decided the verdict.
+- **Evidence:** the recorded tails of the runs at 05:57:48Z, 06:06:49Z and 06:09:58Z,
+  which carry the raw answers; the direct measurement of the allowance; the two
+  `.test` answers and the `example.com` answer, measured in the same minute.
+- **Instrument validated:** two mutations, each giving a classifier a code that does
+  not exist. The signup classifier turns "the signup path answered a cause this gate
+  can name" red; the reset classifier turns "the password reset path answered a cause
+  this gate can name" red. Both go red with the gate's exit code at 1, and the gate
+  script and the evidence file are restored byte-exact afterwards.
+- **Status:** CLOSED. The probe sends one attempt per path, so it spends nothing while
+  the allowance is spent and one attempt when it is not. The verdict is a check that
+  the answer is a cause the gate can name, which is the part that can fail, and the
+  specific cause is a note beneath it. The expired `example.com` assumption is gone,
+  and the password reset path is measured by the same probe with an address that has
+  an account, because GoTrue answers 200 for an address it cannot find without
+  sending anything.
+
+### #13 While the allowance is spent, the public auth endpoints disclose which addresses have accounts
+
+- **Severity:** P1
+- **Location:** `docs/SECURITY.md` (the "Account enumeration" section, as it read) ·
+  `src/app/(auth)/actions.ts` (the reset path) · `src/app/(auth)/register/RegisterForm.tsx`
+- **Category:** SECURITY / DOC
+- **Observed:** `docs/SECURITY.md` claimed that "Registration and password reset
+  return indistinguishable responses whether or not the address is registered". That
+  is true of the application's own answers. It was not true of the provider's.
+
+  Measured on 2026-11-01 against the live project, with the allowance spent:
+
+  | Request | Address has an account | Address does not |
+  |---|---|---|
+  | `POST /auth/v1/signup` | 200 | 429 `over_email_send_rate_limit` |
+  | `POST /auth/v1/recover` | 429 `over_email_send_rate_limit` | 200 |
+
+  The recovery row was measured with eight registered and eight unregistered addresses,
+  the two groups interleaved, and every answer was consistent. The cause is ordering:
+  the provider looks the address up *before* it consults the send allowance, so the
+  allowance's refusal never applies to an address it already knows. That ordering was
+  measured rather than assumed, and it is why the register form may name a spent quota
+  while the reset path may not.
+
+  The exposure is not theoretical while the allowance is spent, and the allowance is
+  spent. The public anon key ships in the browser bundle, so anyone can ask.
+
+- **Expected:** a public endpoint does not answer differently for an address that has
+  an account, and the documentation says which of the two it is talking about.
+- **Repro:**
+  1. `POST {SUPABASE_URL}/auth/v1/recover` with a seeded address and with a fresh one,
+     with the allowance spent, and compare the answers.
+  2. Repeat with eight of each, interleaved.
+  3. Read the old `docs/SECURITY.md` section and notice that it did not say whose
+     responses it was describing.
+- **Evidence:** the sixteen recovery answers, all consistent; the eight signup answers;
+  the direct query of `auth.users` that confirms the project itself is unchanged by
+  any of it.
+- **Instrument validated:** the answer shape, not the conclusion. A probe that
+  concluded "the endpoint discloses" from a single reading would have been the same
+  mistake this repository has been correcting all along, so the claim is carried by
+  sixteen interleaved readings and by a control that reads the allowance's state in
+  the same run.
+- **Status:** OPEN, and it is owner-side. A custom SMTP provider raises the allowance
+  and closes the window, which is the same action the registration blocker needs. The
+  application side is already as safe as it can be: the reset path answers identically
+  for every address and never names the quota, because naming it there would hand out
+  the list, and the register path names it only because a signup answers identically
+  for every address while the allowance is spent. `docs/SECURITY.md` now carries the
+  measurements and says which of the two it is describing.
+
 ---
 
 ## P2 — Medium
@@ -360,6 +465,49 @@ by execution rather than by reading a policy.
   above rather than a gate.
 - **Status:** CLOSED. `simple-icons` is removed from `package.json` and from the
   lockfile.
+
+### #14 The register form promised a verification link for an address that already had an account, and the page it sent them to had no way forward
+
+- **Severity:** P2
+- **Location:** `src/app/(auth)/register/RegisterForm.tsx` ·
+  `src/app/(auth)/verify-email/page.tsx` · `src/lib/auth/store.ts`
+- **Category:** UI / AUTH
+- **Observed:** the provider answers a signup for an address that already has an
+  account with **200 and a user object**, and that user object is never persisted.
+  Measured on 2026-11-01: the response carried a fresh id and fresh timestamps, and a
+  direct query of `auth.users` showed six rows, the seed's five plus the owner's own
+  account, with no duplicate address and no profile for either. The demo accounts still
+  signed in with the seed password and refused the one the probe sent, so nothing had
+  been overwritten.
+
+  The store treats that 200 as a success. So the register action wrote a consent row
+  for an account that does not exist, the insert failed its foreign key, and
+  `recordConsent` swallowed that by design. The person was redirected to
+  `/verify-email` and told a link was on its way. **No mail was sent, and the only
+  link on that page sent them back to the register form**, which repeats it. A person
+  who already had an account had no way forward.
+
+  The wording made it worse. The register form said "We will email you a verification
+  link before the workspace opens", which is a promise the product cannot keep in that
+  case, and the page said "We sent a verification link to your email address", which
+  is not true in that case either.
+
+- **Expected:** a person who registers with an address that already has an account can
+  reach where they meant to go, and the product does not promise a mail it did not
+  send.
+- **Repro:**
+  1. `POST {SUPABASE_URL}/auth/v1/signup` with an address that has an account: the
+     answer is 200 with a user object.
+  2. `select id, email from auth.users`: no row carries that response's id.
+  3. Read `src/lib/auth/store.ts`: a 200 is a success, and the action sends the
+     person to a page whose only link repeats the attempt.
+- **Evidence:** the response body and the SQL query, side by side; the sign-in check
+  with the seed password and with the probe's password, both after the fact.
+- **Status:** CLOSED. The register form's sentence and the `/verify-email` sentence
+  are conditional, in the voice the reset form already used: "If that address has an
+  account, a reset link is on its way." And `/verify-email` now offers the way
+  forward, a link to sign in, which discloses nothing about whether the address is the
+  one that is already registered.
 
 ---
 

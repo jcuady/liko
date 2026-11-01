@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { classifySignupFailure } from './signup-error';
+import { classifySignupFailure, signupFailureMessage } from './signup-error';
 
 /**
  * A signup can fail three ways and only one of them is the caller's fault.
@@ -67,5 +67,39 @@ describe('classifySignupFailure', () => {
     expect(classifySignupFailure(null)).toBe('ACCOUNT_NOT_CREATED');
     expect(classifySignupFailure(undefined)).toBe('ACCOUNT_NOT_CREATED');
     expect(classifySignupFailure({})).toBe('ACCOUNT_NOT_CREATED');
+  });
+});
+
+/**
+ * The wording, and the one thing about it that is easy to get wrong.
+ *
+ * The classification was testable and the wording was not: the two lived in
+ * different files and nothing pinned them together, so the action could map a
+ * spent quota to the generic sentence and the suite would still be green. The
+ * sentence is what a teacher reads while the project cannot send them a
+ * confirmation link, so it has to be right in both directions.
+ */
+describe('signupFailureMessage', () => {
+  it('names the email when the quota is spent, because the advice is different', () => {
+    const message = signupFailureMessage('SIGNUP_RATE_LIMITED');
+
+    expect(message).toContain('confirmation email');
+    // The wrong advice is the failure this exists to prevent.
+    expect(message).not.toContain('Check the details');
+  });
+
+  it('says the generic thing when the account was not created', () => {
+    const message = signupFailureMessage('ACCOUNT_NOT_CREATED');
+
+    expect(message).toContain('Check the details');
+    // The rate-limit sentence must not leak into the opaque answer, because
+    // the opaque answer is the one that is safe for every address.
+    expect(message).not.toContain('confirmation email');
+  });
+
+  it('gives the two failures different sentences', () => {
+    expect(signupFailureMessage('SIGNUP_RATE_LIMITED')).not.toBe(
+      signupFailureMessage('ACCOUNT_NOT_CREATED'),
+    );
   });
 });

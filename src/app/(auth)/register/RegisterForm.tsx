@@ -185,11 +185,19 @@ export function RegisterForm({
        * Said only when it is true. With accounts confirmed at creation nothing
        * is emailed, and a form that still promises a link teaches a teacher to
        * wait for an email that will never arrive before anyone will look for it.
+       *
+       * And said conditionally, because the provider answers a signup for an
+       * address that already has an account with a success and a user object
+       * that was never persisted, which this repository measured against the
+       * live project on 2026-11-01. The account is not created and no mail is
+       * sent, so an unconditional promise here is a promise the product cannot
+       * keep. Naming the case instead would hand out the registration list, so
+       * the sentence is conditional and the way forward is on the next page.
        */}
       <p className="mt-5 text-[0.8125rem] text-ink-subtle">
         {verificationSkipped
           ? 'Your workspace opens as soon as you finish this form.'
-          : 'We will email you a verification link before the workspace opens.'}
+          : 'If that address is new to us, we will email you a verification link before the workspace opens.'}
       </p>
 
       <div className="mt-8 border-t border-border pt-6">

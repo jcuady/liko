@@ -14,6 +14,7 @@ import { safeNextPath } from '@/lib/security/redirect';
 
 import { checkPasswordStrength } from '@/lib/auth/password';
 import { recordConsent } from '@/lib/auth/consent';
+import { signupFailureMessage } from '@/lib/auth/signup-error';
 import { setSessionCookie } from '@/lib/auth/cookie';
 import {
   completePasswordUpdate,
@@ -238,21 +239,17 @@ export async function registerAction(
      * check their details when the only problem is a full quota sends them off
      * to fix something that is not broken. The rate-limit case is safe to name:
      * it says nothing about whether the address is registered.
+     *
+     * The wording lives in `signup-error.ts` beside the classification, because
+     * one of the two was testable and the other was not, and nothing pinned
+     * them together.
      */
     const code = error instanceof Error ? error.message : '';
-    if (code === 'SIGNUP_RATE_LIMITED') {
-      return {
-        ok: false,
-        message:
-          'We could not send your confirmation email just now. Wait a few minutes and try again.',
-      };
-    }
-
-    // Same generic shape as a validation error, so a probing script learns
-    // nothing about which addresses are registered.
     return {
       ok: false,
-      message: 'We could not create that account. Check the details and try again.',
+      message: signupFailureMessage(
+        code === 'SIGNUP_RATE_LIMITED' ? 'SIGNUP_RATE_LIMITED' : 'ACCOUNT_NOT_CREATED',
+      ),
     };
   }
 

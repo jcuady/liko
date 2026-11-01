@@ -18,9 +18,43 @@ never claim a control that does not exist yet.
 
 ### Account enumeration
 
-Registration and password reset return indistinguishable responses whether or
-not the address is registered, and both are rate limited. Sign-in failure always
-returns one generic message.
+**The application's own answers are indistinguishable. The provider's are not, and
+while the email allowance is spent they are not at all.**
+
+Registration and password reset return the same answer whether or not the address
+is registered, and both are rate limited. Sign-in failure always returns one
+generic message. That part is measured and it holds.
+
+The provider's public auth endpoints are a different matter, and they are
+reachable with the project's public anon key, which ships in the browser bundle.
+Measured on 2026-11-01 against this project, with the email allowance spent:
+
+| Request | Address has an account | Address does not |
+|---|---|---|
+| `POST /auth/v1/signup` | **200** | **429** `over_email_send_rate_limit` |
+| `POST /auth/v1/recover` | **429** `over_email_send_rate_limit` | **200** |
+
+The recovery row was measured 8 addresses to 8 addresses, the two groups
+interleaved, every answer consistent: 429 for every registered address and 200
+for every unregistered one. The signup row was measured the same way. The
+reason is ordering, and it was measured rather than assumed: the provider looks
+the address up **before** it consults the send allowance, so the allowance's
+refusal never applies to an address it already knows, and the difference
+between the two answers is the registration list.
+
+**This is why the two paths are treated differently in the product.** The register
+form may name a spent quota, because a signup answers 429 identically for every
+address while the allowance is spent, and naming it discloses nothing about
+who has an account. The reset path may not, because a recovery answers
+differently for a registered address, so naming the quota there would hand out
+the list. The reset form therefore answers the same whether or not the address
+exists, and the cost of that choice is that it cannot say why a link did not
+arrive.
+
+The remedy is the same owner-side action as the rest of this blocker: a custom
+SMTP provider raises the allowance, and the window in which the two answers
+differ closes with it. Until then the exposure is real, and it is the strongest
+argument for configuring SMTP rather than the weakest.
 
 ### Password reset
 
