@@ -3,7 +3,7 @@
 **Last updated:** 2026-11-01 (findings 12 to 14 added from a second audit round;
 the text of findings 1 to 11 is the 2026-10-23 record, kept as written, with a
 resolution line added to each finding)
-**Repo:** LIKO @ `3780c2a` (branch `integrate/verified-session-and-runner-fixes`)
+**Repo:** LIKO @ `0a32edf` (branch `integrate/verified-session-and-runner-fixes`)
 **Auditor scope:** read-only for the first round. The second round changed code,
 tests and documents, and each finding says which.
 

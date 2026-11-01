@@ -19,7 +19,7 @@ was modified. The four files under `docs/` are the only writes this audit made.
 > REST OF THIS DOCUMENT IS.** This file is a snapshot of the audit of
 > 2026-10-23. **The live status is `PROJECT_STATUS.md`**, which has moved on:
 > every finding this audit raised is closed, every slice of `docs/FIX_PLAN.md`
-> is implemented, and the recorder now runs **26 gates** rather than 23.
+> is implemented, and the recorder now runs **27 gates** rather than 23.
 > **Nothing in this file has been edited to match, because its figures are
 > claims about the run at `b104fba` and they are true of it.** What has changed
 > is everything after it, and a reader who wants to know what is true now must
